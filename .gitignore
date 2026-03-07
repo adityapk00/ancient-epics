@@ -1,0 +1,8 @@
+node_modules
+.pnpm-store
+dist
+.wrangler
+.DS_Store
+coverage
+apps/web/.env
+apps/api/.dev.vars

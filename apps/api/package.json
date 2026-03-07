@@ -1,0 +1,21 @@
+{
+  "name": "@ancient-epics/api",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev --port 8787",
+    "build": "wrangler deploy --dry-run",
+    "lint": "eslint src --max-warnings 0",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "seed:local": "node ./scripts/seed-local.mjs"
+  },
+  "dependencies": {
+    "@ancient-epics/shared": "workspace:*",
+    "hono": "^4.7.4"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20250303.0",
+    "wrangler": "^4.4.0"
+  }
+}

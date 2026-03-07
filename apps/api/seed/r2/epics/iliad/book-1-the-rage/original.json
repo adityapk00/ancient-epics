@@ -1,0 +1,24 @@
+{
+  "bookSlug": "iliad",
+  "chapterSlug": "book-1-the-rage",
+  "chunks": [
+    {
+      "id": "c1",
+      "type": "verse",
+      "text": "Mῆνιν ἄειδε θεὰ Πηληϊάδεω Ἀχιλῆος",
+      "ordinal": 1
+    },
+    {
+      "id": "c2",
+      "type": "verse",
+      "text": "οὐλομένην, ἣ μυρί᾽ Ἀχαιοῖς ἄλγε᾽ ἔθηκε,",
+      "ordinal": 2
+    },
+    {
+      "id": "c3",
+      "type": "verse",
+      "text": "πολλὰς δ᾽ ἰφθίμους ψυχὰς Ἄϊδι προΐαψεν",
+      "ordinal": 3
+    }
+  ]
+}

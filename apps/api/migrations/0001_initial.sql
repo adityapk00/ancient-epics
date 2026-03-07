@@ -1,0 +1,83 @@
+CREATE TABLE books (
+    id TEXT PRIMARY KEY,
+    slug TEXT NOT NULL UNIQUE,
+    title TEXT NOT NULL,
+    author TEXT,
+    original_language TEXT,
+    description TEXT,
+    cover_image_url TEXT,
+    is_published INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    published_at TEXT
+);
+
+CREATE TABLE chapters (
+    id TEXT PRIMARY KEY,
+    book_id TEXT NOT NULL REFERENCES books(id),
+    slug TEXT NOT NULL,
+    position INTEGER NOT NULL,
+    title TEXT NOT NULL,
+    is_preview INTEGER NOT NULL DEFAULT 0,
+    source_r2_key TEXT NOT NULL,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    published_at TEXT,
+    UNIQUE(book_id, slug),
+    UNIQUE(book_id, position)
+);
+
+CREATE TABLE translations (
+    id TEXT PRIMARY KEY,
+    book_id TEXT NOT NULL REFERENCES books(id),
+    slug TEXT NOT NULL,
+    name TEXT NOT NULL,
+    description TEXT,
+    ai_system_prompt TEXT,
+    output_r2_prefix TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'draft' CHECK (status IN ('draft', 'generating', 'ready', 'published', 'failed')),
+    is_published INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    published_at TEXT,
+    UNIQUE(book_id, slug)
+);
+
+CREATE TABLE users (
+    id TEXT PRIMARY KEY,
+    email TEXT NOT NULL UNIQUE,
+    stripe_customer_id TEXT,
+    subscription_status TEXT NOT NULL DEFAULT 'free' CHECK (subscription_status IN ('free', 'trial', 'active', 'expired')),
+    role TEXT NOT NULL DEFAULT 'reader' CHECK (role IN ('reader', 'admin')),
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE notes (
+    id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL REFERENCES users(id),
+    book_id TEXT NOT NULL REFERENCES books(id),
+    chapter_id TEXT NOT NULL REFERENCES chapters(id),
+    chunk_id TEXT NOT NULL,
+    content TEXT NOT NULL,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE translation_jobs (
+    id TEXT PRIMARY KEY,
+    translation_id TEXT NOT NULL REFERENCES translations(id),
+    chapter_id TEXT NOT NULL REFERENCES chapters(id),
+    status TEXT NOT NULL CHECK (status IN ('queued', 'running', 'failed', 'completed')),
+    started_at TEXT,
+    completed_at TEXT,
+    error_message TEXT,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX idx_books_slug ON books(slug);
+CREATE INDEX idx_chapters_book_position ON chapters(book_id, position);
+CREATE INDEX idx_translations_book_slug ON translations(book_id, slug);
+CREATE INDEX idx_notes_user_location ON notes(user_id, book_id, chapter_id);
+CREATE INDEX idx_translation_jobs_status ON translation_jobs(status);
