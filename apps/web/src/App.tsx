@@ -37,7 +37,8 @@ const initialReaderState: ReaderState = {
 
 export default function App() {
   const [viewMode, setViewMode] = useState<ViewMode>("admin");
-  const [readerState, setReaderState] = useState<ReaderState>(initialReaderState);
+  const [readerState, setReaderState] =
+    useState<ReaderState>(initialReaderState);
   const [adminBootstrap, setAdminBootstrap] =
     useState<AdminIngestionBootstrapPayload | null>(null);
   const [activeSession, setActiveSession] =
@@ -55,7 +56,9 @@ export default function App() {
   const [defaultPrompt, setDefaultPrompt] = useState("");
 
   const [sourceMode, setSourceMode] = useState<SourceMode>("paste");
-  const [newSessionTitle, setNewSessionTitle] = useState("Fresh Translation Draft");
+  const [newSessionTitle, setNewSessionTitle] = useState(
+    "Fresh Translation Draft",
+  );
   const [selectedSourceBookSlug, setSelectedSourceBookSlug] = useState("");
   const [rawSourceText, setRawSourceText] = useState("");
   const [splitMode, setSplitMode] = useState<ChapterSplitMode>("heading");
@@ -152,7 +155,8 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    const currentChapter = activeSession?.chapters[selectedChapterIndex] ?? null;
+    const currentChapter =
+      activeSession?.chapters[selectedChapterIndex] ?? null;
     setEditedRawResponse(currentChapter?.rawResponse ?? "");
   }, [activeSession, selectedChapterIndex]);
 
@@ -166,7 +170,8 @@ export default function App() {
         })
       : [];
 
-  const currentSessionChapter = activeSession?.chapters[selectedChapterIndex] ?? null;
+  const currentSessionChapter =
+    activeSession?.chapters[selectedChapterIndex] ?? null;
   const readerOriginalChunks = readerState.chapter?.original.chunks ?? [];
   const readerTranslationChunks = readerState.translation?.content.chunks ?? [];
   const readerOriginalChunkMap = new Map(
@@ -184,7 +189,9 @@ export default function App() {
     }
 
     if (!activeSession && payload.sessions[0]) {
-      const session = await api.getAdminIngestionSession(payload.sessions[0].id);
+      const session = await api.getAdminIngestionSession(
+        payload.sessions[0].id,
+      );
       syncSessionState(session);
     }
   }
@@ -195,11 +202,17 @@ export default function App() {
     setSessionEditorModel(session.model);
     setSessionEditorPrompt(session.prompt);
     setSelectedChapterIndex(
-      Math.min(session.currentChapterIndex, Math.max(session.chapters.length - 1, 0)),
+      Math.min(
+        session.currentChapterIndex,
+        Math.max(session.chapters.length - 1, 0),
+      ),
     );
     setEditedRawResponse(
       session.chapters[
-        Math.min(session.currentChapterIndex, Math.max(session.chapters.length - 1, 0))
+        Math.min(
+          session.currentChapterIndex,
+          Math.max(session.chapters.length - 1, 0),
+        )
       ]?.rawResponse ?? "",
     );
   }
@@ -219,7 +232,9 @@ export default function App() {
       setNotice("Saved admin defaults.");
     } catch (saveError) {
       setError(
-        saveError instanceof Error ? saveError.message : "Failed to save defaults.",
+        saveError instanceof Error
+          ? saveError.message
+          : "Failed to save defaults.",
       );
     } finally {
       setIsBusy(false);
@@ -267,7 +282,9 @@ export default function App() {
       setNotice(`Loaded session '${session.title}'.`);
     } catch (loadError) {
       setError(
-        loadError instanceof Error ? loadError.message : "Failed to load session.",
+        loadError instanceof Error
+          ? loadError.message
+          : "Failed to load session.",
       );
     } finally {
       setIsBusy(false);
@@ -414,9 +431,10 @@ export default function App() {
                 Build translation chapter loops with review before commit.
               </h1>
               <p className="max-w-3xl text-lg leading-8 text-ink/75">
-                This admin workbench lets you split source material into chapters,
-                generate chunked bilingual JSON one chapter at a time, inspect the raw
-                model response, edit it, save it, and continue through the book.
+                This admin workbench lets you split source material into
+                chapters, generate chunked bilingual JSON one chapter at a time,
+                inspect the raw model response, edit it, save it, and continue
+                through the book.
               </p>
             </div>
             <div className="flex flex-wrap gap-3">
@@ -450,7 +468,9 @@ export default function App() {
           </div>
         </section>
 
-        {isLoading ? <Panel title="Loading">Bootstrapping the workbench.</Panel> : null}
+        {isLoading ? (
+          <Panel title="Loading">Bootstrapping the workbench.</Panel>
+        ) : null}
         {error ? <Panel title="Error">{error}</Panel> : null}
         {notice ? <Panel title="Status">{notice}</Panel> : null}
 
@@ -525,7 +545,9 @@ export default function App() {
                           { value: "delimiter", label: "Delimiter" },
                           { value: "single", label: "Single chapter" },
                         ]}
-                        onChange={(value) => setSplitMode(value as ChapterSplitMode)}
+                        onChange={(value) =>
+                          setSplitMode(value as ChapterSplitMode)
+                        }
                       />
                       {splitMode === "heading" ? (
                         <InputField
@@ -562,7 +584,9 @@ export default function App() {
                                 className="rounded-2xl border border-border/60 bg-white/70 p-3"
                               >
                                 <div className="flex items-center justify-between gap-3">
-                                  <p className="font-semibold text-ink">{chapter.title}</p>
+                                  <p className="font-semibold text-ink">
+                                    {chapter.title}
+                                  </p>
                                   <span className="text-xs uppercase tracking-[0.18em] text-accent/80">
                                     {chapter.sourceText.length} chars
                                   </span>
@@ -590,8 +614,10 @@ export default function App() {
                       !newSessionTitle.trim() ||
                       !defaultModel.trim() ||
                       !defaultPrompt.trim() ||
-                      (sourceMode === "paste" && sourceSplitPreview.length === 0) ||
-                      (sourceMode === "existing_story" && !selectedSourceBookSlug)
+                      (sourceMode === "paste" &&
+                        sourceSplitPreview.length === 0) ||
+                      (sourceMode === "existing_story" &&
+                        !selectedSourceBookSlug)
                     }
                   />
                 </div>
@@ -612,9 +638,12 @@ export default function App() {
                     >
                       <p className="font-semibold text-ink">{session.title}</p>
                       <p className="mt-1 text-xs uppercase tracking-[0.18em] text-accent">
-                        {session.sourceMode.replace("_", " ")} · {session.chapterCount} chapters
+                        {session.sourceMode.replace("_", " ")} ·{" "}
+                        {session.chapterCount} chapters
                       </p>
-                      <p className="mt-2 text-sm text-ink/65">{session.model}</p>
+                      <p className="mt-2 text-sm text-ink/65">
+                        {session.model}
+                      </p>
                     </button>
                   ))}
                   {adminBootstrap?.sessions.length === 0 ? (
@@ -672,7 +701,9 @@ export default function App() {
                         disabled={isBusy}
                       />
                       <ActionButton
-                        label={isBusy ? "Generating..." : "Generate Current Chapter"}
+                        label={
+                          isBusy ? "Generating..." : "Generate Current Chapter"
+                        }
                         onClick={handleGenerateCurrentChapter}
                         disabled={isBusy || !currentSessionChapter}
                         tone="accent"
@@ -680,13 +711,18 @@ export default function App() {
                       <ActionButton
                         label={isBusy ? "Saving..." : "Save Review And Advance"}
                         onClick={handleSaveCurrentChapter}
-                        disabled={isBusy || !currentSessionChapter || !editedRawResponse.trim()}
+                        disabled={
+                          isBusy ||
+                          !currentSessionChapter ||
+                          !editedRawResponse.trim()
+                        }
                       />
                     </div>
                   </div>
                 ) : (
                   <p className="text-base leading-7 text-ink/70">
-                    Create or load a session to start the chapter-by-chapter workflow.
+                    Create or load a session to start the chapter-by-chapter
+                    workflow.
                   </p>
                 )}
               </Panel>
@@ -707,7 +743,9 @@ export default function App() {
                       >
                         <div className="flex items-start justify-between gap-3">
                           <div>
-                            <p className="font-semibold text-ink">{chapter.title}</p>
+                            <p className="font-semibold text-ink">
+                              {chapter.title}
+                            </p>
                             <p className="mt-1 text-xs uppercase tracking-[0.18em] text-accent">
                               {chapter.slug}
                             </p>
@@ -752,7 +790,9 @@ export default function App() {
                           <textarea
                             className="mt-4 min-h-[360px] w-full rounded-2xl border border-border/70 bg-paper/70 px-4 py-3 font-mono text-sm leading-6 text-ink outline-none transition focus:border-accent"
                             value={editedRawResponse}
-                            onChange={(event) => setEditedRawResponse(event.target.value)}
+                            onChange={(event) =>
+                              setEditedRawResponse(event.target.value)
+                            }
                             placeholder="Generate the chapter to inspect and edit JSON here."
                           />
                         </div>
@@ -761,13 +801,16 @@ export default function App() {
                       <div className="grid gap-6 xl:grid-cols-2">
                         <DocumentPreview
                           title="Normalized Original Chunks"
-                          chunks={currentSessionChapter.originalDocument?.chunks ?? []}
+                          chunks={
+                            currentSessionChapter.originalDocument?.chunks ?? []
+                          }
                           emptyMessage="No normalized original chunks yet. Generate or save a valid response first."
                         />
                         <TranslationPreview
                           title="Normalized Translation Chunks"
                           chunks={
-                            currentSessionChapter.translationDocument?.chunks ?? []
+                            currentSessionChapter.translationDocument?.chunks ??
+                            []
                           }
                           emptyMessage="No normalized translation chunks yet."
                         />
@@ -786,7 +829,8 @@ export default function App() {
                     </div>
                   ) : (
                     <p className="text-base leading-7 text-ink/70">
-                      Select a chapter to inspect its source text and AI response.
+                      Select a chapter to inspect its source text and AI
+                      response.
                     </p>
                   )}
                 </Panel>
@@ -827,7 +871,9 @@ export default function App() {
                 <div className="divide-y divide-border/35">
                   {readerTranslationChunks.map((chunk) => {
                     const sourceChunks = chunk.sourceChunkIds
-                      .map((sourceChunkId) => readerOriginalChunkMap.get(sourceChunkId))
+                      .map((sourceChunkId) =>
+                        readerOriginalChunkMap.get(sourceChunkId),
+                      )
                       .filter(isPresent);
 
                     return (
@@ -883,7 +929,9 @@ export default function App() {
 function Metric({ label, value }: { label: string; value: string }) {
   return (
     <div className="rounded-2xl border border-paper/15 bg-paper/5 p-4">
-      <p className="text-xs uppercase tracking-[0.2em] text-paper/60">{label}</p>
+      <p className="text-xs uppercase tracking-[0.2em] text-paper/60">
+        {label}
+      </p>
       <p className="mt-3 text-lg font-semibold text-paper">{value}</p>
     </div>
   );
@@ -1091,7 +1139,9 @@ function StatusPill({ status }: { status: string }) {
           : "bg-stone-200 text-stone-700";
 
   return (
-    <span className={`rounded-full px-3 py-1 text-xs font-semibold uppercase tracking-[0.18em] ${tone}`}>
+    <span
+      className={`rounded-full px-3 py-1 text-xs font-semibold uppercase tracking-[0.18em] ${tone}`}
+    >
       {status}
     </span>
   );
@@ -1114,7 +1164,10 @@ function DocumentPreview({
       <div className="mt-4 space-y-3">
         {chunks.length > 0 ? (
           chunks.map((chunk) => (
-            <div key={chunk.id} className="rounded-2xl border border-border/50 bg-white/80 p-3">
+            <div
+              key={chunk.id}
+              className="rounded-2xl border border-border/50 bg-white/80 p-3"
+            >
               <p className="text-xs font-semibold uppercase tracking-[0.18em] text-accent/80">
                 {chunk.id} · {chunk.ordinal}
               </p>
@@ -1135,7 +1188,12 @@ function TranslationPreview({
   emptyMessage,
 }: {
   title: string;
-  chunks: Array<{ id: string; text: string; ordinal: number; sourceChunkIds: string[] }>;
+  chunks: Array<{
+    id: string;
+    text: string;
+    ordinal: number;
+    sourceChunkIds: string[];
+  }>;
   emptyMessage: string;
 }) {
   return (
@@ -1146,7 +1204,10 @@ function TranslationPreview({
       <div className="mt-4 space-y-3">
         {chunks.length > 0 ? (
           chunks.map((chunk) => (
-            <div key={chunk.id} className="rounded-2xl border border-border/50 bg-white/80 p-3">
+            <div
+              key={chunk.id}
+              className="rounded-2xl border border-border/50 bg-white/80 p-3"
+            >
               <p className="text-xs font-semibold uppercase tracking-[0.18em] text-accent/80">
                 {chunk.id} · {chunk.sourceChunkIds.join(" + ")}
               </p>

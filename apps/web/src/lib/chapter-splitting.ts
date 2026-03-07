@@ -31,10 +31,13 @@ export function splitSourceTextIntoChapters(input: {
       .split(delimiter)
       .map((section) => section.trim())
       .filter(Boolean)
-      .map((section, index) => createDraftChapter(index, `Chapter ${index + 1}`, section));
+      .map((section, index) =>
+        createDraftChapter(index, `Chapter ${index + 1}`, section),
+      );
   }
 
-  const pattern = input.headingPattern.trim() || "^(book|chapter|canto|scroll)\\b.*$";
+  const pattern =
+    input.headingPattern.trim() || "^(book|chapter|canto|scroll)\\b.*$";
   const matcher = new RegExp(pattern, "i");
   const lines = rawText.split(/\r?\n/);
   const chapters: Array<{ title: string; lines: string[] }> = [];

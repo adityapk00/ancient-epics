@@ -681,7 +681,8 @@ app.put("/api/admin/ingestion/sessions/:sessionId", async (c) => {
   const nextModel = body.model?.trim() || existing.model;
   const nextPrompt = body.prompt?.trim() || existing.prompt;
   const nextCurrentChapterIndex =
-    typeof body.currentChapterIndex === "number" && body.currentChapterIndex >= 0
+    typeof body.currentChapterIndex === "number" &&
+    body.currentChapterIndex >= 0
       ? body.currentChapterIndex
       : existing.currentChapterIndex;
 
@@ -737,7 +738,9 @@ app.post(
         return c.json(failure("not_found", "Session was not found."), 404);
       }
 
-      const chapter = detail.chapters.find((entry) => entry.position === position);
+      const chapter = detail.chapters.find(
+        (entry) => entry.position === position,
+      );
 
       if (!chapter) {
         return c.json(failure("not_found", "Chapter was not found."), 404);
@@ -803,12 +806,18 @@ app.put(
     const body = await c.req.json<{ rawResponse?: string }>();
 
     if (!Number.isInteger(position) || position < 0) {
-      return c.json(failure("bad_request", "Chapter position is invalid."), 400);
+      return c.json(
+        failure("bad_request", "Chapter position is invalid."),
+        400,
+      );
     }
 
     if (!body.rawResponse?.trim()) {
       return c.json(
-        failure("bad_request", "rawResponse is required when saving a chapter."),
+        failure(
+          "bad_request",
+          "rawResponse is required when saving a chapter.",
+        ),
         400,
       );
     }
@@ -819,7 +828,9 @@ app.put(
       return c.json(failure("not_found", "Session was not found."), 404);
     }
 
-    const chapter = detail.chapters.find((entry) => entry.position === position);
+    const chapter = detail.chapters.find(
+      (entry) => entry.position === position,
+    );
 
     if (!chapter) {
       return c.json(failure("not_found", "Chapter was not found."), 404);
@@ -843,7 +854,10 @@ app.put(
       .bind(position + 1, new Date().toISOString(), sessionId)
       .run();
 
-    const updatedSession = await getAdminIngestionSessionDetail(c.env.DB, sessionId);
+    const updatedSession = await getAdminIngestionSessionDetail(
+      c.env.DB,
+      sessionId,
+    );
 
     return c.json(
       success({
@@ -891,9 +905,9 @@ async function readObjectJson<T>(
 }
 
 async function getSettingsMap(db: D1Database): Promise<Record<string, string>> {
-  const results = await db.prepare(
-    `SELECT key, value, updated_at AS updatedAt FROM app_settings`,
-  ).all<AppSetting>();
+  const results = await db
+    .prepare(`SELECT key, value, updated_at AS updatedAt FROM app_settings`)
+    .all<AppSetting>();
 
   const settings: Record<string, string> = {};
   for (const row of results.results ?? []) {
@@ -906,8 +920,9 @@ async function getSettingsMap(db: D1Database): Promise<Record<string, string>> {
 async function listAdminIngestionSessions(
   db: D1Database,
 ): Promise<AdminIngestionSessionSummary[]> {
-  const results = await db.prepare(
-    `
+  const results = await db
+    .prepare(
+      `
       SELECT
         sessions.id,
         sessions.title,
@@ -924,7 +939,8 @@ async function listAdminIngestionSessions(
       GROUP BY sessions.id
       ORDER BY sessions.updated_at DESC
     `,
-  ).all<AdminIngestionSessionRow>();
+    )
+    .all<AdminIngestionSessionRow>();
 
   return (results.results ?? []).map(mapAdminIngestionSessionSummary);
 }
@@ -964,8 +980,9 @@ async function getAdminIngestionSessionDetail(
     return null;
   }
 
-  const chapterResults = await db.prepare(
-    `
+  const chapterResults = await db
+    .prepare(
+      `
       SELECT
         id,
         session_id AS sessionId,
@@ -985,7 +1002,7 @@ async function getAdminIngestionSessionDetail(
       WHERE session_id = ?
       ORDER BY position ASC
     `,
-  )
+    )
     .bind(sessionId)
     .all<AdminIngestionChapterRow>();
 
@@ -1071,7 +1088,9 @@ async function buildChapterInputsFromExistingStory(
   sourceBookSlug: string | undefined,
 ): Promise<AdminIngestionChapterInput[]> {
   if (!sourceBookSlug?.trim()) {
-    throw new Error("sourceBookSlug is required when using existing_story mode.");
+    throw new Error(
+      "sourceBookSlug is required when using existing_story mode.",
+    );
   }
 
   const book = await db
@@ -1083,8 +1102,9 @@ async function buildChapterInputsFromExistingStory(
     throw new Error(`Book '${sourceBookSlug}' was not found.`);
   }
 
-  const chaptersResult = await db.prepare(
-    `
+  const chaptersResult = await db
+    .prepare(
+      `
       SELECT
         id,
         slug,
@@ -1098,7 +1118,7 @@ async function buildChapterInputsFromExistingStory(
       WHERE book_id = ?
       ORDER BY position ASC
     `,
-  )
+    )
     .bind(book.id)
     .all<ChapterSummary>();
 
@@ -1132,7 +1152,10 @@ async function buildChapterInputsFromExistingStory(
 function sourceDocumentToText(document: OriginalChapterDocument): string {
   const hasVerse = document.chunks.some((chunk) => chunk.type === "verse");
   const separator = hasVerse ? "\n" : "\n\n";
-  return document.chunks.map((chunk) => chunk.text).join(separator).trim();
+  return document.chunks
+    .map((chunk) => chunk.text)
+    .join(separator)
+    .trim();
 }
 
 async function generateChapterWithOpenRouter(input: {
@@ -1145,29 +1168,32 @@ async function generateChapterWithOpenRouter(input: {
   nextChapter?: AdminIngestionChapterRecord;
   publicAppUrl?: string;
 }): Promise<string> {
-  const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${input.apiKey}`,
-      "Content-Type": "application/json",
-      "HTTP-Referer": input.publicAppUrl ?? "http://127.0.0.1:5173",
-      "X-Title": "Ancient Epics Admin",
+  const response = await fetch(
+    "https://openrouter.ai/api/v1/chat/completions",
+    {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${input.apiKey}`,
+        "Content-Type": "application/json",
+        "HTTP-Referer": input.publicAppUrl ?? "http://127.0.0.1:5173",
+        "X-Title": "Ancient Epics Admin",
+      },
+      body: JSON.stringify({
+        model: input.model,
+        temperature: 0.2,
+        messages: [
+          {
+            role: "system",
+            content: input.prompt,
+          },
+          {
+            role: "user",
+            content: buildGenerationUserPrompt(input),
+          },
+        ],
+      }),
     },
-    body: JSON.stringify({
-      model: input.model,
-      temperature: 0.2,
-      messages: [
-        {
-          role: "system",
-          content: input.prompt,
-        },
-        {
-          role: "user",
-          content: buildGenerationUserPrompt(input),
-        },
-      ],
-    }),
-  });
+  );
 
   const payload = (await response.json()) as OpenRouterChatResponse;
 
@@ -1242,8 +1268,9 @@ async function persistGeneratedChapter(input: {
       rawResponse: input.rawResponse,
     });
 
-    await input.db.prepare(
-      `
+    await input.db
+      .prepare(
+        `
         UPDATE admin_ingestion_chapters
         SET status = ?,
             raw_response = ?,
@@ -1254,7 +1281,7 @@ async function persistGeneratedChapter(input: {
             updated_at = ?
         WHERE id = ?
       `,
-    )
+      )
       .bind(
         input.statusOnSuccess,
         input.rawResponse,
@@ -1269,8 +1296,9 @@ async function persistGeneratedChapter(input: {
     const message =
       error instanceof Error ? error.message : "Failed to parse AI response.";
 
-    await input.db.prepare(
-      `
+    await input.db
+      .prepare(
+        `
         UPDATE admin_ingestion_chapters
         SET status = 'error',
             raw_response = ?,
@@ -1278,7 +1306,7 @@ async function persistGeneratedChapter(input: {
             updated_at = ?
         WHERE id = ?
       `,
-    )
+      )
       .bind(input.rawResponse, message, now, input.chapter.id)
       .run();
   }
@@ -1334,12 +1362,14 @@ function normalizeGeneratedChapter(input: {
     throw new Error("AI response did not include any translation chunks.");
   }
 
-  const originalChunks: TextChunk[] = parsed.originalChunks.map((chunk, index) => ({
-    id: `c${index + 1}`,
-    type: chunk.type ?? inferChunkType(chunk.text),
-    text: chunk.text.trim(),
-    ordinal: index + 1,
-  }));
+  const originalChunks: TextChunk[] = parsed.originalChunks.map(
+    (chunk, index) => ({
+      id: `c${index + 1}`,
+      type: chunk.type ?? inferChunkType(chunk.text),
+      text: chunk.text.trim(),
+      ordinal: index + 1,
+    }),
+  );
 
   const translationChunks = parsed.translationChunks.map((chunk, index) => {
     const ordinals = normalizeSourceOrdinals(
@@ -1378,7 +1408,9 @@ function parseAiChapterPayload(rawResponse: string): ParsedAiChapterPayload {
     ? parsed.originalChunks.map(normalizeAiChunk).filter(isPresent)
     : [];
   const translation = Array.isArray(parsed.translationChunks)
-    ? parsed.translationChunks.map(normalizeAiTranslationChunk).filter(isPresent)
+    ? parsed.translationChunks
+        .map(normalizeAiTranslationChunk)
+        .filter(isPresent)
     : [];
 
   return {
@@ -1459,8 +1491,9 @@ function normalizeSourceOrdinals(
   maxOrdinal: number,
   translationIndex: number,
 ): number[] {
-  const normalized = [...new Set((value ?? []).filter((entry) => entry <= maxOrdinal))]
-    .sort((left, right) => left - right);
+  const normalized = [
+    ...new Set((value ?? []).filter((entry) => entry <= maxOrdinal)),
+  ].sort((left, right) => left - right);
 
   if (normalized.length > 0) {
     return normalized;
