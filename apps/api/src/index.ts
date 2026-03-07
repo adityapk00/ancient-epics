@@ -1,5 +1,7 @@
 import {
   APP_SETTING_KEYS,
+  type AdminBookChapterDraft,
+  type AdminBookSourcePayload,
   buildOriginalChapterKey,
   buildTranslationChapterKey,
   type AdminIngestionBootstrapPayload,
@@ -9,6 +11,7 @@ import {
   type AdminIngestionSessionDetail,
   type AdminIngestionSessionSummary,
   type AdminIngestionSourceMode,
+  type AdminTranslationValidationPayload,
   type ApiFailure,
   type ApiSuccess,
   type AppSetting,
@@ -45,8 +48,11 @@ type AdminIngestionSessionRow = {
   title: string;
   sourceMode: AdminIngestionSourceMode;
   sourceBookSlug: string | null;
+  translationId: string | null;
   model: string;
   prompt: string;
+  contextBeforeChapterCount: number;
+  contextAfterChapterCount: number;
   currentChapterIndex: number;
   createdAt: string;
   updatedAt: string;
@@ -477,6 +483,288 @@ app.get("/api/admin/books/:bookSlug", async (c) => {
   return c.json(success(payload));
 });
 
+app.post("/api/admin/books", async (c) => {
+  try {
+    const body = await c.req.json<{
+      title?: string;
+      slug?: string;
+      author?: string;
+      originalLanguage?: string;
+      description?: string;
+      chapters?: AdminBookChapterDraft[];
+    }>();
+
+    if (!body.title?.trim()) {
+      return c.json(failure("bad_request", "A book title is required."), 400);
+    }
+
+    const normalizedChapters = (body.chapters ?? [])
+      .filter((chapter) => chapter.sourceText.trim().length > 0)
+      .map((chapter, index) => ({
+        position: index + 1,
+        title: chapter.title.trim() || `Chapter ${index + 1}`,
+        slug: slugify(chapter.slug || chapter.title || `chapter-${index + 1}`),
+        sourceText: chapter.sourceText.trim(),
+      }));
+
+    if (normalizedChapters.length === 0) {
+      return c.json(
+        failure("bad_request", "At least one chapter is required."),
+        400,
+      );
+    }
+
+    const bookId = crypto.randomUUID();
+    const bookSlug = slugify(body.slug || body.title);
+    const now = new Date().toISOString();
+
+    await c.env.DB.prepare(
+      `
+        INSERT INTO books (
+          id,
+          slug,
+          title,
+          author,
+          original_language,
+          description,
+          cover_image_url,
+          status,
+          created_at,
+          updated_at,
+          published_at
+        ) VALUES (?, ?, ?, ?, ?, ?, NULL, 'draft', ?, ?, NULL)
+      `,
+    )
+      .bind(
+        bookId,
+        bookSlug,
+        body.title.trim(),
+        body.author?.trim() || null,
+        body.originalLanguage?.trim() || null,
+        body.description?.trim() || null,
+        now,
+        now,
+      )
+      .run();
+
+    for (const chapter of normalizedChapters) {
+      const sourceR2Key = buildOriginalChapterKey(bookSlug, chapter.slug);
+      const originalDocument = buildInitialOriginalDocument(
+        bookSlug,
+        chapter.slug,
+        chapter.sourceText,
+      );
+
+      await writeObjectJson(
+        c.env.CONTENT_BUCKET,
+        sourceR2Key,
+        originalDocument,
+      );
+
+      await c.env.DB.prepare(
+        `
+          INSERT INTO chapters (
+            id,
+            book_id,
+            slug,
+            position,
+            title,
+            is_preview,
+            source_r2_key,
+            status,
+            created_at,
+            updated_at,
+            published_at
+          ) VALUES (?, ?, ?, ?, ?, 0, ?, 'draft', ?, ?, NULL)
+        `,
+      )
+        .bind(
+          crypto.randomUUID(),
+          bookId,
+          chapter.slug,
+          chapter.position,
+          chapter.title,
+          sourceR2Key,
+          now,
+          now,
+        )
+        .run();
+    }
+
+    const payload = await getAdminBookSourcePayload(
+      c.env.DB,
+      c.env.CONTENT_BUCKET,
+      bookSlug,
+    );
+
+    if (!payload) {
+      return c.json(
+        failure(
+          "internal_error",
+          "Book was created but could not be reloaded.",
+        ),
+        500,
+      );
+    }
+
+    return c.json(success(payload), 201);
+  } catch (error) {
+    return c.json(
+      failure(
+        "bad_request",
+        error instanceof Error ? error.message : "Failed to create book.",
+      ),
+      400,
+    );
+  }
+});
+
+app.get("/api/admin/books/:bookSlug/source", async (c) => {
+  const payload = await getAdminBookSourcePayload(
+    c.env.DB,
+    c.env.CONTENT_BUCKET,
+    c.req.param("bookSlug"),
+  );
+
+  if (!payload) {
+    return c.json(failure("not_found", "Book was not found."), 404);
+  }
+
+  return c.json(success(payload));
+});
+
+app.get("/api/admin/books/:bookSlug/translation-drafts", async (c) => {
+  const sessions = await listAdminIngestionSessions(
+    c.env.DB,
+    c.req.param("bookSlug"),
+  );
+  return c.json(success({ sessions }));
+});
+
+app.post("/api/admin/books/:bookSlug/translation-drafts", async (c) => {
+  try {
+    const bookSlug = c.req.param("bookSlug");
+    const body = await c.req.json<{
+      title?: string;
+      slug?: string;
+      description?: string;
+      model?: string;
+      prompt?: string;
+      contextBeforeChapterCount?: number;
+      contextAfterChapterCount?: number;
+    }>();
+
+    if (!body.title?.trim()) {
+      return c.json(
+        failure("bad_request", "A translation name is required."),
+        400,
+      );
+    }
+
+    if (!body.model?.trim()) {
+      return c.json(failure("bad_request", "A model is required."), 400);
+    }
+
+    if (!body.prompt?.trim()) {
+      return c.json(failure("bad_request", "A prompt is required."), 400);
+    }
+
+    const book = await c.env.DB.prepare(
+      `SELECT id, slug FROM books WHERE slug = ?`,
+    )
+      .bind(bookSlug)
+      .first<{ id: string; slug: string }>();
+
+    if (!book) {
+      return c.json(failure("not_found", "Book was not found."), 404);
+    }
+
+    const translationId = crypto.randomUUID();
+    const translationSlug = slugify(body.slug || body.title);
+    const now = new Date().toISOString();
+
+    await c.env.DB.prepare(
+      `
+        INSERT INTO translations (
+          id,
+          book_id,
+          slug,
+          name,
+          description,
+          ai_system_prompt,
+          output_r2_prefix,
+          status,
+          created_at,
+          updated_at,
+          published_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, 'draft', ?, ?, NULL)
+      `,
+    )
+      .bind(
+        translationId,
+        book.id,
+        translationSlug,
+        body.title.trim(),
+        body.description?.trim() || null,
+        body.prompt.trim(),
+        `epics/${bookSlug}/translations/${translationSlug}`,
+        now,
+        now,
+      )
+      .run();
+
+    const session = await createAdminIngestionSessionForBook({
+      db: c.env.DB,
+      bucket: c.env.CONTENT_BUCKET,
+      bookSlug,
+      title: body.title.trim(),
+      model: body.model.trim(),
+      prompt: body.prompt.trim(),
+      translationId,
+      contextBeforeChapterCount: body.contextBeforeChapterCount ?? 1,
+      contextAfterChapterCount: body.contextAfterChapterCount ?? 1,
+    });
+
+    if (!session) {
+      return c.json(
+        failure(
+          "internal_error",
+          "Translation draft was created but could not be reloaded.",
+        ),
+        500,
+      );
+    }
+
+    return c.json(success(session), 201);
+  } catch (error) {
+    return c.json(
+      failure(
+        "bad_request",
+        error instanceof Error
+          ? error.message
+          : "Failed to create translation draft.",
+      ),
+      400,
+    );
+  }
+});
+
+app.get("/api/admin/translation-drafts/:sessionId/validate", async (c) => {
+  const payload = await validateTranslationDraft(
+    c.env.DB,
+    c.req.param("sessionId"),
+  );
+
+  if (!payload) {
+    return c.json(
+      failure("not_found", "Translation draft was not found."),
+      404,
+    );
+  }
+
+  return c.json(success(payload));
+});
+
 app.get("/api/admin/ingestion/bootstrap", async (c) => {
   const [booksResult, settings, sessions] = await Promise.all([
     c.env.DB.prepare(
@@ -514,8 +802,11 @@ app.post("/api/admin/ingestion/sessions", async (c) => {
       title?: string;
       sourceMode?: AdminIngestionSourceMode;
       sourceBookSlug?: string;
+      translationId?: string;
       model?: string;
       prompt?: string;
+      contextBeforeChapterCount?: number;
+      contextAfterChapterCount?: number;
       chapters?: AdminIngestionChapterInput[];
     }>();
 
@@ -573,12 +864,15 @@ app.post("/api/admin/ingestion/sessions", async (c) => {
           title,
           source_mode,
           source_book_slug,
+          translation_id,
           model,
           prompt,
+          context_before_chapter_count,
+          context_after_chapter_count,
           current_chapter_index,
           created_at,
           updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `,
     )
       .bind(
@@ -586,8 +880,11 @@ app.post("/api/admin/ingestion/sessions", async (c) => {
         body.title.trim(),
         body.sourceMode,
         body.sourceBookSlug?.trim() || null,
+        body.translationId?.trim() || null,
         body.model.trim(),
         body.prompt.trim(),
+        Math.max(0, body.contextBeforeChapterCount ?? 1),
+        Math.max(0, body.contextAfterChapterCount ?? 1),
         0,
         now,
         now,
@@ -668,6 +965,8 @@ app.put("/api/admin/ingestion/sessions/:sessionId", async (c) => {
     title?: string;
     model?: string;
     prompt?: string;
+    contextBeforeChapterCount?: number;
+    contextAfterChapterCount?: number;
     currentChapterIndex?: number;
   }>();
 
@@ -680,6 +979,16 @@ app.put("/api/admin/ingestion/sessions/:sessionId", async (c) => {
   const nextTitle = body.title?.trim() || existing.title;
   const nextModel = body.model?.trim() || existing.model;
   const nextPrompt = body.prompt?.trim() || existing.prompt;
+  const nextContextBeforeChapterCount =
+    typeof body.contextBeforeChapterCount === "number" &&
+    body.contextBeforeChapterCount >= 0
+      ? body.contextBeforeChapterCount
+      : existing.contextBeforeChapterCount;
+  const nextContextAfterChapterCount =
+    typeof body.contextAfterChapterCount === "number" &&
+    body.contextAfterChapterCount >= 0
+      ? body.contextAfterChapterCount
+      : existing.contextAfterChapterCount;
   const nextCurrentChapterIndex =
     typeof body.currentChapterIndex === "number" &&
     body.currentChapterIndex >= 0
@@ -689,7 +998,7 @@ app.put("/api/admin/ingestion/sessions/:sessionId", async (c) => {
   await c.env.DB.prepare(
     `
       UPDATE admin_ingestion_sessions
-      SET title = ?, model = ?, prompt = ?, current_chapter_index = ?, updated_at = ?
+      SET title = ?, model = ?, prompt = ?, context_before_chapter_count = ?, context_after_chapter_count = ?, current_chapter_index = ?, updated_at = ?
       WHERE id = ?
     `,
   )
@@ -697,6 +1006,8 @@ app.put("/api/admin/ingestion/sessions/:sessionId", async (c) => {
       nextTitle,
       nextModel,
       nextPrompt,
+      nextContextBeforeChapterCount,
+      nextContextAfterChapterCount,
       nextCurrentChapterIndex,
       new Date().toISOString(),
       sessionId,
@@ -759,12 +1070,20 @@ app.post(
         );
       }
 
-      const previousChapter = detail.chapters.find(
-        (entry) => entry.position === position - 1,
-      );
-      const nextChapter = detail.chapters.find(
-        (entry) => entry.position === position + 1,
-      );
+      const previousChapters = detail.chapters
+        .filter(
+          (entry) =>
+            entry.position < position &&
+            entry.position >= position - detail.contextBeforeChapterCount,
+        )
+        .sort((left, right) => left.position - right.position);
+      const nextChapters = detail.chapters
+        .filter(
+          (entry) =>
+            entry.position > position &&
+            entry.position <= position + detail.contextAfterChapterCount,
+        )
+        .sort((left, right) => left.position - right.position);
 
       const rawResponse = await generateChapterWithOpenRouter({
         apiKey,
@@ -772,8 +1091,8 @@ app.post(
         prompt: detail.prompt,
         session: detail,
         chapter,
-        previousChapter,
-        nextChapter,
+        previousChapters,
+        nextChapters,
         publicAppUrl: c.env.PUBLIC_APP_URL,
       });
 
@@ -838,6 +1157,7 @@ app.put(
 
     const updatedChapter = await persistGeneratedChapter({
       db: c.env.DB,
+      bucket: c.env.CONTENT_BUCKET,
       session: detail,
       chapter,
       rawResponse: body.rawResponse,
@@ -919,6 +1239,7 @@ async function getSettingsMap(db: D1Database): Promise<Record<string, string>> {
 
 async function listAdminIngestionSessions(
   db: D1Database,
+  sourceBookSlug?: string,
 ): Promise<AdminIngestionSessionSummary[]> {
   const results = await db
     .prepare(
@@ -928,7 +1249,10 @@ async function listAdminIngestionSessions(
         sessions.title,
         sessions.source_mode AS sourceMode,
         sessions.source_book_slug AS sourceBookSlug,
+        sessions.translation_id AS translationId,
         sessions.model,
+        sessions.context_before_chapter_count AS contextBeforeChapterCount,
+        sessions.context_after_chapter_count AS contextAfterChapterCount,
         sessions.current_chapter_index AS currentChapterIndex,
         sessions.created_at AS createdAt,
         sessions.updated_at AS updatedAt,
@@ -936,10 +1260,12 @@ async function listAdminIngestionSessions(
       FROM admin_ingestion_sessions AS sessions
       LEFT JOIN admin_ingestion_chapters AS chapters
         ON chapters.session_id = sessions.id
+      WHERE (?1 IS NULL OR sessions.source_book_slug = ?1)
       GROUP BY sessions.id
       ORDER BY sessions.updated_at DESC
     `,
     )
+    .bind(sourceBookSlug ?? null)
     .all<AdminIngestionSessionRow>();
 
   return (results.results ?? []).map(mapAdminIngestionSessionSummary);
@@ -957,8 +1283,11 @@ async function getAdminIngestionSessionRow(
           title,
           source_mode AS sourceMode,
           source_book_slug AS sourceBookSlug,
+          translation_id AS translationId,
           model,
           prompt,
+          context_before_chapter_count AS contextBeforeChapterCount,
+          context_after_chapter_count AS contextAfterChapterCount,
           current_chapter_index AS currentChapterIndex,
           created_at AS createdAt,
           updated_at AS updatedAt
@@ -1028,7 +1357,10 @@ function mapAdminIngestionSessionSummary(
     title: row.title,
     sourceMode: row.sourceMode,
     sourceBookSlug: row.sourceBookSlug,
+    translationId: row.translationId,
     model: row.model,
+    contextBeforeChapterCount: Number(row.contextBeforeChapterCount ?? 1),
+    contextAfterChapterCount: Number(row.contextAfterChapterCount ?? 1),
     currentChapterIndex: Number(row.currentChapterIndex ?? 0),
     chapterCount: Number(row.chapterCount ?? 0),
     createdAt: row.createdAt,
@@ -1158,14 +1490,331 @@ function sourceDocumentToText(document: OriginalChapterDocument): string {
     .trim();
 }
 
+async function getAdminBookSourcePayload(
+  db: D1Database,
+  bucket: R2Bucket,
+  bookSlug: string,
+): Promise<AdminBookSourcePayload | null> {
+  const book = await db
+    .prepare(
+      `
+        SELECT
+          id,
+          slug,
+          title,
+          author,
+          original_language AS originalLanguage,
+          description,
+          cover_image_url AS coverImageUrl,
+          status,
+          published_at AS publishedAt
+        FROM books
+        WHERE slug = ?
+      `,
+    )
+    .bind(bookSlug)
+    .first<BookSummary>();
+
+  if (!book) {
+    return null;
+  }
+
+  const [chaptersResult, translationsResult] = await Promise.all([
+    db
+      .prepare(
+        `
+        SELECT
+          id,
+          slug,
+          position,
+          title,
+          is_preview AS isPreview,
+          source_r2_key AS sourceR2Key,
+          status,
+          published_at AS publishedAt
+        FROM chapters
+        WHERE book_id = ?
+        ORDER BY position ASC
+      `,
+      )
+      .bind(book.id)
+      .all<ChapterSummary>(),
+    db
+      .prepare(
+        `
+        SELECT
+          id,
+          slug,
+          name,
+          description,
+          output_r2_prefix AS outputR2Prefix,
+          status
+        FROM translations
+        WHERE book_id = ?
+        ORDER BY name ASC
+      `,
+      )
+      .bind(book.id)
+      .all<TranslationSummary>(),
+  ]);
+
+  const chapters = chaptersResult.results ?? [];
+  const sourceDrafts: AdminBookChapterDraft[] = [];
+
+  for (const chapter of chapters) {
+    const original = await readObjectJson<OriginalChapterDocument>(
+      bucket,
+      chapter.sourceR2Key,
+    );
+
+    sourceDrafts.push({
+      position: chapter.position,
+      title: chapter.title,
+      slug: chapter.slug,
+      sourceText: original ? sourceDocumentToText(original) : "",
+    });
+  }
+
+  return {
+    book: {
+      ...book,
+      chapters,
+      translations: translationsResult.results ?? [],
+    },
+    chapters: sourceDrafts,
+  };
+}
+
+function buildInitialOriginalDocument(
+  bookSlug: string,
+  chapterSlug: string,
+  sourceText: string,
+): OriginalChapterDocument {
+  const normalized = sourceText.trim();
+  const lines = normalized
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+  const paragraphs = normalized
+    .split(/\n\s*\n/)
+    .map((chunk) => chunk.trim())
+    .filter(Boolean);
+  const useVerse = lines.length > 1 && lines.length >= paragraphs.length * 2;
+  const rawChunks = useVerse
+    ? lines
+    : paragraphs.length > 0
+      ? paragraphs
+      : [normalized];
+
+  return {
+    bookSlug,
+    chapterSlug,
+    chunks: rawChunks.map((text, index) => ({
+      id: `c${index + 1}`,
+      type: useVerse ? "verse" : "prose",
+      text,
+      ordinal: index + 1,
+    })),
+  };
+}
+
+async function writeObjectJson(
+  bucket: R2Bucket,
+  key: string,
+  value: unknown,
+): Promise<void> {
+  await bucket.put(key, JSON.stringify(value, null, 2), {
+    httpMetadata: {
+      contentType: "application/json; charset=utf-8",
+    },
+  });
+}
+
+async function createAdminIngestionSessionForBook(input: {
+  db: D1Database;
+  bucket: R2Bucket;
+  bookSlug: string;
+  title: string;
+  model: string;
+  prompt: string;
+  translationId: string | null;
+  contextBeforeChapterCount: number;
+  contextAfterChapterCount: number;
+}): Promise<AdminIngestionSessionDetail | null> {
+  const chapters = await buildChapterInputsFromExistingStory(
+    input.db,
+    input.bucket,
+    input.bookSlug,
+  );
+  const now = new Date().toISOString();
+  const sessionId = crypto.randomUUID();
+
+  await input.db
+    .prepare(
+      `
+      INSERT INTO admin_ingestion_sessions (
+        id,
+        title,
+        source_mode,
+        source_book_slug,
+        translation_id,
+        model,
+        prompt,
+        context_before_chapter_count,
+        context_after_chapter_count,
+        current_chapter_index,
+        created_at,
+        updated_at
+      ) VALUES (?, ?, 'existing_story', ?, ?, ?, ?, ?, ?, 0, ?, ?)
+    `,
+    )
+    .bind(
+      sessionId,
+      input.title,
+      input.bookSlug,
+      input.translationId,
+      input.model,
+      input.prompt,
+      Math.max(0, input.contextBeforeChapterCount),
+      Math.max(0, input.contextAfterChapterCount),
+      now,
+      now,
+    )
+    .run();
+
+  for (const chapter of chapters) {
+    await input.db
+      .prepare(
+        `
+        INSERT INTO admin_ingestion_chapters (
+          id,
+          session_id,
+          position,
+          title,
+          slug,
+          source_text,
+          source_chapter_slug,
+          status,
+          created_at,
+          updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?)
+      `,
+      )
+      .bind(
+        crypto.randomUUID(),
+        sessionId,
+        chapter.position,
+        chapter.title,
+        chapter.slug,
+        chapter.sourceText,
+        chapter.sourceChapterSlug,
+        now,
+        now,
+      )
+      .run();
+  }
+
+  return getAdminIngestionSessionDetail(input.db, sessionId);
+}
+
+async function validateTranslationDraft(
+  db: D1Database,
+  sessionId: string,
+): Promise<AdminTranslationValidationPayload | null> {
+  const session = await getAdminIngestionSessionDetail(db, sessionId);
+
+  if (!session) {
+    return null;
+  }
+
+  const chapterChecks = session.chapters.map((chapter) => {
+    const issues: AdminTranslationValidationPayload["chapters"][number]["issues"] =
+      [];
+    const originalChunkIds = new Set(
+      chapter.originalDocument?.chunks.map((chunk) => chunk.id) ?? [],
+    );
+
+    if (
+      !chapter.originalDocument ||
+      chapter.originalDocument.chunks.length === 0
+    ) {
+      issues.push({ level: "error", message: "Original chunks are missing." });
+    }
+
+    if (
+      !chapter.translationDocument ||
+      chapter.translationDocument.chunks.length === 0
+    ) {
+      issues.push({
+        level: "error",
+        message: "Translation chunks are missing.",
+      });
+    }
+
+    for (const translationChunk of chapter.translationDocument?.chunks ?? []) {
+      if (translationChunk.sourceChunkIds.length === 0) {
+        issues.push({
+          level: "error",
+          message: `Translation chunk ${translationChunk.id} has no source anchors.`,
+        });
+      }
+
+      for (const sourceChunkId of translationChunk.sourceChunkIds) {
+        if (!originalChunkIds.has(sourceChunkId)) {
+          issues.push({
+            level: "error",
+            message: `Translation chunk ${translationChunk.id} points to missing source chunk ${sourceChunkId}.`,
+          });
+        }
+      }
+    }
+
+    if (chapter.status !== "saved") {
+      issues.push({
+        level: "warning",
+        message: `Chapter is currently marked ${chapter.status}.`,
+      });
+    }
+
+    return {
+      position: chapter.position,
+      title: chapter.title,
+      slug: chapter.slug,
+      status: chapter.status,
+      issues,
+    };
+  });
+
+  const issues = chapterChecks.flatMap((chapter) => chapter.issues);
+
+  return {
+    session,
+    isValid: issues.every((issue) => issue.level !== "error"),
+    issues,
+    chapters: chapterChecks,
+  };
+}
+
+function formatContextChapters(
+  chapters: AdminIngestionChapterRecord[] | undefined,
+): string {
+  if (!chapters || chapters.length === 0) {
+    return "(none)";
+  }
+
+  return chapters
+    .map((chapter) => `## ${chapter.title}\n${chapter.sourceText}`)
+    .join("\n\n");
+}
+
 async function generateChapterWithOpenRouter(input: {
   apiKey: string;
   model: string;
   prompt: string;
   session: AdminIngestionSessionDetail;
   chapter: AdminIngestionChapterRecord;
-  previousChapter?: AdminIngestionChapterRecord;
-  nextChapter?: AdminIngestionChapterRecord;
+  previousChapters?: AdminIngestionChapterRecord[];
+  nextChapters?: AdminIngestionChapterRecord[];
   publicAppUrl?: string;
 }): Promise<string> {
   const response = await fetch(
@@ -1227,8 +1876,8 @@ async function generateChapterWithOpenRouter(input: {
 function buildGenerationUserPrompt(input: {
   session: AdminIngestionSessionDetail;
   chapter: AdminIngestionChapterRecord;
-  previousChapter?: AdminIngestionChapterRecord;
-  nextChapter?: AdminIngestionChapterRecord;
+  previousChapters?: AdminIngestionChapterRecord[];
+  nextChapters?: AdminIngestionChapterRecord[];
 }): string {
   return [
     `Project: ${input.session.title}`,
@@ -1242,18 +1891,19 @@ function buildGenerationUserPrompt(input: {
     "Do not include ids. The application assigns ids after review.",
     "",
     "Previous chapter context:",
-    input.previousChapter?.sourceText || "(none)",
+    formatContextChapters(input.previousChapters),
     "",
     "Target chapter source text:",
     input.chapter.sourceText,
     "",
     "Next chapter context:",
-    input.nextChapter?.sourceText || "(none)",
+    formatContextChapters(input.nextChapters),
   ].join("\n");
 }
 
 async function persistGeneratedChapter(input: {
   db: D1Database;
+  bucket?: R2Bucket;
   session: AdminIngestionSessionDetail;
   chapter: AdminIngestionChapterRecord;
   rawResponse: string;
@@ -1292,6 +1942,44 @@ async function persistGeneratedChapter(input: {
         input.chapter.id,
       )
       .run();
+
+    if (
+      input.bucket &&
+      input.session.translationId &&
+      input.session.sourceBookSlug &&
+      input.statusOnSuccess === "saved"
+    ) {
+      const translation = await input.db
+        .prepare(`SELECT slug FROM translations WHERE id = ?`)
+        .bind(input.session.translationId)
+        .first<{ slug: string }>();
+
+      if (translation) {
+        const translationKey = buildTranslationChapterKey(
+          input.session.sourceBookSlug,
+          input.chapter.slug,
+          translation.slug,
+        );
+        await writeObjectJson(
+          input.bucket,
+          translationKey,
+          normalized.translationDocument,
+        );
+
+        await input.db
+          .prepare(
+            `
+              UPDATE translations
+              SET ai_system_prompt = ?,
+                  status = 'ready',
+                  updated_at = ?
+              WHERE id = ?
+            `,
+          )
+          .bind(input.session.prompt, now, input.session.translationId)
+          .run();
+      }
+    }
   } catch (error) {
     const message =
       error instanceof Error ? error.message : "Failed to parse AI response.";

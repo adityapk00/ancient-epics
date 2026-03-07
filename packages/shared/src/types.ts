@@ -155,7 +155,10 @@ export interface AdminIngestionSessionSummary {
   title: string;
   sourceMode: AdminIngestionSourceMode;
   sourceBookSlug: string | null;
+  translationId: string | null;
   model: string;
+  contextBeforeChapterCount: number;
+  contextAfterChapterCount: number;
   currentChapterIndex: number;
   chapterCount: number;
   createdAt: string;
@@ -182,6 +185,38 @@ export interface AdminIngestionBootstrapPayload {
   books: BookSummary[];
   settings: Record<string, string>;
   sessions: AdminIngestionSessionSummary[];
+}
+
+export interface AdminBookChapterDraft {
+  position: number;
+  title: string;
+  slug: string;
+  sourceText: string;
+}
+
+export interface AdminBookSourcePayload {
+  book: BookDetail;
+  chapters: AdminBookChapterDraft[];
+}
+
+export interface AdminTranslationValidationIssue {
+  level: "error" | "warning";
+  message: string;
+}
+
+export interface AdminTranslationValidationChapter {
+  position: number;
+  title: string;
+  slug: string;
+  status: AdminIngestionChapterStatus;
+  issues: AdminTranslationValidationIssue[];
+}
+
+export interface AdminTranslationValidationPayload {
+  session: AdminIngestionSessionDetail;
+  isValid: boolean;
+  issues: AdminTranslationValidationIssue[];
+  chapters: AdminTranslationValidationChapter[];
 }
 
 export interface AdminIngestionGeneratePayload {

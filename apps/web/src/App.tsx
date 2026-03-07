@@ -2,12 +2,12 @@ import { useEffect, useState } from "react";
 
 import {
   APP_SETTING_KEYS,
+  type AdminBookChapterDraft,
+  type AdminBookSourcePayload,
   type AdminIngestionBootstrapPayload,
   type AdminIngestionSessionDetail,
-  type BookDetail,
-  type BookSummary,
-  type ChapterPayload,
-  type TranslationPayload,
+  type AdminIngestionSessionSummary,
+  type AdminTranslationValidationPayload,
 } from "@ancient-epics/shared";
 
 import {
@@ -16,135 +16,86 @@ import {
 } from "./lib/chapter-splitting";
 import { api } from "./lib/api";
 
-interface ReaderState {
-  books: BookSummary[];
-  bookDetail: BookDetail | null;
-  chapter: ChapterPayload | null;
-  translation: TranslationPayload | null;
-  environment: string;
-}
-
-type ViewMode = "admin" | "reader";
-type SourceMode = "paste" | "existing_story";
-
-const initialReaderState: ReaderState = {
-  books: [],
-  bookDetail: null,
-  chapter: null,
-  translation: null,
-  environment: "unknown",
-};
+type AdminScreen =
+  | "books"
+  | "create-book"
+  | "translations"
+  | "workspace"
+  | "validate";
 
 export default function App() {
-  const [viewMode, setViewMode] = useState<ViewMode>("admin");
-  const [readerState, setReaderState] =
-    useState<ReaderState>(initialReaderState);
-  const [adminBootstrap, setAdminBootstrap] =
+  const [screen, setScreen] = useState<AdminScreen>("books");
+  const [settingsOpen, setSettingsOpen] = useState(false);
+
+  const [bootstrap, setBootstrap] =
     useState<AdminIngestionBootstrapPayload | null>(null);
+  const [selectedBook, setSelectedBook] =
+    useState<AdminBookSourcePayload | null>(null);
+  const [translationDrafts, setTranslationDrafts] = useState<
+    AdminIngestionSessionSummary[]
+  >([]);
   const [activeSession, setActiveSession] =
     useState<AdminIngestionSessionDetail | null>(null);
+  const [validation, setValidation] =
+    useState<AdminTranslationValidationPayload | null>(null);
   const [selectedChapterIndex, setSelectedChapterIndex] = useState(0);
   const [editedRawResponse, setEditedRawResponse] = useState("");
+  const [validationPreviewIndex, setValidationPreviewIndex] = useState(0);
 
   const [isLoading, setIsLoading] = useState(true);
   const [isBusy, setIsBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
 
-  const [defaultApiKey, setDefaultApiKey] = useState("");
-  const [defaultModel, setDefaultModel] = useState("openai/gpt-4o-mini");
-  const [defaultPrompt, setDefaultPrompt] = useState("");
+  const [settingsApiKey, setSettingsApiKey] = useState("");
+  const [settingsModel, setSettingsModel] = useState("openai/gpt-4o-mini");
+  const [settingsPrompt, setSettingsPrompt] = useState("");
 
-  const [sourceMode, setSourceMode] = useState<SourceMode>("paste");
-  const [newSessionTitle, setNewSessionTitle] = useState(
-    "Fresh Translation Draft",
-  );
-  const [selectedSourceBookSlug, setSelectedSourceBookSlug] = useState("");
-  const [rawSourceText, setRawSourceText] = useState("");
+  const [bookTitle, setBookTitle] = useState("");
+  const [bookSlug, setBookSlug] = useState("");
+  const [bookAuthor, setBookAuthor] = useState("");
+  const [bookLanguage, setBookLanguage] = useState("");
+  const [bookDescription, setBookDescription] = useState("");
+  const [bookRawText, setBookRawText] = useState("");
   const [splitMode, setSplitMode] = useState<ChapterSplitMode>("heading");
   const [headingPattern, setHeadingPattern] = useState(
     "^(book|chapter|canto|scroll)\\b.*$",
   );
   const [delimiter, setDelimiter] = useState("\n\n\n");
 
-  const [sessionEditorTitle, setSessionEditorTitle] = useState("");
-  const [sessionEditorModel, setSessionEditorModel] = useState("");
-  const [sessionEditorPrompt, setSessionEditorPrompt] = useState("");
+  const [translationTitle, setTranslationTitle] = useState("");
+  const [translationSlug, setTranslationSlug] = useState("");
+  const [translationDescription, setTranslationDescription] = useState("");
+  const [translationModel, setTranslationModel] =
+    useState("openai/gpt-4o-mini");
+  const [translationPrompt, setTranslationPrompt] = useState("");
+  const [contextBeforeChapterCount, setContextBeforeChapterCount] =
+    useState("1");
+  const [contextAfterChapterCount, setContextAfterChapterCount] = useState("1");
 
   useEffect(() => {
     async function load() {
       try {
-        const [health, booksPayload, adminPayload] = await Promise.all([
-          api.health(),
-          api.listBooks(),
-          api.getAdminIngestionBootstrap(),
-        ]);
-
-        setAdminBootstrap(adminPayload);
-        setDefaultApiKey(
-          adminPayload.settings[APP_SETTING_KEYS.OPENROUTER_API_KEY] ?? "",
+        const payload = await api.getAdminIngestionBootstrap();
+        setBootstrap(payload);
+        setSettingsApiKey(
+          payload.settings[APP_SETTING_KEYS.OPENROUTER_API_KEY] ?? "",
         );
-        setDefaultModel(
-          adminPayload.settings[APP_SETTING_KEYS.ADMIN_INGESTION_MODEL] ??
-            adminPayload.settings[APP_SETTING_KEYS.DEFAULT_TRANSLATION_MODEL] ??
-            "openai/gpt-4o-mini",
-        );
-        setDefaultPrompt(
-          adminPayload.settings[APP_SETTING_KEYS.ADMIN_INGESTION_PROMPT] ?? "",
-        );
-        setSelectedSourceBookSlug(adminPayload.books[0]?.slug ?? "");
-
-        const firstBook = booksPayload.books[0];
-
-        if (!firstBook) {
-          setReaderState({
-            ...initialReaderState,
-            environment: health.environment,
-          });
-        } else {
-          const bookDetail = await api.getBook(firstBook.slug);
-          const firstChapter = bookDetail.chapters[0];
-          const firstTranslation = bookDetail.translations[0];
-
-          if (!firstChapter || !firstTranslation) {
-            setReaderState({
-              books: booksPayload.books,
-              bookDetail,
-              chapter: null,
-              translation: null,
-              environment: health.environment,
-            });
-          } else {
-            const [chapter, translation] = await Promise.all([
-              api.getChapter(firstBook.slug, firstChapter.slug),
-              api.getTranslation(
-                firstBook.slug,
-                firstChapter.slug,
-                firstTranslation.slug,
-              ),
-            ]);
-
-            setReaderState({
-              books: booksPayload.books,
-              bookDetail,
-              chapter,
-              translation,
-              environment: health.environment,
-            });
-          }
-        }
-
-        if (adminPayload.sessions[0]) {
-          const session = await api.getAdminIngestionSession(
-            adminPayload.sessions[0].id,
-          );
-          syncSessionState(session);
-        }
+        const model =
+          payload.settings[APP_SETTING_KEYS.ADMIN_INGESTION_MODEL] ??
+          payload.settings[APP_SETTING_KEYS.DEFAULT_TRANSLATION_MODEL] ??
+          "openai/gpt-4o-mini";
+        const prompt =
+          payload.settings[APP_SETTING_KEYS.ADMIN_INGESTION_PROMPT] ?? "";
+        setSettingsModel(model);
+        setSettingsPrompt(prompt);
+        setTranslationModel(model);
+        setTranslationPrompt(prompt);
       } catch (loadError) {
         setError(
           loadError instanceof Error
             ? loadError.message
-            : "Failed to load the application.",
+            : "Failed to load admin data.",
         );
       } finally {
         setIsLoading(false);
@@ -155,181 +106,135 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    const currentChapter =
-      activeSession?.chapters[selectedChapterIndex] ?? null;
-    setEditedRawResponse(currentChapter?.rawResponse ?? "");
+    const chapter = activeSession?.chapters[selectedChapterIndex];
+    setEditedRawResponse(chapter?.rawResponse ?? "");
   }, [activeSession, selectedChapterIndex]);
 
-  const sourceSplitPreview =
-    sourceMode === "paste"
-      ? splitSourceTextIntoChapters({
-          rawText: rawSourceText,
-          splitMode,
-          headingPattern,
-          delimiter,
-        })
-      : [];
+  const chapterPreview = splitSourceTextIntoChapters({
+    rawText: bookRawText,
+    splitMode,
+    headingPattern,
+    delimiter,
+  });
 
-  const currentSessionChapter =
+  const currentWorkspaceChapter =
     activeSession?.chapters[selectedChapterIndex] ?? null;
-  const readerOriginalChunks = readerState.chapter?.original.chunks ?? [];
-  const readerTranslationChunks = readerState.translation?.content.chunks ?? [];
-  const readerOriginalChunkMap = new Map(
-    readerOriginalChunks.map((chunk) => [chunk.id, chunk]),
-  );
+  const validationPreviewChapter =
+    validation?.session.chapters[validationPreviewIndex] ?? null;
 
-  async function refreshAdminBootstrap(preferredSessionId?: string) {
+  async function refreshBootstrap() {
     const payload = await api.getAdminIngestionBootstrap();
-    setAdminBootstrap(payload);
+    setBootstrap(payload);
+  }
 
-    if (preferredSessionId) {
-      const session = await api.getAdminIngestionSession(preferredSessionId);
-      syncSessionState(session);
-      return;
-    }
+  function resetBookForm() {
+    setBookTitle("");
+    setBookSlug("");
+    setBookAuthor("");
+    setBookLanguage("");
+    setBookDescription("");
+    setBookRawText("");
+    setSplitMode("heading");
+    setHeadingPattern("^(book|chapter|canto|scroll)\\b.*$");
+    setDelimiter("\n\n\n");
+  }
 
-    if (!activeSession && payload.sessions[0]) {
-      const session = await api.getAdminIngestionSession(
-        payload.sessions[0].id,
+  function resetTranslationForm() {
+    setTranslationTitle("");
+    setTranslationSlug("");
+    setTranslationDescription("");
+    setTranslationModel(settingsModel);
+    setTranslationPrompt(settingsPrompt);
+    setContextBeforeChapterCount("1");
+    setContextAfterChapterCount("1");
+  }
+
+  async function openBook(bookSlugValue: string) {
+    setIsBusy(true);
+    setError(null);
+    setNotice(null);
+
+    try {
+      const [book, drafts] = await Promise.all([
+        api.getAdminBookSource(bookSlugValue),
+        api.listAdminTranslationDrafts(bookSlugValue),
+      ]);
+      setSelectedBook(book);
+      setTranslationDrafts(drafts.sessions);
+      setActiveSession(null);
+      setValidation(null);
+      resetTranslationForm();
+      setScreen("translations");
+    } catch (loadError) {
+      setError(
+        loadError instanceof Error ? loadError.message : "Failed to load book.",
       );
-      syncSessionState(session);
+    } finally {
+      setIsBusy(false);
     }
   }
 
-  function syncSessionState(session: AdminIngestionSessionDetail) {
-    setActiveSession(session);
-    setSessionEditorTitle(session.title);
-    setSessionEditorModel(session.model);
-    setSessionEditorPrompt(session.prompt);
-    setSelectedChapterIndex(
-      Math.min(
-        session.currentChapterIndex,
-        Math.max(session.chapters.length - 1, 0),
-      ),
-    );
-    setEditedRawResponse(
-      session.chapters[
-        Math.min(
-          session.currentChapterIndex,
-          Math.max(session.chapters.length - 1, 0),
-        )
-      ]?.rawResponse ?? "",
-    );
-  }
-
-  async function handleSaveDefaults() {
+  async function saveSettings() {
     setIsBusy(true);
     setError(null);
     setNotice(null);
 
     try {
       await api.updateAdminSettings({
-        [APP_SETTING_KEYS.OPENROUTER_API_KEY]: defaultApiKey,
-        [APP_SETTING_KEYS.ADMIN_INGESTION_MODEL]: defaultModel,
-        [APP_SETTING_KEYS.ADMIN_INGESTION_PROMPT]: defaultPrompt,
+        [APP_SETTING_KEYS.OPENROUTER_API_KEY]: settingsApiKey,
+        [APP_SETTING_KEYS.ADMIN_INGESTION_MODEL]: settingsModel,
+        [APP_SETTING_KEYS.ADMIN_INGESTION_PROMPT]: settingsPrompt,
       });
-      await refreshAdminBootstrap(activeSession?.id);
-      setNotice("Saved admin defaults.");
+      await refreshBootstrap();
+      setTranslationModel(settingsModel);
+      setTranslationPrompt(settingsPrompt);
+      setSettingsOpen(false);
+      setNotice("Saved settings.");
     } catch (saveError) {
       setError(
         saveError instanceof Error
           ? saveError.message
-          : "Failed to save defaults.",
+          : "Failed to save settings.",
       );
     } finally {
       setIsBusy(false);
     }
   }
 
-  async function handleCreateSession() {
+  async function createBook() {
     setIsBusy(true);
     setError(null);
     setNotice(null);
 
     try {
-      const session = await api.createAdminIngestionSession({
-        title: newSessionTitle,
-        sourceMode,
-        sourceBookSlug:
-          sourceMode === "existing_story" ? selectedSourceBookSlug : undefined,
-        model: defaultModel,
-        prompt: defaultPrompt,
-        chapters: sourceMode === "paste" ? sourceSplitPreview : undefined,
+      const created = await api.createAdminBook({
+        title: bookTitle,
+        slug: bookSlug || undefined,
+        author: bookAuthor || undefined,
+        originalLanguage: bookLanguage || undefined,
+        description: bookDescription || undefined,
+        chapters: chapterPreview as AdminBookChapterDraft[],
       });
-
-      syncSessionState(session);
-      await refreshAdminBootstrap(session.id);
-      setNotice("Created a new ingestion session.");
+      await refreshBootstrap();
+      setSelectedBook(created);
+      setTranslationDrafts([]);
+      resetBookForm();
+      resetTranslationForm();
+      setScreen("translations");
+      setNotice(`Created draft book '${created.book.title}'.`);
     } catch (createError) {
       setError(
         createError instanceof Error
           ? createError.message
-          : "Failed to create the session.",
+          : "Failed to create book.",
       );
     } finally {
       setIsBusy(false);
     }
   }
 
-  async function handleLoadSession(sessionId: string) {
-    setIsBusy(true);
-    setError(null);
-    setNotice(null);
-
-    try {
-      const session = await api.getAdminIngestionSession(sessionId);
-      syncSessionState(session);
-      setNotice(`Loaded session '${session.title}'.`);
-    } catch (loadError) {
-      setError(
-        loadError instanceof Error
-          ? loadError.message
-          : "Failed to load session.",
-      );
-    } finally {
-      setIsBusy(false);
-    }
-  }
-
-  async function persistSessionEditor() {
-    if (!activeSession) {
-      return null;
-    }
-
-    const updated = await api.updateAdminIngestionSession(activeSession.id, {
-      title: sessionEditorTitle,
-      model: sessionEditorModel,
-      prompt: sessionEditorPrompt,
-      currentChapterIndex: selectedChapterIndex,
-    });
-    syncSessionState(updated);
-    return updated;
-  }
-
-  async function handleSaveSessionConfig() {
-    setIsBusy(true);
-    setError(null);
-    setNotice(null);
-
-    try {
-      const updated = await persistSessionEditor();
-      if (updated) {
-        await refreshAdminBootstrap(updated.id);
-        setNotice("Saved session model and prompt.");
-      }
-    } catch (saveError) {
-      setError(
-        saveError instanceof Error
-          ? saveError.message
-          : "Failed to save session config.",
-      );
-    } finally {
-      setIsBusy(false);
-    }
-  }
-
-  async function handleGenerateCurrentChapter() {
-    if (!activeSession || !currentSessionChapter) {
+  async function createTranslationDraft() {
+    if (!selectedBook) {
       return;
     }
 
@@ -338,11 +243,107 @@ export default function App() {
     setNotice(null);
 
     try {
-      const updatedSession = await persistSessionEditor();
+      const session = await api.createAdminTranslationDraft(
+        selectedBook.book.slug,
+        {
+          title: translationTitle,
+          slug: translationSlug || undefined,
+          description: translationDescription || undefined,
+          model: translationModel,
+          prompt: translationPrompt,
+          contextBeforeChapterCount: Number(contextBeforeChapterCount || 0),
+          contextAfterChapterCount: Number(contextAfterChapterCount || 0),
+        },
+      );
+      const drafts = await api.listAdminTranslationDrafts(
+        selectedBook.book.slug,
+      );
+      setTranslationDrafts(drafts.sessions);
+      setActiveSession(session);
+      setSelectedChapterIndex(
+        Math.min(
+          session.currentChapterIndex,
+          Math.max(session.chapters.length - 1, 0),
+        ),
+      );
+      setScreen("workspace");
+      setNotice(`Created translation draft '${session.title}'.`);
+    } catch (createError) {
+      setError(
+        createError instanceof Error
+          ? createError.message
+          : "Failed to create translation draft.",
+      );
+    } finally {
+      setIsBusy(false);
+    }
+  }
+
+  async function openTranslationDraft(sessionId: string) {
+    setIsBusy(true);
+    setError(null);
+    setNotice(null);
+
+    try {
+      const session = await api.getAdminIngestionSession(sessionId);
+      setActiveSession(session);
+      setTranslationTitle(session.title);
+      setTranslationSlug("");
+      setTranslationModel(session.model);
+      setTranslationPrompt(session.prompt);
+      setContextBeforeChapterCount(String(session.contextBeforeChapterCount));
+      setContextAfterChapterCount(String(session.contextAfterChapterCount));
+      setSelectedChapterIndex(
+        Math.min(
+          session.currentChapterIndex,
+          Math.max(session.chapters.length - 1, 0),
+        ),
+      );
+      setValidation(null);
+      setScreen("workspace");
+    } catch (loadError) {
+      setError(
+        loadError instanceof Error
+          ? loadError.message
+          : "Failed to load translation draft.",
+      );
+    } finally {
+      setIsBusy(false);
+    }
+  }
+
+  async function saveWorkspaceConfig() {
+    if (!activeSession) {
+      return;
+    }
+
+    const updated = await api.updateAdminIngestionSession(activeSession.id, {
+      title: translationTitle || activeSession.title,
+      model: translationModel,
+      prompt: translationPrompt,
+      contextBeforeChapterCount: Number(contextBeforeChapterCount || 0),
+      contextAfterChapterCount: Number(contextAfterChapterCount || 0),
+      currentChapterIndex: selectedChapterIndex,
+    });
+    setActiveSession(updated);
+    return updated;
+  }
+
+  async function generateCurrentChapter() {
+    if (!activeSession || !currentWorkspaceChapter) {
+      return;
+    }
+
+    setIsBusy(true);
+    setError(null);
+    setNotice(null);
+
+    try {
+      const updatedSession = await saveWorkspaceConfig();
       const sessionId = updatedSession?.id ?? activeSession.id;
       const result = await api.generateAdminIngestionChapter(
         sessionId,
-        currentSessionChapter.position,
+        currentWorkspaceChapter.position,
       );
       setActiveSession((current) =>
         current
@@ -355,21 +356,20 @@ export default function App() {
           : current,
       );
       setEditedRawResponse(result.chapter.rawResponse ?? "");
-      await refreshAdminBootstrap(sessionId);
-      setNotice(`Generated chapter '${currentSessionChapter.title}'.`);
+      setNotice(`Generated '${currentWorkspaceChapter.title}'.`);
     } catch (generateError) {
       setError(
         generateError instanceof Error
           ? generateError.message
-          : "Failed to generate the current chapter.",
+          : "Failed to generate chapter.",
       );
     } finally {
       setIsBusy(false);
     }
   }
 
-  async function handleSaveCurrentChapter() {
-    if (!activeSession || !currentSessionChapter) {
+  async function saveCurrentChapter() {
+    if (!activeSession || !currentWorkspaceChapter) {
       return;
     }
 
@@ -380,38 +380,64 @@ export default function App() {
     try {
       const result = await api.saveAdminIngestionChapter(
         activeSession.id,
-        currentSessionChapter.position,
+        currentWorkspaceChapter.position,
         editedRawResponse,
       );
 
       if (result.session) {
-        syncSessionState(result.session);
+        setActiveSession(result.session);
         setSelectedChapterIndex(
           Math.min(
-            currentSessionChapter.position + 1,
+            currentWorkspaceChapter.position + 1,
             Math.max(result.session.chapters.length - 1, 0),
           ),
         );
-      } else {
-        setActiveSession((current) =>
-          current
-            ? {
-                ...current,
-                chapters: current.chapters.map((chapter) =>
-                  chapter.id === result.chapter.id ? result.chapter : chapter,
-                ),
-              }
-            : current,
-        );
       }
 
-      await refreshAdminBootstrap(activeSession.id);
-      setNotice(`Saved chapter '${currentSessionChapter.title}'.`);
+      if (selectedBook) {
+        const drafts = await api.listAdminTranslationDrafts(
+          selectedBook.book.slug,
+        );
+        setTranslationDrafts(drafts.sessions);
+      }
+
+      setNotice(`Saved '${currentWorkspaceChapter.title}'.`);
     } catch (saveError) {
       setError(
         saveError instanceof Error
           ? saveError.message
-          : "Failed to save the current chapter.",
+          : "Failed to save chapter.",
+      );
+    } finally {
+      setIsBusy(false);
+    }
+  }
+
+  async function validateCurrentDraft() {
+    if (!activeSession) {
+      return;
+    }
+
+    setIsBusy(true);
+    setError(null);
+    setNotice(null);
+
+    try {
+      const updatedSession = await saveWorkspaceConfig();
+      const payload = await api.validateAdminTranslationDraft(
+        updatedSession?.id ?? activeSession.id,
+      );
+      setValidation(payload);
+      setValidationPreviewIndex(0);
+      setScreen("validate");
+      setNotice(
+        payload.isValid ? "Validation passed." : "Validation found issues.",
+      );
+    } catch (validateError) {
+      setError(
+        validateError instanceof Error
+          ? validateError.message
+          : "Failed to validate translation draft.",
       );
     } finally {
       setIsBusy(false);
@@ -421,543 +447,593 @@ export default function App() {
   return (
     <main className="min-h-screen bg-paper text-ink">
       <div className="mx-auto flex min-h-screen max-w-7xl flex-col gap-8 px-6 py-8 lg:px-10">
-        <section className="grid gap-6 rounded-[32px] border border-border/70 bg-white/85 p-8 shadow-panel backdrop-blur lg:grid-cols-[1.3fr_0.9fr]">
-          <div className="space-y-5">
+        <header className="flex flex-wrap items-start justify-between gap-4 rounded-[32px] border border-border/70 bg-white/85 p-8 shadow-panel backdrop-blur">
+          <div className="space-y-3">
             <p className="text-sm font-semibold uppercase tracking-[0.24em] text-accent">
-              Phase 2 + 3 workbench
+              Admin Console
             </p>
-            <div className="space-y-4">
-              <h1 className="font-display text-5xl leading-tight text-ink sm:text-6xl">
-                Build translation chapter loops with review before commit.
-              </h1>
-              <p className="max-w-3xl text-lg leading-8 text-ink/75">
-                This admin workbench lets you split source material into
-                chapters, generate chunked bilingual JSON one chapter at a time,
-                inspect the raw model response, edit it, save it, and continue
-                through the book.
-              </p>
-            </div>
-            <div className="flex flex-wrap gap-3">
-              <ViewButton
-                active={viewMode === "admin"}
-                label="Admin Translation Lab"
-                onClick={() => setViewMode("admin")}
-              />
-              <ViewButton
-                active={viewMode === "reader"}
-                label="Reader Preview"
-                onClick={() => setViewMode("reader")}
-              />
-            </div>
+            <h1 className="font-display text-5xl leading-tight text-ink sm:text-6xl">
+              Manage books, translation drafts, and validation in one flow.
+            </h1>
+            <p className="max-w-3xl text-lg leading-8 text-ink/75">
+              Start from the library, create a book, open its translation
+              drafts, run the chapter-by-chapter AI loop, then validate the
+              whole draft before you publish or export it.
+            </p>
           </div>
-
-          <div className="grid gap-4 rounded-[28px] bg-ink p-6 text-paper">
-            <Metric label="Environment" value={readerState.environment} />
-            <Metric
-              label="Admin sessions"
-              value={String(adminBootstrap?.sessions.length ?? 0)}
-            />
-            <Metric
-              label="Books available"
-              value={String(adminBootstrap?.books.length ?? 0)}
-            />
-            <Metric
-              label="Active chapter"
-              value={currentSessionChapter?.title ?? "None selected"}
-            />
+          <div className="flex flex-wrap gap-3">
+            {selectedBook ? (
+              <button
+                type="button"
+                onClick={() => setScreen("books")}
+                className="rounded-full border border-border/70 bg-paper/80 px-5 py-3 text-sm font-semibold text-ink transition hover:border-accent/50"
+              >
+                All Books
+              </button>
+            ) : null}
+            <button
+              type="button"
+              onClick={() => setSettingsOpen(true)}
+              className="rounded-full bg-ink px-5 py-3 text-sm font-semibold text-paper transition hover:bg-ink/90"
+            >
+              Settings
+            </button>
           </div>
-        </section>
+        </header>
 
-        {isLoading ? (
-          <Panel title="Loading">Bootstrapping the workbench.</Panel>
-        ) : null}
+        {isLoading ? <Panel title="Loading">Loading admin data.</Panel> : null}
         {error ? <Panel title="Error">{error}</Panel> : null}
         {notice ? <Panel title="Status">{notice}</Panel> : null}
 
-        {viewMode === "admin" ? (
-          <section className="grid gap-6 xl:grid-cols-[360px_1fr]">
+        {screen === "books" ? (
+          <section className="grid gap-6 lg:grid-cols-[1fr_320px]">
+            <Panel title="Books / Stories">
+              <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+                {(bootstrap?.books ?? []).map((book) => (
+                  <button
+                    key={book.id}
+                    type="button"
+                    onClick={() => void openBook(book.slug)}
+                    className="rounded-[24px] border border-border/70 bg-paper/80 p-5 text-left transition hover:border-accent/50 hover:bg-white"
+                  >
+                    <p className="text-xs font-semibold uppercase tracking-[0.18em] text-accent">
+                      {book.status}
+                    </p>
+                    <h2 className="mt-3 font-display text-3xl text-ink">
+                      {book.title}
+                    </h2>
+                    <p className="mt-2 text-sm text-ink/65">{book.author}</p>
+                    <p className="mt-4 text-sm leading-7 text-ink/75">
+                      {book.description || "No description yet."}
+                    </p>
+                  </button>
+                ))}
+                {(bootstrap?.books?.length ?? 0) === 0 ? (
+                  <p className="text-base leading-7 text-ink/70">
+                    No books yet.
+                  </p>
+                ) : null}
+              </div>
+            </Panel>
+
+            <Panel title="Create New">
+              <p className="text-base leading-7 text-ink/70">
+                Create a new source text, paste the full work, then split it
+                into chapters before moving into translation drafts.
+              </p>
+              <div className="mt-6">
+                <ActionButton
+                  label="Create New Book"
+                  onClick={() => setScreen("create-book")}
+                  tone="accent"
+                />
+              </div>
+            </Panel>
+          </section>
+        ) : null}
+
+        {screen === "create-book" ? (
+          <section className="grid gap-6 xl:grid-cols-[380px_1fr]">
+            <Panel title="Book Details">
+              <div className="space-y-4">
+                <InputField
+                  label="Title"
+                  value={bookTitle}
+                  onChange={setBookTitle}
+                />
+                <InputField
+                  label="Slug"
+                  value={bookSlug}
+                  onChange={setBookSlug}
+                />
+                <InputField
+                  label="Author"
+                  value={bookAuthor}
+                  onChange={setBookAuthor}
+                />
+                <InputField
+                  label="Original Language"
+                  value={bookLanguage}
+                  onChange={setBookLanguage}
+                />
+                <TextareaField
+                  label="Description"
+                  value={bookDescription}
+                  onChange={setBookDescription}
+                  rows={5}
+                />
+                <SegmentedControl
+                  label="Chapter Split"
+                  value={splitMode}
+                  options={[
+                    { value: "heading", label: "Heading regex" },
+                    { value: "delimiter", label: "Delimiter" },
+                    { value: "single", label: "Single chapter" },
+                  ]}
+                  onChange={(value) => setSplitMode(value as ChapterSplitMode)}
+                />
+                {splitMode === "heading" ? (
+                  <InputField
+                    label="Heading Regex"
+                    value={headingPattern}
+                    onChange={setHeadingPattern}
+                  />
+                ) : null}
+                {splitMode === "delimiter" ? (
+                  <InputField
+                    label="Delimiter"
+                    value={delimiter}
+                    onChange={setDelimiter}
+                  />
+                ) : null}
+                <ActionButton
+                  label="Back To Books"
+                  onClick={() => setScreen("books")}
+                />
+              </div>
+            </Panel>
+
             <div className="grid gap-6">
-              <Panel title="Defaults">
-                <div className="space-y-4">
-                  <InputField
-                    label="OpenRouter API Key"
-                    type="password"
-                    value={defaultApiKey}
-                    onChange={setDefaultApiKey}
-                    placeholder="sk-or-v1-..."
-                  />
-                  <InputField
-                    label="Default Model"
-                    value={defaultModel}
-                    onChange={setDefaultModel}
-                    placeholder="openai/gpt-4o-mini"
-                  />
-                  <TextareaField
-                    label="Default Prompt"
-                    value={defaultPrompt}
-                    onChange={setDefaultPrompt}
-                    rows={10}
-                    placeholder="System prompt for chunking + translation."
-                  />
-                  <ActionButton
-                    label={isBusy ? "Saving..." : "Save Defaults"}
-                    onClick={handleSaveDefaults}
-                    disabled={isBusy}
-                  />
-                </div>
+              <Panel title="Paste Source Text">
+                <TextareaField
+                  label="Full Text"
+                  value={bookRawText}
+                  onChange={setBookRawText}
+                  rows={18}
+                  placeholder="Paste the full source text here."
+                />
               </Panel>
 
-              <Panel title="New Session">
+              <Panel title="Chapter Preview">
                 <div className="space-y-4">
-                  <InputField
-                    label="Session Title"
-                    value={newSessionTitle}
-                    onChange={setNewSessionTitle}
-                    placeholder="Verse / Modern Meaning Draft"
-                  />
-                  <SegmentedControl
-                    label="Source Mode"
-                    value={sourceMode}
-                    options={[
-                      { value: "paste", label: "Paste source text" },
-                      { value: "existing_story", label: "Use existing story" },
-                    ]}
-                    onChange={(value) => setSourceMode(value as SourceMode)}
-                  />
-
-                  {sourceMode === "existing_story" ? (
-                    <SelectField
-                      label="Existing Story"
-                      value={selectedSourceBookSlug}
-                      onChange={setSelectedSourceBookSlug}
-                      options={(adminBootstrap?.books ?? []).map((book) => ({
-                        value: book.slug,
-                        label: `${book.title} (${book.status})`,
-                      }))}
-                    />
-                  ) : (
-                    <>
-                      <SegmentedControl
-                        label="Chapter Split"
-                        value={splitMode}
-                        options={[
-                          { value: "heading", label: "Heading regex" },
-                          { value: "delimiter", label: "Delimiter" },
-                          { value: "single", label: "Single chapter" },
-                        ]}
-                        onChange={(value) =>
-                          setSplitMode(value as ChapterSplitMode)
-                        }
-                      />
-                      {splitMode === "heading" ? (
-                        <InputField
-                          label="Heading Regex"
-                          value={headingPattern}
-                          onChange={setHeadingPattern}
-                          placeholder="^(book|chapter|canto|scroll)\\b.*$"
-                        />
-                      ) : null}
-                      {splitMode === "delimiter" ? (
-                        <InputField
-                          label="Delimiter"
-                          value={delimiter}
-                          onChange={setDelimiter}
-                          placeholder="\n\n\n"
-                        />
-                      ) : null}
-                      <TextareaField
-                        label="Source Text"
-                        value={rawSourceText}
-                        onChange={setRawSourceText}
-                        rows={14}
-                        placeholder="Paste the original text here."
-                      />
-                      <div className="rounded-2xl border border-border/70 bg-paper/80 p-4">
-                        <p className="text-xs font-semibold uppercase tracking-[0.18em] text-accent">
-                          Split Preview
-                        </p>
-                        <div className="mt-4 space-y-3">
-                          {sourceSplitPreview.length > 0 ? (
-                            sourceSplitPreview.map((chapter) => (
-                              <div
-                                key={chapter.slug + chapter.position}
-                                className="rounded-2xl border border-border/60 bg-white/70 p-3"
-                              >
-                                <div className="flex items-center justify-between gap-3">
-                                  <p className="font-semibold text-ink">
-                                    {chapter.title}
-                                  </p>
-                                  <span className="text-xs uppercase tracking-[0.18em] text-accent/80">
-                                    {chapter.sourceText.length} chars
-                                  </span>
-                                </div>
-                                <p className="mt-2 line-clamp-4 text-sm leading-6 text-ink/70">
-                                  {chapter.sourceText}
-                                </p>
-                              </div>
-                            ))
-                          ) : (
-                            <p className="text-sm leading-6 text-ink/60">
-                              No chapters detected yet.
-                            </p>
-                          )}
+                  {chapterPreview.map((chapter) => (
+                    <div
+                      key={chapter.slug + chapter.position}
+                      className="rounded-2xl border border-border/60 bg-paper/80 p-4"
+                    >
+                      <div className="flex items-center justify-between gap-3">
+                        <div>
+                          <p className="font-semibold text-ink">
+                            {chapter.title}
+                          </p>
+                          <p className="mt-1 text-xs uppercase tracking-[0.18em] text-accent">
+                            {chapter.slug}
+                          </p>
                         </div>
+                        <span className="text-xs uppercase tracking-[0.18em] text-accent/80">
+                          {chapter.sourceText.length} chars
+                        </span>
                       </div>
-                    </>
-                  )}
-
+                      <p className="mt-3 line-clamp-5 text-sm leading-7 text-ink/75">
+                        {chapter.sourceText}
+                      </p>
+                    </div>
+                  ))}
+                  {chapterPreview.length === 0 ? (
+                    <p className="text-base leading-7 text-ink/65">
+                      Paste source text and choose a chapter split strategy to
+                      preview chapters.
+                    </p>
+                  ) : null}
+                </div>
+                <div className="mt-6 flex flex-wrap gap-3">
                   <ActionButton
-                    label={isBusy ? "Working..." : "Create Session"}
-                    onClick={handleCreateSession}
+                    label={isBusy ? "Saving..." : "Create Book"}
+                    onClick={createBook}
+                    tone="accent"
                     disabled={
-                      isBusy ||
-                      !newSessionTitle.trim() ||
-                      !defaultModel.trim() ||
-                      !defaultPrompt.trim() ||
-                      (sourceMode === "paste" &&
-                        sourceSplitPreview.length === 0) ||
-                      (sourceMode === "existing_story" &&
-                        !selectedSourceBookSlug)
+                      isBusy || !bookTitle.trim() || chapterPreview.length === 0
                     }
                   />
                 </div>
               </Panel>
+            </div>
+          </section>
+        ) : null}
 
-              <Panel title="Recent Sessions">
-                <div className="space-y-3">
-                  {(adminBootstrap?.sessions ?? []).map((session) => (
+        {screen === "translations" && selectedBook ? (
+          <section className="grid gap-6 xl:grid-cols-[360px_1fr]">
+            <Panel title="Current Book">
+              <div className="space-y-3">
+                <p className="text-xs font-semibold uppercase tracking-[0.18em] text-accent">
+                  {selectedBook.book.status}
+                </p>
+                <h2 className="font-display text-4xl text-ink">
+                  {selectedBook.book.title}
+                </h2>
+                <p className="text-sm text-ink/65">
+                  {selectedBook.book.author}
+                </p>
+                <p className="text-sm leading-7 text-ink/75">
+                  {selectedBook.book.description || "No description yet."}
+                </p>
+                <div className="rounded-2xl border border-border/70 bg-paper/75 p-4 text-sm leading-7 text-ink/70">
+                  {selectedBook.chapters.length} chapters saved to D1/R2.
+                </div>
+                <ActionButton
+                  label="Back To Books"
+                  onClick={() => setScreen("books")}
+                />
+              </div>
+            </Panel>
+
+            <div className="grid gap-6">
+              <Panel title="Translations">
+                <div className="grid gap-4 md:grid-cols-2">
+                  {translationDrafts.map((draft) => (
                     <button
-                      key={session.id}
+                      key={draft.id}
                       type="button"
-                      className={`w-full rounded-2xl border px-4 py-3 text-left transition ${
-                        activeSession?.id === session.id
-                          ? "border-accent bg-accent/10"
-                          : "border-border/70 bg-paper/80 hover:border-accent/50"
-                      }`}
-                      onClick={() => void handleLoadSession(session.id)}
+                      onClick={() => void openTranslationDraft(draft.id)}
+                      className="rounded-[24px] border border-border/70 bg-paper/80 p-5 text-left transition hover:border-accent/50 hover:bg-white"
                     >
-                      <p className="font-semibold text-ink">{session.title}</p>
-                      <p className="mt-1 text-xs uppercase tracking-[0.18em] text-accent">
-                        {session.sourceMode.replace("_", " ")} ·{" "}
-                        {session.chapterCount} chapters
+                      <p className="text-xs font-semibold uppercase tracking-[0.18em] text-accent">
+                        {draft.chapterCount} chapters
                       </p>
-                      <p className="mt-2 text-sm text-ink/65">
-                        {session.model}
+                      <h3 className="mt-3 font-display text-3xl text-ink">
+                        {draft.title}
+                      </h3>
+                      <p className="mt-2 text-sm leading-7 text-ink/70">
+                        {draft.model}
+                      </p>
+                      <p className="mt-3 text-sm leading-7 text-ink/60">
+                        Context: {draft.contextBeforeChapterCount} before,{" "}
+                        {draft.contextAfterChapterCount} after
                       </p>
                     </button>
                   ))}
-                  {adminBootstrap?.sessions.length === 0 ? (
-                    <p className="text-sm leading-6 text-ink/60">
-                      No sessions yet.
+                  {translationDrafts.length === 0 ? (
+                    <p className="text-base leading-7 text-ink/65">
+                      No translation drafts yet.
                     </p>
                   ) : null}
                 </div>
               </Panel>
-            </div>
 
-            <div className="grid gap-6">
-              <Panel title="Session Workspace">
-                {activeSession ? (
-                  <div className="space-y-6">
-                    <div className="grid gap-4 lg:grid-cols-[1fr_220px]">
-                      <div className="grid gap-4">
-                        <InputField
-                          label="Session Title"
-                          value={sessionEditorTitle}
-                          onChange={setSessionEditorTitle}
-                          placeholder="Translation session title"
-                        />
-                        <InputField
-                          label="Model"
-                          value={sessionEditorModel}
-                          onChange={setSessionEditorModel}
-                          placeholder="openai/gpt-4o-mini"
-                        />
-                      </div>
-                      <div className="rounded-2xl border border-border/70 bg-paper/75 p-4">
-                        <p className="text-xs font-semibold uppercase tracking-[0.18em] text-accent">
-                          Session Stats
-                        </p>
-                        <div className="mt-4 space-y-3 text-sm text-ink/70">
-                          <p>{activeSession.chapterCount} chapters</p>
-                          <p>Current index {selectedChapterIndex + 1}</p>
-                          <p>Source mode {activeSession.sourceMode}</p>
-                        </div>
-                      </div>
-                    </div>
-
-                    <TextareaField
-                      label="Session Prompt"
-                      value={sessionEditorPrompt}
-                      onChange={setSessionEditorPrompt}
-                      rows={10}
-                      placeholder="Edit the prompt used for chunking + translation."
-                    />
-
-                    <div className="flex flex-wrap gap-3">
-                      <ActionButton
-                        label={isBusy ? "Saving..." : "Save Session Config"}
-                        onClick={handleSaveSessionConfig}
-                        disabled={isBusy}
-                      />
-                      <ActionButton
-                        label={
-                          isBusy ? "Generating..." : "Generate Current Chapter"
-                        }
-                        onClick={handleGenerateCurrentChapter}
-                        disabled={isBusy || !currentSessionChapter}
-                        tone="accent"
-                      />
-                      <ActionButton
-                        label={isBusy ? "Saving..." : "Save Review And Advance"}
-                        onClick={handleSaveCurrentChapter}
-                        disabled={
-                          isBusy ||
-                          !currentSessionChapter ||
-                          !editedRawResponse.trim()
-                        }
-                      />
-                    </div>
-                  </div>
-                ) : (
-                  <p className="text-base leading-7 text-ink/70">
-                    Create or load a session to start the chapter-by-chapter
-                    workflow.
-                  </p>
-                )}
+              <Panel title="Create Translation Draft">
+                <div className="grid gap-4 lg:grid-cols-2">
+                  <InputField
+                    label="Translation Name"
+                    value={translationTitle}
+                    onChange={setTranslationTitle}
+                  />
+                  <InputField
+                    label="Slug"
+                    value={translationSlug}
+                    onChange={setTranslationSlug}
+                  />
+                  <InputField
+                    label="Model"
+                    value={translationModel}
+                    onChange={setTranslationModel}
+                  />
+                  <InputField
+                    label="Description"
+                    value={translationDescription}
+                    onChange={setTranslationDescription}
+                  />
+                  <InputField
+                    label="Context Before Chapters"
+                    value={contextBeforeChapterCount}
+                    onChange={setContextBeforeChapterCount}
+                  />
+                  <InputField
+                    label="Context After Chapters"
+                    value={contextAfterChapterCount}
+                    onChange={setContextAfterChapterCount}
+                  />
+                </div>
+                <div className="mt-4">
+                  <TextareaField
+                    label="Prompt"
+                    value={translationPrompt}
+                    onChange={setTranslationPrompt}
+                    rows={10}
+                  />
+                </div>
+                <div className="mt-6 flex flex-wrap gap-3">
+                  <ActionButton
+                    label={isBusy ? "Creating..." : "Create Translation Draft"}
+                    onClick={createTranslationDraft}
+                    tone="accent"
+                    disabled={
+                      isBusy ||
+                      !translationTitle.trim() ||
+                      !translationModel.trim() ||
+                      !translationPrompt.trim()
+                    }
+                  />
+                </div>
               </Panel>
-
-              <section className="grid gap-6 lg:grid-cols-[280px_1fr]">
-                <Panel title="Chapter Queue">
-                  <div className="space-y-3">
-                    {activeSession?.chapters.map((chapter, index) => (
-                      <button
-                        key={chapter.id}
-                        type="button"
-                        onClick={() => setSelectedChapterIndex(index)}
-                        className={`w-full rounded-2xl border px-4 py-3 text-left transition ${
-                          selectedChapterIndex === index
-                            ? "border-accent bg-accent/10"
-                            : "border-border/70 bg-paper/75 hover:border-accent/40"
-                        }`}
-                      >
-                        <div className="flex items-start justify-between gap-3">
-                          <div>
-                            <p className="font-semibold text-ink">
-                              {chapter.title}
-                            </p>
-                            <p className="mt-1 text-xs uppercase tracking-[0.18em] text-accent">
-                              {chapter.slug}
-                            </p>
-                          </div>
-                          <StatusPill status={chapter.status} />
-                        </div>
-                        {chapter.errorMessage ? (
-                          <p className="mt-2 text-sm leading-6 text-red-700/80">
-                            {chapter.errorMessage}
-                          </p>
-                        ) : null}
-                      </button>
-                    ))}
-                    {activeSession?.chapters.length === 0 ? (
-                      <p className="text-sm leading-6 text-ink/60">
-                        No chapters in this session.
-                      </p>
-                    ) : null}
-                  </div>
-                </Panel>
-
-                <Panel title="Current Chapter">
-                  {currentSessionChapter ? (
-                    <div className="space-y-6">
-                      <div className="grid gap-6 xl:grid-cols-2">
-                        <div className="rounded-2xl border border-border/70 bg-paper/75 p-4">
-                          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-accent">
-                            Source Chapter
-                          </p>
-                          <h3 className="mt-3 font-display text-3xl text-ink">
-                            {currentSessionChapter.title}
-                          </h3>
-                          <p className="mt-4 whitespace-pre-wrap text-base leading-7 text-ink/80">
-                            {currentSessionChapter.sourceText}
-                          </p>
-                        </div>
-
-                        <div className="rounded-2xl border border-border/70 bg-white/80 p-4">
-                          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-accent">
-                            Raw AI Response
-                          </p>
-                          <textarea
-                            className="mt-4 min-h-[360px] w-full rounded-2xl border border-border/70 bg-paper/70 px-4 py-3 font-mono text-sm leading-6 text-ink outline-none transition focus:border-accent"
-                            value={editedRawResponse}
-                            onChange={(event) =>
-                              setEditedRawResponse(event.target.value)
-                            }
-                            placeholder="Generate the chapter to inspect and edit JSON here."
-                          />
-                        </div>
-                      </div>
-
-                      <div className="grid gap-6 xl:grid-cols-2">
-                        <DocumentPreview
-                          title="Normalized Original Chunks"
-                          chunks={
-                            currentSessionChapter.originalDocument?.chunks ?? []
-                          }
-                          emptyMessage="No normalized original chunks yet. Generate or save a valid response first."
-                        />
-                        <TranslationPreview
-                          title="Normalized Translation Chunks"
-                          chunks={
-                            currentSessionChapter.translationDocument?.chunks ??
-                            []
-                          }
-                          emptyMessage="No normalized translation chunks yet."
-                        />
-                      </div>
-
-                      {currentSessionChapter.notes ? (
-                        <div className="rounded-2xl border border-border/70 bg-paper/75 p-4">
-                          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-accent">
-                            Model Notes
-                          </p>
-                          <p className="mt-3 text-sm leading-7 text-ink/80">
-                            {currentSessionChapter.notes}
-                          </p>
-                        </div>
-                      ) : null}
-                    </div>
-                  ) : (
-                    <p className="text-base leading-7 text-ink/70">
-                      Select a chapter to inspect its source text and AI
-                      response.
-                    </p>
-                  )}
-                </Panel>
-              </section>
             </div>
           </section>
-        ) : (
-          <section className="grid gap-6 lg:grid-cols-[320px_1fr]">
-            <Panel title="Library snapshot">
-              <div className="space-y-4">
-                {readerState.books.map((book) => (
-                  <article
-                    key={book.id}
-                    className="rounded-2xl border border-border/80 bg-paper p-4"
+        ) : null}
+
+        {screen === "workspace" && activeSession ? (
+          <section className="grid gap-6 xl:grid-cols-[300px_1fr]">
+            <Panel title="Chapter Queue">
+              <div className="space-y-3">
+                {activeSession.chapters.map((chapter, index) => (
+                  <button
+                    key={chapter.id}
+                    type="button"
+                    onClick={() => setSelectedChapterIndex(index)}
+                    className={`w-full rounded-2xl border px-4 py-3 text-left transition ${
+                      selectedChapterIndex === index
+                        ? "border-accent bg-accent/10"
+                        : "border-border/70 bg-paper/80 hover:border-accent/50"
+                    }`}
                   >
-                    <p className="text-sm uppercase tracking-[0.18em] text-accent">
-                      {book.originalLanguage}
-                    </p>
-                    <h2 className="mt-2 font-display text-2xl text-ink">
-                      {book.title}
-                    </h2>
-                    <p className="mt-1 text-sm text-ink/70">{book.author}</p>
-                    <p className="mt-3 text-sm leading-7 text-ink/75">
-                      {book.description}
-                    </p>
-                  </article>
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <p className="font-semibold text-ink">
+                          {chapter.title}
+                        </p>
+                        <p className="mt-1 text-xs uppercase tracking-[0.18em] text-accent">
+                          {chapter.slug}
+                        </p>
+                      </div>
+                      <StatusPill status={chapter.status} />
+                    </div>
+                  </button>
                 ))}
               </div>
-            </Panel>
-
-            <Panel title="Reader Preview">
-              <div className="grid gap-2">
-                <div className="hidden border-b border-border/60 pb-3 text-xs font-semibold uppercase tracking-[0.2em] text-accent md:grid md:grid-cols-2 md:gap-8">
-                  <p>Source passage</p>
-                  <p>Translation passage</p>
-                </div>
-
-                <div className="divide-y divide-border/35">
-                  {readerTranslationChunks.map((chunk) => {
-                    const sourceChunks = chunk.sourceChunkIds
-                      .map((sourceChunkId) =>
-                        readerOriginalChunkMap.get(sourceChunkId),
-                      )
-                      .filter(isPresent);
-
-                    return (
-                      <div
-                        key={chunk.id}
-                        className="grid gap-4 py-4 md:grid-cols-2 md:gap-8"
-                      >
-                        <div>
-                          <p className="text-[0.72rem] font-semibold uppercase tracking-[0.18em] text-accent md:hidden">
-                            Source passage
-                          </p>
-                          <p className="text-[0.72rem] font-semibold uppercase tracking-[0.18em] text-accent/85">
-                            {chunk.sourceChunkIds.join(" + ")}
-                          </p>
-                          <div className="mt-3 space-y-3">
-                            {sourceChunks.map((sourceChunk) => (
-                              <p
-                                key={sourceChunk.id}
-                                className="font-display text-2xl leading-9 text-ink"
-                              >
-                                <span className="mr-3 align-top font-sans text-[0.72rem] font-semibold uppercase tracking-[0.18em] text-accent/85">
-                                  {sourceChunk.id}
-                                </span>
-                                {sourceChunk.text}
-                              </p>
-                            ))}
-                          </div>
-                        </div>
-                        <div>
-                          <p className="text-[0.72rem] font-semibold uppercase tracking-[0.18em] text-accent md:hidden">
-                            Translation passage
-                          </p>
-                          <p className="text-[0.72rem] font-semibold uppercase tracking-[0.18em] text-accent/85">
-                            {chunk.id}
-                          </p>
-                          <p className="mt-3 text-lg leading-8 text-ink/80">
-                            {chunk.text}
-                          </p>
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
+              <div className="mt-6 flex flex-wrap gap-3">
+                <ActionButton
+                  label="Back To Translations"
+                  onClick={() => setScreen("translations")}
+                />
+                <ActionButton
+                  label="Validate Draft"
+                  onClick={validateCurrentDraft}
+                  tone="accent"
+                />
               </div>
             </Panel>
+
+            <div className="grid gap-6">
+              <Panel title="Translation Workspace">
+                <div className="grid gap-4 lg:grid-cols-2">
+                  <InputField
+                    label="Translation Name"
+                    value={translationTitle}
+                    onChange={setTranslationTitle}
+                  />
+                  <InputField
+                    label="Model"
+                    value={translationModel}
+                    onChange={setTranslationModel}
+                  />
+                  <InputField
+                    label="Context Before Chapters"
+                    value={contextBeforeChapterCount}
+                    onChange={setContextBeforeChapterCount}
+                  />
+                  <InputField
+                    label="Context After Chapters"
+                    value={contextAfterChapterCount}
+                    onChange={setContextAfterChapterCount}
+                  />
+                </div>
+                <div className="mt-4">
+                  <TextareaField
+                    label="Prompt"
+                    value={translationPrompt}
+                    onChange={setTranslationPrompt}
+                    rows={10}
+                  />
+                </div>
+                <div className="mt-6 flex flex-wrap gap-3">
+                  <ActionButton
+                    label={isBusy ? "Saving..." : "Save Draft Settings"}
+                    onClick={() => void saveWorkspaceConfig()}
+                    disabled={isBusy}
+                  />
+                  <ActionButton
+                    label={
+                      isBusy ? "Generating..." : "Generate Current Chapter"
+                    }
+                    onClick={generateCurrentChapter}
+                    tone="accent"
+                    disabled={isBusy || !currentWorkspaceChapter}
+                  />
+                  <ActionButton
+                    label={isBusy ? "Saving..." : "Save Review And Continue"}
+                    onClick={saveCurrentChapter}
+                    disabled={isBusy || !editedRawResponse.trim()}
+                  />
+                </div>
+              </Panel>
+
+              {currentWorkspaceChapter ? (
+                <>
+                  <Panel title={`Source: ${currentWorkspaceChapter.title}`}>
+                    <p className="whitespace-pre-wrap text-base leading-7 text-ink/80">
+                      {currentWorkspaceChapter.sourceText}
+                    </p>
+                  </Panel>
+
+                  <Panel title="Review AI Response">
+                    <textarea
+                      className="min-h-[360px] w-full rounded-2xl border border-border/70 bg-paper/70 px-4 py-3 font-mono text-sm leading-6 text-ink outline-none transition focus:border-accent"
+                      value={editedRawResponse}
+                      onChange={(event) =>
+                        setEditedRawResponse(event.target.value)
+                      }
+                      placeholder="Generate the chapter, then review and edit the JSON response here."
+                    />
+                  </Panel>
+
+                  <section className="grid gap-6 xl:grid-cols-2">
+                    <DocumentPreview
+                      title="Original Chunks"
+                      chunks={
+                        currentWorkspaceChapter.originalDocument?.chunks ?? []
+                      }
+                      emptyMessage="No normalized original chunks yet."
+                    />
+                    <TranslationPreview
+                      title="Translation Chunks"
+                      chunks={
+                        currentWorkspaceChapter.translationDocument?.chunks ??
+                        []
+                      }
+                      emptyMessage="No normalized translation chunks yet."
+                    />
+                  </section>
+                </>
+              ) : null}
+            </div>
           </section>
-        )}
+        ) : null}
+
+        {screen === "validate" && validation ? (
+          <section className="grid gap-6 xl:grid-cols-[320px_1fr]">
+            <Panel title="Validation Summary">
+              <p className="text-sm font-semibold uppercase tracking-[0.18em] text-accent">
+                {validation.isValid ? "Ready for next step" : "Issues found"}
+              </p>
+              <div className="mt-4 space-y-3">
+                {validation.issues.length > 0 ? (
+                  validation.issues.map((issue, index) => (
+                    <div
+                      key={`${issue.level}-${index}`}
+                      className={`rounded-2xl border p-3 text-sm leading-6 ${
+                        issue.level === "error"
+                          ? "border-red-200 bg-red-50 text-red-800"
+                          : "border-amber-200 bg-amber-50 text-amber-900"
+                      }`}
+                    >
+                      {issue.message}
+                    </div>
+                  ))
+                ) : (
+                  <p className="text-base leading-7 text-ink/70">
+                    No validation issues found.
+                  </p>
+                )}
+              </div>
+              <div className="mt-6 flex flex-wrap gap-3">
+                <ActionButton
+                  label="Back To Workspace"
+                  onClick={() => setScreen("workspace")}
+                />
+              </div>
+            </Panel>
+
+            <div className="grid gap-6">
+              <Panel title="Chapter Checks">
+                <div className="grid gap-3 md:grid-cols-2">
+                  {validation.chapters.map((chapter, index) => (
+                    <button
+                      key={chapter.slug + chapter.position}
+                      type="button"
+                      onClick={() => setValidationPreviewIndex(index)}
+                      className={`rounded-2xl border px-4 py-3 text-left transition ${
+                        validationPreviewIndex === index
+                          ? "border-accent bg-accent/10"
+                          : "border-border/70 bg-paper/80 hover:border-accent/50"
+                      }`}
+                    >
+                      <div className="flex items-start justify-between gap-3">
+                        <div>
+                          <p className="font-semibold text-ink">
+                            {chapter.title}
+                          </p>
+                          <p className="mt-1 text-xs uppercase tracking-[0.18em] text-accent">
+                            {chapter.slug}
+                          </p>
+                        </div>
+                        <StatusPill status={chapter.status} />
+                      </div>
+                      {chapter.issues.length > 0 ? (
+                        <p className="mt-2 text-sm leading-6 text-ink/65">
+                          {chapter.issues.length} issue(s)
+                        </p>
+                      ) : (
+                        <p className="mt-2 text-sm leading-6 text-emerald-700">
+                          No issues
+                        </p>
+                      )}
+                    </button>
+                  ))}
+                </div>
+              </Panel>
+
+              {validationPreviewChapter ? (
+                <Panel title="Side-by-Side Preview">
+                  <ChapterSideBySidePreview
+                    chapter={validationPreviewChapter}
+                  />
+                </Panel>
+              ) : null}
+            </div>
+          </section>
+        ) : null}
       </div>
+
+      {settingsOpen ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-end bg-ink/35 px-4 py-6">
+          <div className="w-full max-w-xl rounded-[32px] border border-border/70 bg-white p-6 shadow-panel">
+            <div className="flex items-center justify-between gap-4">
+              <h2 className="font-display text-4xl text-ink">Settings</h2>
+              <button
+                type="button"
+                onClick={() => setSettingsOpen(false)}
+                className="rounded-full border border-border/70 px-4 py-2 text-sm font-semibold text-ink transition hover:border-accent/50"
+              >
+                Close
+              </button>
+            </div>
+            <div className="mt-6 space-y-4">
+              <InputField
+                label="OpenRouter API Key"
+                value={settingsApiKey}
+                onChange={setSettingsApiKey}
+                type="password"
+              />
+              <InputField
+                label="Default Model"
+                value={settingsModel}
+                onChange={setSettingsModel}
+              />
+              <TextareaField
+                label="Default Prompt"
+                value={settingsPrompt}
+                onChange={setSettingsPrompt}
+                rows={12}
+              />
+              <ActionButton
+                label={isBusy ? "Saving..." : "Save Settings"}
+                onClick={saveSettings}
+                tone="accent"
+                disabled={isBusy}
+              />
+            </div>
+          </div>
+        </div>
+      ) : null}
     </main>
-  );
-}
-
-function Metric({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="rounded-2xl border border-paper/15 bg-paper/5 p-4">
-      <p className="text-xs uppercase tracking-[0.2em] text-paper/60">
-        {label}
-      </p>
-      <p className="mt-3 text-lg font-semibold text-paper">{value}</p>
-    </div>
-  );
-}
-
-function ViewButton({
-  active,
-  label,
-  onClick,
-}: {
-  active: boolean;
-  label: string;
-  onClick: () => void;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className={`rounded-full px-5 py-3 text-sm font-semibold transition ${
-        active
-          ? "bg-accent text-paper"
-          : "border border-border/70 bg-white/70 text-ink hover:border-accent/40"
-      }`}
-    >
-      {label}
-    </button>
   );
 }
 
@@ -980,13 +1056,11 @@ function InputField({
   label,
   value,
   onChange,
-  placeholder,
   type = "text",
 }: {
   label: string;
   value: string;
   onChange: (value: string) => void;
-  placeholder?: string;
   type?: string;
 }) {
   return (
@@ -998,40 +1072,8 @@ function InputField({
         type={type}
         value={value}
         onChange={(event) => onChange(event.target.value)}
-        placeholder={placeholder}
         className="rounded-2xl border border-border/70 bg-paper/70 px-4 py-3 text-base text-ink outline-none transition focus:border-accent"
       />
-    </label>
-  );
-}
-
-function SelectField({
-  label,
-  value,
-  onChange,
-  options,
-}: {
-  label: string;
-  value: string;
-  onChange: (value: string) => void;
-  options: Array<{ value: string; label: string }>;
-}) {
-  return (
-    <label className="grid gap-2">
-      <span className="text-xs font-semibold uppercase tracking-[0.18em] text-accent">
-        {label}
-      </span>
-      <select
-        value={value}
-        onChange={(event) => onChange(event.target.value)}
-        className="rounded-2xl border border-border/70 bg-paper/70 px-4 py-3 text-base text-ink outline-none transition focus:border-accent"
-      >
-        {options.map((option) => (
-          <option key={option.value} value={option.value}>
-            {option.label}
-          </option>
-        ))}
-      </select>
     </label>
   );
 }
@@ -1188,12 +1230,7 @@ function TranslationPreview({
   emptyMessage,
 }: {
   title: string;
-  chunks: Array<{
-    id: string;
-    text: string;
-    ordinal: number;
-    sourceChunkIds: string[];
-  }>;
+  chunks: Array<{ id: string; text: string; sourceChunkIds: string[] }>;
   emptyMessage: string;
 }) {
   return (
@@ -1218,6 +1255,60 @@ function TranslationPreview({
           <p className="text-sm leading-6 text-ink/60">{emptyMessage}</p>
         )}
       </div>
+    </div>
+  );
+}
+
+function ChapterSideBySidePreview({
+  chapter,
+}: {
+  chapter: NonNullable<
+    AdminTranslationValidationPayload["session"]
+  >["chapters"][number];
+}) {
+  const originalMap = new Map(
+    (chapter.originalDocument?.chunks ?? []).map((chunk) => [chunk.id, chunk]),
+  );
+
+  return (
+    <div className="divide-y divide-border/35">
+      {(chapter.translationDocument?.chunks ?? []).map((chunk) => {
+        const sourceChunks = chunk.sourceChunkIds
+          .map((chunkId) => originalMap.get(chunkId))
+          .filter(isPresent);
+
+        return (
+          <div
+            key={chunk.id}
+            className="grid gap-4 py-4 md:grid-cols-2 md:gap-8"
+          >
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-accent">
+                Source · {chunk.sourceChunkIds.join(" + ")}
+              </p>
+              <div className="mt-3 space-y-3">
+                {sourceChunks.map((sourceChunk) => (
+                  <p
+                    key={sourceChunk.id}
+                    className="font-display text-2xl leading-9 text-ink"
+                  >
+                    <span className="mr-3 align-top font-sans text-[0.72rem] font-semibold uppercase tracking-[0.18em] text-accent/85">
+                      {sourceChunk.id}
+                    </span>
+                    {sourceChunk.text}
+                  </p>
+                ))}
+              </div>
+            </div>
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-accent">
+                Translation · {chunk.id}
+              </p>
+              <p className="mt-3 text-lg leading-8 text-ink/80">{chunk.text}</p>
+            </div>
+          </div>
+        );
+      })}
     </div>
   );
 }

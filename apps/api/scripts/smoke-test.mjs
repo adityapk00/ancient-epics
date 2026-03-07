@@ -294,6 +294,27 @@ try {
     );
   }
 
+  {
+    const { status, json } = await api("POST", "/api/admin/books", {
+      title: "Smoke Book",
+      slug: "smoke-book",
+      author: "Smoke Tester",
+      originalLanguage: "English",
+      description: "Created during the smoke test.",
+      chapters: [
+        {
+          position: 0,
+          title: "Book One",
+          slug: "book-one",
+          sourceText: "First line of the source.\nSecond line of the source.",
+        },
+      ],
+    });
+    assert("POST /api/admin/books returns 201", status === 201);
+    assert("created book has draft status", json.data?.book?.status === "draft");
+    assert("created book has one chapter", json.data?.chapters?.length === 1);
+  }
+
   // ── Admin ingestion bootstrap + session flow ──
   console.log("\n─── Admin Ingestion ───");
   {
@@ -374,6 +395,56 @@ try {
     assert(
       "session advances to the next chapter",
       saveResult.json.data?.session?.currentChapterIndex === 1,
+    );
+
+  }
+
+  {
+    const createDraftResult = await api(
+      "POST",
+      "/api/admin/books/iliad/translation-drafts",
+      {
+        title: "Smoke Iliad Draft",
+        slug: "smoke-iliad-draft",
+        description: "Created during smoke validation.",
+        model: "openai/gpt-4o-mini",
+        prompt: "Return JSON only.",
+        contextBeforeChapterCount: 1,
+        contextAfterChapterCount: 0,
+      },
+    );
+    assert(
+      "POST book translation draft returns 201",
+      createDraftResult.status === 201,
+    );
+
+    const linkedSessionId = createDraftResult.json.data?.id;
+    const draftsResult = await api(
+      "GET",
+      "/api/admin/books/iliad/translation-drafts",
+    );
+    assert(
+      "translation drafts list returns 200",
+      draftsResult.status === 200,
+    );
+    assert(
+      "translation drafts include the linked draft",
+      draftsResult.json.data?.sessions?.some(
+        (session) => session.id === linkedSessionId,
+      ),
+    );
+
+    const validationResult = await api(
+      "GET",
+      `/api/admin/translation-drafts/${linkedSessionId}/validate`,
+    );
+    assert(
+      "validate translation draft returns 200",
+      validationResult.status === 200,
+    );
+    assert(
+      "validation payload has chapters",
+      validationResult.json.data?.chapters?.length > 0,
     );
   }
 } finally {

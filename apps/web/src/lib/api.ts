@@ -1,6 +1,10 @@
 import type {
+  AdminBookChapterDraft,
+  AdminBookSourcePayload,
   AdminIngestionBootstrapPayload,
   AdminIngestionSessionDetail,
+  AdminIngestionSessionSummary,
+  AdminTranslationValidationPayload,
   ApiResponse,
   BookDetail,
   BookSummary,
@@ -61,12 +65,50 @@ export const api = {
     }),
   getAdminIngestionBootstrap: () =>
     request<AdminIngestionBootstrapPayload>("/api/admin/ingestion/bootstrap"),
+  createAdminBook: (body: {
+    title: string;
+    slug?: string;
+    author?: string;
+    originalLanguage?: string;
+    description?: string;
+    chapters: AdminBookChapterDraft[];
+  }) => requestJson<AdminBookSourcePayload>("POST", "/api/admin/books", body),
+  getAdminBookSource: (bookSlug: string) =>
+    request<AdminBookSourcePayload>(`/api/admin/books/${bookSlug}/source`),
+  listAdminTranslationDrafts: (bookSlug: string) =>
+    request<{ sessions: AdminIngestionSessionSummary[] }>(
+      `/api/admin/books/${bookSlug}/translation-drafts`,
+    ),
+  createAdminTranslationDraft: (
+    bookSlug: string,
+    body: {
+      title: string;
+      slug?: string;
+      description?: string;
+      model: string;
+      prompt: string;
+      contextBeforeChapterCount?: number;
+      contextAfterChapterCount?: number;
+    },
+  ) =>
+    requestJson<AdminIngestionSessionDetail>(
+      "POST",
+      `/api/admin/books/${bookSlug}/translation-drafts`,
+      body,
+    ),
+  validateAdminTranslationDraft: (sessionId: string) =>
+    request<AdminTranslationValidationPayload>(
+      `/api/admin/translation-drafts/${sessionId}/validate`,
+    ),
   createAdminIngestionSession: (body: {
     title: string;
     sourceMode: "paste" | "existing_story";
     sourceBookSlug?: string;
+    translationId?: string;
     model: string;
     prompt: string;
+    contextBeforeChapterCount?: number;
+    contextAfterChapterCount?: number;
     chapters?: Array<{
       position: number;
       title: string;
@@ -90,6 +132,8 @@ export const api = {
       title?: string;
       model?: string;
       prompt?: string;
+      contextBeforeChapterCount?: number;
+      contextAfterChapterCount?: number;
       currentChapterIndex?: number;
     },
   ) =>
