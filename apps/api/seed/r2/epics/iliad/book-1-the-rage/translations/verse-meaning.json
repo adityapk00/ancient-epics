@@ -1,8 +1,19 @@
 {
   "translationSlug": "verse-meaning",
-  "chunks": {
-    "c1": "Sing, goddess, the anger of Peleus' son Achilles",
-    "c2": "and its devastation, which heaped pain in countless measures upon the Achaeans,",
-    "c3": "and sent so many valiant souls ahead to the house of Hades"
-  }
+  "chunks": [
+    {
+      "id": "t1",
+      "type": "verse",
+      "text": "Sing, goddess, the wrath of Achilles, Peleus' son, and the ruin it brought down in wave after wave upon the Achaeans.",
+      "ordinal": 1,
+      "sourceChunkIds": ["c1", "c2"]
+    },
+    {
+      "id": "t2",
+      "type": "verse",
+      "text": "It drove so many valiant souls ahead to the house of Hades.",
+      "ordinal": 2,
+      "sourceChunkIds": ["c3"]
+    }
+  ]
 }

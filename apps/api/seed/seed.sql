@@ -65,7 +65,7 @@ INSERT INTO translations (
     'book_iliad',
     'verse-meaning',
     'Verse / Preserve Meaning',
-    'A sample translation variant matching the README chunk contract.',
+    'A sample translation variant that groups multiple source lines into larger reading passages.',
     'Translate into contemporary English while preserving the emotional and poetic force of the original.',
     'epics/iliad/book-1-the-rage/translations',
     'published',

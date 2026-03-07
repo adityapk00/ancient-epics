@@ -197,10 +197,21 @@ try {
       "/api/books/iliad/chapters/book-1-the-rage/translations/verse-meaning",
     );
     assert("GET translation returns 200", status === 200);
-    assert("translation has chunks object", typeof json.data?.content?.chunks === "object");
     assert(
-      "chunk c1 is translated",
-      typeof json.data?.content?.chunks?.c1 === "string",
+      "translation has chunks array",
+      Array.isArray(json.data?.content?.chunks),
+    );
+    assert(
+      "first translation chunk has id",
+      typeof json.data?.content?.chunks?.[0]?.id === "string",
+    );
+    assert(
+      "first translation chunk has source anchors",
+      Array.isArray(json.data?.content?.chunks?.[0]?.sourceChunkIds),
+    );
+    assert(
+      "first translation chunk has text",
+      typeof json.data?.content?.chunks?.[0]?.text === "string",
     );
   }
 

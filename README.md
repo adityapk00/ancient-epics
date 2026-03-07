@@ -1,107 +1,95 @@
-# 🏛️ Ancient Epics
+# Ancient Epics
 
-Ancient Epics is a premium reading platform designed to bring classical literature into the modern age. By leveraging AI-generated translations and a specialized reading interface, we make texts like the _Iliad_, the _Epic of Gilgamesh_, and Shakespeare accessible and engaging for anyone.
+Ancient Epics is a premium reading platform for classical literature. It combines curated source texts, multiple AI-generated translation styles, and a reader built for comparison without forcing every translation to mirror the source chunk-for-chunk.
 
-## ✨ Features
+## Features
 
-- **Side-by-Side Reading**: A unique, synchronized reading experience that keeps original text and translations perfectly aligned.
-- **Multiple AI Translations**: Choose your flavor of translation—from literal accuracy and preserved meter to modern prose and atmospheric adaptations.
-- **Contextual AI Assistance**: High-powered "Ask AI" feature to explain historical context, complex vocabulary, or thematic elements on the fly.
-- **Personalized Notes**: Save private notes anchored to specific verses or paragraphs.
-- **Premium Experience**: Gated content with Stripe-backed subscriptions.
+- Side-by-side reading with translation-owned passage boundaries and explicit source anchors.
+- Multiple AI translations, from line-faithful renderings to broader interpretive versions.
+- Contextual AI assistance for vocabulary, history, and thematic explanation.
+- Private notes anchored to specific source or translation passages.
+- Subscription-ready access control backed by Stripe.
 
----
+## Technology Stack
 
-## 🛠️ Technology Stack
+Ancient Epics is built on Cloudflare-first infrastructure.
 
-Ancient Epics is built on the **Cloudflare Edge** for maximum performance and global scalability.
+| Component      | Technology                                     |
+| :------------- | :--------------------------------------------- |
+| Monorepo       | pnpm workspaces                                |
+| Frontend       | React, Vite, TypeScript, Tailwind CSS          |
+| API / Backend  | Cloudflare Workers with Hono                   |
+| Database       | Cloudflare D1                                  |
+| Object Storage | Cloudflare R2                                  |
+| AI Engine      | Cloudflare Workers AI / external LLM providers |
+| Payments       | Stripe                                         |
 
-| Component          | Technology                            |
-| :----------------- | :------------------------------------ |
-| **Monorepo**       | `pnpm` Workspaces                     |
-| **Frontend**       | React, Vite, TypeScript, Tailwind CSS |
-| **API / Backend**  | Cloudflare Workers (Hono)             |
-| **Database**       | Cloudflare D1 (SQLite at the edge)    |
-| **Object Storage** | Cloudflare R2                         |
-| **AI Engine**      | Cloudflare Workers AI (LLMs)          |
-| **Payments**       | Stripe                                |
+## Content Model
 
----
+- Source chapters are stored as ordered original chunks.
+- Every translation stores its own ordered translation chunks.
+- Each translation chunk points back to the source chunks it covers through source anchors.
+- This allows one translation to be line-by-line while another groups several source lines into one larger passage.
 
-## 🚀 Getting Started
+## Getting Started
 
-Follow these steps to set up the project locally.
+### Prerequisites
 
-### 1. Prerequisites
+- Node.js 18+
+- pnpm
 
-- [Node.js](https://nodejs.org/) (v18 or higher recommended)
-- [pnpm](https://pnpm.io/installation) (`npm install -g pnpm`)
-
-### 2. Installation
-
-Clone the repository and install dependencies:
+### Install
 
 ```bash
 pnpm install
 ```
 
-### 3. Local Database & Storage Setup
-
-Initialize your local Cloudflare D1 database and R2 storage with sample data:
+### Seed local D1 and R2 state
 
 ```bash
 pnpm seed:local
 ```
 
-> [!TIP]
-> If you ever need to completely wipe your local database and start fresh, run:
-> `pnpm seed:nuke`
+If you need a clean reset:
 
-### 4. Development Mode
+```bash
+pnpm seed:nuke
+```
 
-Start both the API and the Web frontend concurrently:
+### Run the apps
 
 ```bash
 pnpm dev
 ```
 
-- **Frontend**: [http://127.0.0.1:5173](http://127.0.0.1:5173)
-- **API**: [http://127.0.0.1:8787](http://127.0.0.1:8787)
+- Frontend: http://127.0.0.1:5173
+- API: http://127.0.0.1:8787
 
----
-
-## 📂 Project Structure
+## Project Structure
 
 ```text
-├── apps/
-│   ├── api/        # Cloudflare Worker API (Hono)
-│   └── web/        # React + Vite frontend
-├── packages/
-│   └── shared/     # Shared TypeScript types and utilities
-├── package.json    # Root scripts and workspace config
-└── pnpm-workspace.yaml
+apps/
+	api/        Cloudflare Worker API, D1 migrations, local seed tooling
+	web/        React + Vite frontend
+packages/
+	shared/     Shared TypeScript contracts and R2 helpers
 ```
 
----
+## Scripts
 
-## 📜 Available Scripts
+- pnpm dev
+- pnpm build
+- pnpm lint
+- pnpm typecheck
+- pnpm seed:local
+- pnpm seed:nuke
+- pnpm smoke
 
-- `pnpm dev`: Run all apps in development mode.
-- `pnpm build`: Build all applications for production.
-- `pnpm lint`: Run ESLint across the entire monorepo.
-- `pnpm typecheck`: Run TypeScript type checking.
-- `pnpm seed:local`: Apply migrations and seed local D1/R2.
-- `pnpm seed:nuke`: Delete local D1/R2 state.
+## Environment Configuration
 
----
+- Frontend: copy apps/web/.env.example to apps/web/.env if you want to override the API origin.
+- API: copy apps/api/.dev.vars.example to apps/api/.dev.vars and add local secrets.
 
-## 📝 Environment Configuration
+## Contributing
 
-- **Frontend**: Copy `apps/web/.env.example` to `apps/web/.env`.
-- **API**: Copy `apps/api/.dev.vars.example` to `apps/api/.dev.vars` and add your development secrets (Stripe keys, etc.).
-
----
-
-## 🤝 Contributing
-
-Ancient Epics is built with a focus on high-quality typography and a seamless reading experience. Please ensure any UI changes are tested on both mobile and desktop viewports.
+The reader experience depends on strong typography and clear passage relationships. Test UI changes on desktop and mobile, and preserve the source-anchor contract when changing content or rendering code.

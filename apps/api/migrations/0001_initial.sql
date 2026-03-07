@@ -62,7 +62,9 @@ CREATE TABLE notes (
     user_id TEXT NOT NULL REFERENCES users(id),
     book_id TEXT NOT NULL REFERENCES books(id),
     chapter_id TEXT NOT NULL REFERENCES chapters(id),
-    chunk_id TEXT NOT NULL,
+    translation_id TEXT REFERENCES translations(id),
+    anchor_document TEXT NOT NULL CHECK (anchor_document IN ('original', 'translation')),
+    anchor_id TEXT NOT NULL,
     content TEXT NOT NULL,
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP

@@ -93,8 +93,11 @@ export default function App() {
     void load();
   }, []);
 
-  const rows = state.chapter?.original.chunks ?? [];
-  const translationChunks = state.translation?.content.chunks ?? {};
+  const originalChunks = state.chapter?.original.chunks ?? [];
+  const translationChunks = state.translation?.content.chunks ?? [];
+  const originalChunkMap = new Map(
+    originalChunks.map((chunk) => [chunk.id, chunk]),
+  );
 
   return (
     <main className="min-h-screen bg-paper text-ink">
@@ -111,7 +114,8 @@ export default function App() {
               <p className="max-w-2xl text-lg leading-8 text-ink/75">
                 This scaffold validates the monorepo, shared contracts, Worker
                 API, D1 metadata, and R2-backed chapter retrieval with one
-                seeded sample chapter.
+                seeded sample chapter where each translation defines its own
+                reading segments.
               </p>
             </div>
           </div>
@@ -163,41 +167,66 @@ export default function App() {
             </div>
           </Panel>
 
-          <Panel title="Aligned reader sample">
+          <Panel title="Translation-owned chunking sample">
             <div className="grid gap-2">
               <div className="hidden border-b border-border/60 pb-3 text-xs font-semibold uppercase tracking-[0.2em] text-accent md:grid md:grid-cols-2 md:gap-8">
-                <p>Original</p>
-                <p>Translation</p>
+                <p>Source passage</p>
+                <p>Translation passage</p>
               </div>
 
               <div className="divide-y divide-border/35">
-                {rows.map((chunk) => (
-                  <div
-                    key={chunk.id}
-                    className="grid gap-4 py-4 md:grid-cols-2 md:gap-8"
-                  >
-                    <div>
-                      <p className="text-[0.72rem] font-semibold uppercase tracking-[0.18em] text-accent md:hidden">
-                        Original
-                      </p>
-                      <p className="mt-2 font-display text-2xl leading-9 text-ink md:mt-0">
-                        <span className="mr-3 align-top font-sans text-[0.72rem] font-semibold uppercase tracking-[0.18em] text-accent/85">
+                {translationChunks.map((chunk) => {
+                  const sourceChunks = chunk.sourceChunkIds
+                    .map((sourceChunkId) => originalChunkMap.get(sourceChunkId))
+                    .filter(isPresent);
+
+                  return (
+                    <div
+                      key={chunk.id}
+                      className="grid gap-4 py-4 md:grid-cols-2 md:gap-8"
+                    >
+                      <div>
+                        <p className="text-[0.72rem] font-semibold uppercase tracking-[0.18em] text-accent md:hidden">
+                          Source passage
+                        </p>
+                        <p className="text-[0.72rem] font-semibold uppercase tracking-[0.18em] text-accent/85">
+                          {chunk.sourceChunkIds.join(" + ")}
+                        </p>
+                        <div className="mt-3 space-y-3">
+                          {sourceChunks.length > 0 ? (
+                            sourceChunks.map((sourceChunk) => (
+                              <p
+                                key={sourceChunk.id}
+                                className="font-display text-2xl leading-9 text-ink"
+                              >
+                                <span className="mr-3 align-top font-sans text-[0.72rem] font-semibold uppercase tracking-[0.18em] text-accent/85">
+                                  {sourceChunk.id}
+                                </span>
+                                {sourceChunk.text}
+                              </p>
+                            ))
+                          ) : (
+                            <p className="text-lg leading-8 text-ink/55">
+                              Source chunks missing for this translation
+                              segment.
+                            </p>
+                          )}
+                        </div>
+                      </div>
+                      <div>
+                        <p className="text-[0.72rem] font-semibold uppercase tracking-[0.18em] text-accent md:hidden">
+                          Translation passage
+                        </p>
+                        <p className="text-[0.72rem] font-semibold uppercase tracking-[0.18em] text-accent/85">
                           {chunk.id}
-                        </span>
-                        {chunk.text}
-                      </p>
+                        </p>
+                        <p className="mt-3 text-lg leading-8 text-ink/80">
+                          {chunk.text}
+                        </p>
+                      </div>
                     </div>
-                    <div>
-                      <p className="text-[0.72rem] font-semibold uppercase tracking-[0.18em] text-accent md:hidden">
-                        Translation
-                      </p>
-                      <p className="mt-2 text-lg leading-8 text-ink/80 md:mt-0">
-                        {translationChunks[chunk.id] ??
-                          "Translation missing for this chunk."}
-                      </p>
-                    </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             </div>
           </Panel>
@@ -231,4 +260,8 @@ function Panel({
       <div className="mt-5">{children}</div>
     </section>
   );
+}
+
+function isPresent<T>(value: T | null | undefined): value is T {
+  return value != null;
 }

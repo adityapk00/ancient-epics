@@ -26,6 +26,10 @@ export interface TextChunk {
   ordinal: number;
 }
 
+export interface TranslationChunk extends TextChunk {
+  sourceChunkIds: string[];
+}
+
 export interface OriginalChapterDocument {
   bookSlug: string;
   chapterSlug: string;
@@ -34,7 +38,7 @@ export interface OriginalChapterDocument {
 
 export interface TranslationChapterDocument {
   translationSlug: string;
-  chunks: Record<string, string>;
+  chunks: TranslationChunk[];
 }
 
 // ── D1 row / API shapes ────────────────────────────────────
@@ -104,7 +108,9 @@ export interface NoteRecord {
   userId: string;
   bookId: string;
   chapterId: string;
-  chunkId: string;
+  translationId: string | null;
+  anchorDocument: "original" | "translation";
+  anchorId: string;
   content: string;
   createdAt: string;
   updatedAt: string;

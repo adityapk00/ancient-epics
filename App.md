@@ -1,26 +1,26 @@
 ## Product Overview: Ancient Epics
 
-**Mission:** To make ancient and culturally significant texts (e.g., _Epic of Gilgamesh_, Homer's _Iliad_, Shakespeare's plays) accessible and engaging for modern readers through customizable, side-by-side AI-generated translations.
+**Mission:** Make ancient and culturally significant texts such as the _Epic of Gilgamesh_, the _Iliad_, and Shakespeare accessible through customizable AI-generated translations and a reader that supports different interpretive styles.
 
-**Target Audience:** Students, history enthusiasts, casual readers, and academics who want to appreciate classic literature without the barrier of archaic language.
+**Target Audience:** Students, history enthusiasts, casual readers, and academics who want better access to difficult texts without flattening them into a single translation style.
 
-**Monetization:** SaaS Subscription model (Free tier, Trial, Paid tier) managed via Stripe.
+**Monetization:** SaaS subscription model with free, trial, and paid tiers managed through Stripe.
 
 ## Technical Stack
 
-| Component                 | Technology Choice         | Purpose                                                                                   |
-| ------------------------- | ------------------------- | ----------------------------------------------------------------------------------------- |
-| **Frontend Framework**    | React + Vite + TypeScript | Fast local development, strict type safety, component-based UI.                           |
-| **Styling**               | Tailwind CSS              | Rapid, utility-first styling (crucial for responsive reading views and dark mode).        |
-| **Hosting & CDN**         | Cloudflare Pages          | Serving the static React frontend globally with low latency.                              |
-| **Backend API**           | Cloudflare Workers        | Serverless functions handling auth, billing routing, and database queries.                |
-| **Database (Relational)** | Cloudflare D1             | Storing user profiles, subscription states, private notes, and app metadata.              |
-| **Storage (Static)**      | Cloudflare R2 or KV       | Storing the pre-generated text chunks (Originals and Translations) for instant retrieval. |
-| **AI Integration**        | Cloudflare Workers AI     | Powering the dynamic "Ask AI" feature for contextual text explanations.                   |
+| Component          | Technology Choice                     | Purpose                                              |
+| ------------------ | ------------------------------------- | ---------------------------------------------------- |
+| Frontend Framework | React + Vite + TypeScript             | Fast iteration and strict shared contracts           |
+| Styling            | Tailwind CSS                          | Responsive reading views and admin tooling           |
+| Hosting & CDN      | Cloudflare Pages                      | Low-latency static frontend delivery                 |
+| Backend API        | Cloudflare Workers                    | Auth, billing, content routing, and admin APIs       |
+| Database           | Cloudflare D1                         | User data, subscriptions, metadata, and note anchors |
+| Storage            | Cloudflare R2                         | Immutable source and translation JSON documents      |
+| AI Integration     | Cloudflare Workers AI / external LLMs | Translation generation and contextual explanations   |
 
 ## Phase 0 Setup
 
-The repository now includes a working pnpm monorepo foundation for the Phase 0 deliverables.
+The repository includes a working pnpm monorepo foundation for the initial deliverables.
 
 ### Workspace Layout
 
@@ -34,19 +34,19 @@ packages/
 
 ### Local Development
 
-1. Install dependencies:
+1. Install dependencies.
 
    ```bash
    pnpm install
    ```
 
-2. Seed local D1 and R2 state:
+2. Seed local D1 and R2 state.
 
    ```bash
    pnpm seed:local
    ```
 
-3. Start the frontend and Worker together:
+3. Start the frontend and Worker together.
 
    ```bash
    pnpm dev
@@ -64,7 +64,7 @@ The Vite app runs on `http://127.0.0.1:5173` and proxies `/api` requests to the 
 
 - Seeded metadata for one published sample book (`iliad`)
 - One published chapter with a canonical `original.json`
-- One translation variant stored under the shared R2 key convention
+- One published translation whose passage boundaries intentionally differ from the source chunk boundaries
 
 ### Shared R2 Naming Convention
 
@@ -73,444 +73,206 @@ The Vite app runs on `http://127.0.0.1:5173` and proxies `/api` requests to the 
 
 ## Core UI & Rendering Strategy
 
-The defining feature of the app is the side-by-side reading experience. To avoid the performance pitfalls and state-management nightmares of synchronizing two separate scrollbars, the app will utilize a **Single-Scrollbar, Chunked Row Layout**.
+The defining feature of the app is still the side-by-side reading experience, but the reader no longer assumes a one-to-one chunk mapping between original and translation. Instead it uses a **Source-Anchored Dual-Passage Layout**.
 
-- **Data Structure:** Texts are broken down into logical "chunks" (e.g., a stanza, a pair of lines, a specific character's dialogue).
-- **DOM Structure:** A main scrolling container holds multiple parent `<div>` elements (rows). Inside each parent row, Flexbox or CSS Grid places two child `<div>` elements side-by-side: the Original text on the left, and the Translation on the right.
-- **Alignment:** Because the original and translation are housed in the same horizontal row, they naturally stretch the parent container's height to accommodate the longest text block. This guarantees permanent vertical alignment as the user scrolls, requiring zero JavaScript scroll-syncing.
-- **Mobile Responsiveness:** On narrow screens, a simple CSS media query will stack the Flexbox/Grid columns vertically (Original -> Translation -> Original -> Translation).
-
-## Key Features & User Flows
-
-### 1. Library & Reading Experience
-
-- **Home Dashboard:** A visually appealing, scrollable library of available epics.
-- **Translation Selection:** Upon opening a book, a dropdown menu allows the user to select their preferred pre-generated AI translation style (e.g., Verse/Preserved Meter, Prose/Modern Sensibilities, Literal Accuracy).
-- **Contextual Tooling ("Ask AI" & Notes):** A clean, margin-free reading view. When a user highlights a text selection, a lightweight context menu appears offering two actions:
-- **Save Note:** Opens a modal to write and save a private note anchored to that specific text chunk.
-- **Ask AI:** Sends the highlighted text to an LLM via Cloudflare Workers AI to explain historical context, vocabulary, or thematic meaning.
-
-### 2. User Accounts & Monetization
-
-- **Authentication:** Users can browse the landing page and potentially read a free sample chapter, but must sign up/log in to access full texts and save notes.
-- **Subscription Management:** A dedicated settings page where users can view their current tier (Free, Trial, Active Paid, Expired) and manage their Stripe billing details securely.
-- **Access Control:** The Cloudflare Worker API will check the user's D1 database record to verify an active subscription before fetching premium text chunks from R2.
-
-### 3. Admin Capabilities
-
-- **Content Management:** A secure, admin-only route/dashboard to upload new original texts and upload their corresponding pre-generated translation variants.
-
----
-
-# Data Architecture & Storage Design
-
-This document details the storage separation, database schemas, object storage layout, and the admin workflow for the Ancient Epics application.
-
-## 1. Storage Split: Cloudflare D1 vs. R2
-
-Due to the fundamental difference between dynamic user data and static text content, we split the storage to maximize speed, cacheability, and cost-efficiency.
-
-### **Cloudflare D1 (Relational Database)**
-
-D1 is reserved for **dynamic, queryable data**.
-
-- **User Data:** Authentication profiles, subscription status (Stripe customer IDs), permissions.
-- **App Metadata:** Information about the books available, the chapters they contain, and the available translation variants.
-- **User Notes/Highlights:** Notes that users save, anchored to specific parts of text.
-
-### **Cloudflare R2 (Object Storage) or KV**
-
-R2 is reserved for **immutable, heavy text content and assets**.
-
-- **Static Assets:** Book cover images, author portraits.
-- **Text Chunks (JSON):** The actual epic texts (both original language and the various translations). Because texts don't change once finalized, they run perfectly out of static JSON files cached globally by Cloudflare's CDN.
-
----
-
-## 2. Table Schemas (Cloudflare D1)
-
-```sql
--- Represents an Epic
-CREATE TABLE books (
-    id TEXT PRIMARY KEY,           -- UUID
-    slug TEXT UNIQUE NOT NULL,     -- e.g., 'iliad'
-    title TEXT NOT NULL,
-    author TEXT,
-    original_language TEXT,
-    description TEXT,
-    cover_image_url TEXT,
-    is_published BOOLEAN DEFAULT false
-);
-
--- Represents the structural breakdown of a book
-CREATE TABLE chapters (
-    id TEXT PRIMARY KEY,
-    book_id TEXT REFERENCES books(id),
-    slug TEXT NOT NULL,            -- e.g., 'book-1-the-rage'
-    position INTEGER NOT NULL,     -- For ordering (1, 2, 3...)
-    title TEXT NOT NULL
-);
-
--- Represents a specific flavor/style of translation for a book
-CREATE TABLE translations (
-    id TEXT PRIMARY KEY,
-    book_id TEXT REFERENCES books(id),
-    slug TEXT NOT NULL,            -- e.g., 'verse-meter'
-    name TEXT NOT NULL,            -- "Verse / Preserve Meter"
-    description TEXT,              -- "Maintains the original rhythmic structure..."
-    ai_system_prompt TEXT,         -- The hidden guide prompt used by the Admin
-    is_published BOOLEAN DEFAULT false
-);
-
--- User accounts
-CREATE TABLE users (
-    id TEXT PRIMARY KEY,
-    email TEXT UNIQUE NOT NULL,
-    stripe_customer_id TEXT,
-    subscription_status TEXT       -- 'free', 'trial', 'active', 'expired'
-);
-
--- User-generated notes anchored to the text
-CREATE TABLE notes (
-    id TEXT PRIMARY KEY,
-    user_id TEXT REFERENCES users(id),
-    book_id TEXT REFERENCES books(id),
-    chapter_id TEXT REFERENCES chapters(id),
-    chunk_id TEXT NOT NULL,        -- The exact text block ID this note is about
-    content TEXT NOT NULL,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-);
-```
-
----
-
-## 3. Storage File Layout (Cloudflare R2)
-
-Instead of fetching massive books all at once, the frontend fetches them on a **per-chapter** basis. We split the original text and its translations into separate files.
-
-**Directory Structure in R2:**
-
-```text
-/epics
-  /iliad
-    /book-1
-      original.json
-      trans_verse_meter.json
-      trans_verse_meaning.json
-      trans_prose_modern.json
-      trans_prose_atmosphere.json
-    /book-2
-      original.json
-      ...
-```
-
-### **Aligning Text: The "Chunk ID" System**
-
-To keep the UI perfectly aligned without heavy CPU processing, every paragraph, verse, or stanza receives a unique, permanent `id`. The translation files use these identical IDs to map directly to the original text.
-
-**`original.json`** (Fetched when a user opens the chapter)
-
-```json
-{
-  "book_slug": "iliad",
-  "chapter_slug": "book-1",
-  "chunks": [
-    {
-      "id": "c1",
-      "type": "verse",
-      "text": "Mῆνιν ἄειδε θεὰ Πηληϊάδεω Ἀχιλῆος"
-    },
-    {
-      "id": "c2",
-      "type": "verse",
-      "text": "οὐλομένην, ἣ μυρί᾽ Ἀχαιοῖς ἄλγε᾽ ἔθηκε,"
-    },
-    {
-      "id": "c3",
-      "type": "verse",
-      "text": "πολλὰς δ᾽ ἰφθίμους ψυχὰς Ἄϊδι προΐαψεν"
-    }
-  ]
-}
-```
-
-**`trans_verse_meaning.json`** (Fetched alongside the original, or dynamically swapped)
-
-```json
-{
-  "translation_slug": "verse-meaning",
-  "chunks": {
-    "c1": "Sing, goddess, the anger of Peleus' son Achilles",
-    "c2": "and its devastation, which put pains thousandfold upon the Achaeans,",
-    "c3": "hurled in their multitudes to the house of Hades strong souls"
-  }
-}
-```
-
-- **Why this works seamlessly in the UI:** When the user switches translations from "Prose" to "Verse", the React app simply fetches the new `trans_verse_meaning.json` file. It iterates over the original chunks array, and uses the `id` to instantly look up the corresponding translated string in the dictionary `translation_data.chunks[chunk.id]`.
-
----
-
-## 4. Admin Workflow: "Chunking" and "Guiding"
-
-How do books get added and translations get generated?
-
-### **Step 1: Uploading & Chunking the Original Text**
-
-1. The Admin goes to a dashboard and creates a new Book record.
-2. They upload raw text files containing the chapters in the original language.
-3. The backend script **chunks** the text. Depending on the book type, the chunk logic splits by `\n\n` (for prose) or `\n` (for verse).
-4. The backend generates sequential IDs (e.g., `c1`, `c2`) and outputs the `original.json` file to R2.
-
-### **Step 2: Defining Translations**
-
-1. The Admin creates a new "Translation Type" in the dashboard.
-2. Here, they write the **AI Guide (System Prompt)**.
-   - _Example:_ `"Translate the following Ancient Greek chunk of the Iliad into English. You must strongly prioritize capturing the chaotic, bloody atmosphere of the scene. Make it sound like modern slam poetry. Use the previous and next chunks provided for context, but ONLY output the translation for the target chunk."`
-
-### **Step 3: Generating and Saving**
-
-1. The Admin clicks "Generate Translation".
-2. A Cloudflare Worker loops through the chunks in `original.json`.
-3. _Crucial:_ Because LLMs need context to translate properly, the worker sends a "sliding window" to the API:
-   - Content of Chunk n-1 (Context)
-   - **Content of Chunk n (Target)**
-   - Content of Chunk n+1 (Context)
-4. The LLM translates the Target.
-5. The Worker saves the output into the key/value dictionary format under the same chunk `id`.
-6. Once the entire chapter is processed, the worker uploads the final `trans_prose_atmosphere.json` to R2.
-
-### **Step 4: Quality Checks**
-
-The Admin can preview the file in an internal UI, manually correcting any weird AI hallucinations straight in the R2 JSON file, before finally flipping `is_published = true` in the D1 Database.## Product Overview: Ancient Epics
-
-**Mission:** To make ancient and culturally significant texts (e.g., _Epic of Gilgamesh_, Homer's _Iliad_, Shakespeare's plays) accessible and engaging for modern readers through customizable, side-by-side AI-generated translations.
-
-**Target Audience:** Students, history enthusiasts, casual readers, and academics who want to appreciate classic literature without the barrier of archaic language.
-
-**Monetization:** SaaS Subscription model (Free tier, Trial, Paid tier) managed via Stripe.
-
-## Technical Stack
-
-| Component                 | Technology Choice         | Purpose                                                                                   |
-| ------------------------- | ------------------------- | ----------------------------------------------------------------------------------------- |
-| **Frontend Framework**    | React + Vite + TypeScript | Fast local development, strict type safety, component-based UI.                           |
-| **Styling**               | Tailwind CSS              | Rapid, utility-first styling (crucial for responsive reading views and dark mode).        |
-| **Hosting & CDN**         | Cloudflare Pages          | Serving the static React frontend globally with low latency.                              |
-| **Backend API**           | Cloudflare Workers        | Serverless functions handling auth, billing routing, and database queries.                |
-| **Database (Relational)** | Cloudflare D1             | Storing user profiles, subscription states, private notes, and app metadata.              |
-| **Storage (Static)**      | Cloudflare R2 or KV       | Storing the pre-generated text chunks (Originals and Translations) for instant retrieval. |
-| **AI Integration**        | Cloudflare Workers AI     | Powering the dynamic "Ask AI" feature for contextual text explanations.                   |
-
-## Core UI & Rendering Strategy
-
-The defining feature of the app is the side-by-side reading experience. To avoid the performance pitfalls and state-management nightmares of synchronizing two separate scrollbars, the app will utilize a **Single-Scrollbar, Chunked Row Layout**.
-
-- **Data Structure:** Texts are broken down into logical "chunks" (e.g., a stanza, a pair of lines, a specific character's dialogue).
-- **DOM Structure:** A main scrolling container holds multiple parent `<div>` elements (rows). Inside each parent row, Flexbox or CSS Grid places two child `<div>` elements side-by-side: the Original text on the left, and the Translation on the right.
-- **Alignment:** Because the original and translation are housed in the same horizontal row, they naturally stretch the parent container's height to accommodate the longest text block. This guarantees permanent vertical alignment as the user scrolls, requiring zero JavaScript scroll-syncing.
-- **Mobile Responsiveness:** On narrow screens, a simple CSS media query will stack the Flexbox/Grid columns vertically (Original -> Translation -> Original -> Translation).
+- **Original Data Structure:** The source text is chunked according to the structure of the original work, such as verse lines, paragraphs, or dialogue blocks.
+- **Translation Data Structure:** Every translation stores its own ordered chunk list. A translation may be line-by-line, stanza-by-stanza, or a more interpretive grouped rendering.
+- **Anchoring:** Each translation chunk carries `sourceChunkIds`, the ordered list of source chunks it covers.
+- **Rendering Model:** The reader resolves those source anchors at render time and displays the source span next to the translation passage. This preserves context without forcing every translation to mirror the source chunk count.
+- **Mobile Responsiveness:** On narrow screens, the source span stacks above the translation passage for each rendered unit.
 
 ## Key Features & User Flows
 
 ### 1. Library & Reading Experience
 
 - **Home Dashboard:** A visually appealing, scrollable library of available epics.
-- **Translation Selection:** Upon opening a book, a dropdown menu allows the user to select their preferred pre-generated AI translation style (e.g., Verse/Preserved Meter, Prose/Modern Sensibilities, Literal Accuracy).
-- **Contextual Tooling ("Ask AI" & Notes):** A clean, margin-free reading view. When a user highlights a text selection, a lightweight context menu appears offering two actions:
-- **Save Note:** Opens a modal to write and save a private note anchored to that specific text chunk.
-- **Ask AI:** Sends the highlighted text to an LLM via Cloudflare Workers AI to explain historical context, vocabulary, or thematic meaning.
+- **Translation Selection:** When a reader opens a book, they can choose among published translation styles such as literal, modern prose, or atmosphere-first interpretations.
+- **Contextual Tooling:** When a user highlights a passage, a lightweight context menu can open actions for notes and AI explanation.
+- **Save Note:** Opens a modal to save a private note anchored to the selected original or translation passage.
+- **Ask AI:** Sends the selected passage to an LLM for explanation of context, vocabulary, or theme.
 
 ### 2. User Accounts & Monetization
 
-- **Authentication:** Users can browse the landing page and potentially read a free sample chapter, but must sign up/log in to access full texts and save notes.
-- **Subscription Management:** A dedicated settings page where users can view their current tier (Free, Trial, Active Paid, Expired) and manage their Stripe billing details securely.
-- **Access Control:** The Cloudflare Worker API will check the user's D1 database record to verify an active subscription before fetching premium text chunks from R2.
+- **Authentication:** Users can browse the landing page and possibly read a sample chapter, but must sign up to unlock premium text and notes.
+- **Subscription Management:** A settings page shows the user tier and Stripe-backed billing state.
+- **Access Control:** The Worker checks subscription state before returning premium chapter assets from R2.
 
 ### 3. Admin Capabilities
 
-- **Content Management:** A secure, admin-only route/dashboard to upload new original texts and upload their corresponding pre-generated translation variants.
+- **Source Content Management:** Upload and edit original texts.
+- **Translation Variant Management:** Create translation styles with their own chunking plans and prompts.
+- **Preview & Publish:** Review the final source-anchor layout before publishing.
 
 ---
 
 # Data Architecture & Storage Design
 
-This document details the storage separation, database schemas, object storage layout, and the admin workflow for the Ancient Epics application.
+This document covers storage separation, schemas, R2 document layouts, and the admin workflow for creating translations with independent chunking.
 
 ## 1. Storage Split: Cloudflare D1 vs. R2
 
-Due to the fundamental difference between dynamic user data and static text content, we split the storage to maximize speed, cacheability, and cost-efficiency.
+### Cloudflare D1
 
-### **Cloudflare D1 (Relational Database)**
+D1 stores dynamic, queryable data.
 
-D1 is reserved for **dynamic, queryable data**.
+- User accounts, auth state, and subscriptions
+- App metadata for books, chapters, and translation variants
+- Notes and passage anchors
+- Admin settings and translation job state
 
-- **User Data:** Authentication profiles, subscription status (Stripe customer IDs), permissions.
-- **App Metadata:** Information about the books available, the chapters they contain, and the available translation variants.
-- **User Notes/Highlights:** Notes that users save, anchored to specific parts of text.
+### Cloudflare R2
 
-### **Cloudflare R2 (Object Storage) or KV**
+R2 stores immutable content payloads.
 
-R2 is reserved for **immutable, heavy text content and assets**.
-
-- **Static Assets:** Book cover images, author portraits.
-- **Text Chunks (JSON):** The actual epic texts (both original language and the various translations). Because texts don't change once finalized, they run perfectly out of static JSON files cached globally by Cloudflare's CDN.
-
----
+- Source chapter JSON
+- Translation chapter JSON
+- Static assets such as covers and portraits
 
 ## 2. Table Schemas (Cloudflare D1)
 
 ```sql
--- Represents an Epic
 CREATE TABLE books (
-    id TEXT PRIMARY KEY,           -- UUID
-    slug TEXT UNIQUE NOT NULL,     -- e.g., 'iliad'
+    id TEXT PRIMARY KEY,
+    slug TEXT UNIQUE NOT NULL,
     title TEXT NOT NULL,
     author TEXT,
     original_language TEXT,
     description TEXT,
     cover_image_url TEXT,
-    is_published BOOLEAN DEFAULT false
+    status TEXT NOT NULL DEFAULT 'draft'
 );
 
--- Represents the structural breakdown of a book
 CREATE TABLE chapters (
     id TEXT PRIMARY KEY,
     book_id TEXT REFERENCES books(id),
-    slug TEXT NOT NULL,            -- e.g., 'book-1-the-rage'
-    position INTEGER NOT NULL,     -- For ordering (1, 2, 3...)
-    title TEXT NOT NULL
+    slug TEXT NOT NULL,
+    position INTEGER NOT NULL,
+    title TEXT NOT NULL,
+    source_r2_key TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'draft'
 );
 
--- Represents a specific flavor/style of translation for a book
 CREATE TABLE translations (
     id TEXT PRIMARY KEY,
     book_id TEXT REFERENCES books(id),
-    slug TEXT NOT NULL,            -- e.g., 'verse-meter'
-    name TEXT NOT NULL,            -- "Verse / Preserve Meter"
-    description TEXT,              -- "Maintains the original rhythmic structure..."
-    ai_system_prompt TEXT,         -- The hidden guide prompt used by the Admin
-    is_published BOOLEAN DEFAULT false
+    slug TEXT NOT NULL,
+    name TEXT NOT NULL,
+    description TEXT,
+    ai_system_prompt TEXT,
+    output_r2_prefix TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'draft'
 );
 
--- User accounts
-CREATE TABLE users (
-    id TEXT PRIMARY KEY,
-    email TEXT UNIQUE NOT NULL,
-    stripe_customer_id TEXT,
-    subscription_status TEXT       -- 'free', 'trial', 'active', 'expired'
-);
-
--- User-generated notes anchored to the text
 CREATE TABLE notes (
     id TEXT PRIMARY KEY,
     user_id TEXT REFERENCES users(id),
     book_id TEXT REFERENCES books(id),
     chapter_id TEXT REFERENCES chapters(id),
-    chunk_id TEXT NOT NULL,        -- The exact text block ID this note is about
+    translation_id TEXT REFERENCES translations(id),
+    anchor_document TEXT NOT NULL,
+    anchor_id TEXT NOT NULL,
     content TEXT NOT NULL,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 ```
 
----
-
 ## 3. Storage File Layout (Cloudflare R2)
 
-Instead of fetching massive books all at once, the frontend fetches them on a **per-chapter** basis. We split the original text and its translations into separate files.
-
-**Directory Structure in R2:**
+The frontend fetches content per chapter. Source text and each translation variant are stored separately.
 
 ```text
 /epics
   /iliad
-    /book-1
+    /book-1-the-rage
       original.json
-      trans_verse_meter.json
-      trans_verse_meaning.json
-      trans_prose_modern.json
-      trans_prose_atmosphere.json
-    /book-2
-      original.json
-      ...
+      /translations
+        verse-meaning.json
+        prose-modern.json
 ```
 
-### **Aligning Text: The "Chunk ID" System**
-
-To keep the UI perfectly aligned without heavy CPU processing, every paragraph, verse, or stanza receives a unique, permanent `id`. The translation files use these identical IDs to map directly to the original text.
-
-**`original.json`** (Fetched when a user opens the chapter)
+### Source chapter document
 
 ```json
 {
-  "book_slug": "iliad",
-  "chapter_slug": "book-1",
+  "bookSlug": "iliad",
+  "chapterSlug": "book-1-the-rage",
   "chunks": [
     {
       "id": "c1",
       "type": "verse",
-      "text": "Mῆνιν ἄειδε θεὰ Πηληϊάδεω Ἀχιλῆος"
+      "text": "Mῆνιν ἄειδε θεὰ Πηληϊάδεω Ἀχιλῆος",
+      "ordinal": 1
     },
     {
       "id": "c2",
       "type": "verse",
-      "text": "οὐλομένην, ἣ μυρί᾽ Ἀχαιοῖς ἄλγε᾽ ἔθηκε,"
+      "text": "οὐλομένην, ἣ μυρί᾽ Ἀχαιοῖς ἄλγε᾽ ἔθηκε,",
+      "ordinal": 2
     },
     {
       "id": "c3",
       "type": "verse",
-      "text": "πολλὰς δ᾽ ἰφθίμους ψυχὰς Ἄϊδι προΐαψεν"
+      "text": "πολλὰς δ᾽ ἰφθίμους ψυχὰς Ἄϊδι προΐαψεν",
+      "ordinal": 3
     }
   ]
 }
 ```
 
-**`trans_verse_meaning.json`** (Fetched alongside the original, or dynamically swapped)
+### Translation chapter document
 
 ```json
 {
-  "translation_slug": "verse-meaning",
-  "chunks": {
-    "c1": "Sing, goddess, the anger of Peleus' son Achilles",
-    "c2": "and its devastation, which put pains thousandfold upon the Achaeans,",
-    "c3": "hurled in their multitudes to the house of Hades strong souls"
-  }
+  "translationSlug": "verse-meaning",
+  "chunks": [
+    {
+      "id": "t1",
+      "type": "verse",
+      "text": "Sing, goddess, the wrath of Achilles, Peleus' son, and the ruin it brought down in wave after wave upon the Achaeans.",
+      "ordinal": 1,
+      "sourceChunkIds": ["c1", "c2"]
+    },
+    {
+      "id": "t2",
+      "type": "verse",
+      "text": "It drove so many valiant souls ahead to the house of Hades.",
+      "ordinal": 2,
+      "sourceChunkIds": ["c3"]
+    }
+  ]
 }
 ```
 
-- **Why this works seamlessly in the UI:** When the user switches translations from "Prose" to "Verse", the React app simply fetches the new `trans_verse_meaning.json` file. It iterates over the original chunks array, and uses the `id` to instantly look up the corresponding translated string in the dictionary `translation_data.chunks[chunk.id]`.
+### Why this works in the reader
 
----
+When a reader switches translations, the frontend fetches a different translation document and resolves each translation chunk against the source chunks listed in `sourceChunkIds`. That supports both literal and interpretive translations without requiring identical chunk boundaries.
 
-## 4. Admin Workflow: "Chunking" and "Guiding"
+## 4. Admin Workflow
 
-How do books get added and translations get generated?
+### Step 1: Upload and chunk the original text
 
-### **Step 1: Uploading & Chunking the Original Text**
+1. The admin creates a book and chapter record.
+2. They upload raw source text.
+3. The backend chunks the source text using heuristics that fit the text form.
+4. The system assigns stable source chunk IDs and saves `original.json` to R2.
 
-1. The Admin goes to a dashboard and creates a new Book record.
-2. They upload raw text files containing the chapters in the original language.
-3. The backend script **chunks** the text. Depending on the book type, the chunk logic splits by `\n\n` (for prose) or `\n` (for verse).
-4. The backend generates sequential IDs (e.g., `c1`, `c2`) and outputs the `original.json` file to R2.
+### Step 2: Define a translation variant and segment plan
 
-### **Step 2: Defining Translations**
+1. The admin creates a translation type.
+2. They define the translation prompt and the segmentation approach.
+3. The admin can merge or split source chunks into translation-specific passages.
+4. The system stores translation chunks with stable translation IDs and `sourceChunkIds` anchors.
 
-1. The Admin creates a new "Translation Type" in the dashboard.
-2. Here, they write the **AI Guide (System Prompt)**.
-   - _Example:_ `"Translate the following Ancient Greek chunk of the Iliad into English. You must strongly prioritize capturing the chaotic, bloody atmosphere of the scene. Make it sound like modern slam poetry. Use the previous and next chunks provided for context, but ONLY output the translation for the target chunk."\*
+### Step 3: Generate the translation
 
-### **Step 3: Generating and Saving**
+1. The admin starts generation.
+2. A Worker loops through translation chunks, not raw source chunks.
+3. For each translation chunk, the Worker sends the full source span plus neighboring spans for context.
+4. The LLM returns one translation passage for that chunk.
+5. The Worker writes the result back into the translation JSON document in R2.
 
-1. The Admin clicks "Generate Translation".
-2. A Cloudflare Worker loops through the chunks in `original.json`.
-3. _Crucial:_ Because LLMs need context to translate properly, the worker sends a "sliding window" to the API:
-   - Content of Chunk n-1 (Context)
-   - **Content of Chunk n (Target)**
-   - Content of Chunk n+1 (Context)
-4. The LLM translates the Target.
-5. The Worker saves the output into the key/value dictionary format under the same chunk `id`.
-6. Once the entire chapter is processed, the worker uploads the final `trans_prose_atmosphere.json` to R2.
+### Step 4: Review and publish
 
-### **Step 4: Quality Checks**
-
-The Admin can preview the file in an internal UI, manually correcting any weird AI hallucinations straight in the R2 JSON file, before finally flipping `is_published = true` in the D1 Database.
+1. The admin previews the source-anchored reading layout.
+2. They manually edit any translation chunk text or source anchors that need correction.
+3. Once approved, they flip the database records to `published`.
