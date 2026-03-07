@@ -11,7 +11,7 @@ const r2SeedRoot = path.join(apiRoot, 'seed', 'r2');
 const databaseName = 'ancient-epics';
 const localBucketName = 'ancient-epics-content-preview';
 
-runWrangler(['d1', 'migrations', 'apply', databaseName, '--local']);
+runWrangler(['d1', 'migrations', 'apply', databaseName, '--local'], { stdio: ['ignore', 'inherit', 'inherit'] });
 runWrangler(['d1', 'execute', databaseName, '--local', '--file', seedSqlPath]);
 
 for (const relativeFilePath of collectFiles(r2SeedRoot)) {
@@ -40,10 +40,11 @@ function collectFiles(directory) {
   });
 }
 
-function runWrangler(args) {
+function runWrangler(args, opts = {}) {
   const result = spawnSync('pnpm', ['exec', 'wrangler', ...args], {
     cwd: apiRoot,
-    stdio: 'inherit'
+    stdio: 'inherit',
+    ...opts,
   });
 
   if (result.status !== 0) {
