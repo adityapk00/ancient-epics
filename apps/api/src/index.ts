@@ -3,6 +3,7 @@ import {
   buildTranslationChapterKey,
   type ApiFailure,
   type ApiSuccess,
+  type AppSetting,
   type BookDetail,
   type BookSummary,
   type ChapterPayload,
@@ -33,10 +34,12 @@ app.use("/api/*", async (c, next) => {
   const origin = c.env.PUBLIC_APP_URL ?? "http://127.0.0.1:5173";
   return cors({
     origin,
-    allowMethods: ["GET", "POST", "OPTIONS"],
+    allowMethods: ["GET", "POST", "PUT", "OPTIONS"],
     allowHeaders: ["Content-Type", "Authorization"],
   })(c, next);
 });
+
+// ── Health ───────────────────────────────────────────────────
 
 app.get("/api/health", (c) => {
   return c.json(
@@ -46,6 +49,8 @@ app.get("/api/health", (c) => {
     }),
   );
 });
+
+// ── Public reader routes ─────────────────────────────────────
 
 app.get("/api/books", async (c) => {
   const results = await c.env.DB.prepare(
@@ -58,10 +63,10 @@ app.get("/api/books", async (c) => {
         original_language AS originalLanguage,
         description,
         cover_image_url AS coverImageUrl,
-        is_published AS isPublished,
+        status,
         published_at AS publishedAt
       FROM books
-      WHERE is_published = 1
+      WHERE status = 'published'
       ORDER BY published_at DESC, title ASC
     `,
   ).all<BookSummary>();
@@ -81,10 +86,10 @@ app.get("/api/books/:bookSlug", async (c) => {
         original_language AS originalLanguage,
         description,
         cover_image_url AS coverImageUrl,
-        is_published AS isPublished,
+        status,
         published_at AS publishedAt
       FROM books
-      WHERE slug = ? AND is_published = 1
+      WHERE slug = ? AND status = 'published'
     `,
   )
     .bind(bookSlug)
@@ -107,6 +112,7 @@ app.get("/api/books/:bookSlug", async (c) => {
           title,
           is_preview AS isPreview,
           source_r2_key AS sourceR2Key,
+          status,
           published_at AS publishedAt
         FROM chapters
         WHERE book_id = ?
@@ -123,10 +129,9 @@ app.get("/api/books/:bookSlug", async (c) => {
           name,
           description,
           output_r2_prefix AS outputR2Prefix,
-          status,
-          is_published AS isPublished
+          status
         FROM translations
-        WHERE book_id = ?
+        WHERE book_id = ? AND status = 'published'
         ORDER BY name ASC
       `,
     )
@@ -155,13 +160,14 @@ app.get("/api/books/:bookSlug/chapters/:chapterSlug", async (c) => {
         chapters.title,
         chapters.is_preview AS isPreview,
         chapters.source_r2_key AS sourceR2Key,
+        chapters.status,
         chapters.published_at AS publishedAt,
         books.id AS bookId
       FROM chapters
       INNER JOIN books ON books.id = chapters.book_id
       WHERE books.slug = ?
         AND chapters.slug = ?
-        AND books.is_published = 1
+        AND books.status = 'published'
     `,
   )
     .bind(bookSlug, chapterSlug)
@@ -187,10 +193,9 @@ app.get("/api/books/:bookSlug/chapters/:chapterSlug", async (c) => {
           name,
           description,
           output_r2_prefix AS outputR2Prefix,
-          status,
-          is_published AS isPublished
+          status
         FROM translations
-        WHERE book_id = ?
+        WHERE book_id = ? AND status = 'published'
         ORDER BY name ASC
       `,
     )
@@ -232,13 +237,12 @@ app.get(
         translations.name,
         translations.description,
         translations.output_r2_prefix AS outputR2Prefix,
-        translations.status,
-        translations.is_published AS isPublished
+        translations.status
       FROM translations
       INNER JOIN books ON books.id = translations.book_id
       WHERE books.slug = ?
         AND translations.slug = ?
-        AND books.is_published = 1
+        AND books.status = 'published'
     `,
     )
       .bind(bookSlug, translationSlug)
@@ -280,11 +284,154 @@ app.get(
   },
 );
 
+// ── Admin: App Settings ──────────────────────────────────────
+
+app.get("/api/admin/settings", async (c) => {
+  const results = await c.env.DB.prepare(
+    `SELECT key, value, updated_at AS updatedAt FROM app_settings`,
+  ).all<AppSetting>();
+
+  const settings: Record<string, string> = {};
+  for (const row of results.results ?? []) {
+    settings[row.key] = row.value;
+  }
+
+  return c.json(success({ settings }));
+});
+
+app.put("/api/admin/settings", async (c) => {
+  const body = await c.req.json<{ settings: Record<string, string> }>();
+
+  if (!body.settings || typeof body.settings !== "object") {
+    return c.json(
+      failure("bad_request", "Body must contain a `settings` object."),
+      400,
+    );
+  }
+
+  const now = new Date().toISOString();
+
+  for (const [key, value] of Object.entries(body.settings)) {
+    await c.env.DB.prepare(
+      `
+        INSERT INTO app_settings (key, value, updated_at)
+        VALUES (?, ?, ?)
+        ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at
+      `,
+    )
+      .bind(key, value, now)
+      .run();
+  }
+
+  return c.json(success({ updated: Object.keys(body.settings) }));
+});
+
+// ── Admin: Books (list all, including drafts) ────────────────
+
+app.get("/api/admin/books", async (c) => {
+  const results = await c.env.DB.prepare(
+    `
+      SELECT
+        id,
+        slug,
+        title,
+        author,
+        original_language AS originalLanguage,
+        description,
+        cover_image_url AS coverImageUrl,
+        status,
+        published_at AS publishedAt
+      FROM books
+      ORDER BY created_at DESC
+    `,
+  ).all<BookSummary>();
+
+  return c.json(success({ books: results.results ?? [] }));
+});
+
+app.get("/api/admin/books/:bookSlug", async (c) => {
+  const bookSlug = c.req.param("bookSlug");
+  const book = await c.env.DB.prepare(
+    `
+      SELECT
+        id,
+        slug,
+        title,
+        author,
+        original_language AS originalLanguage,
+        description,
+        cover_image_url AS coverImageUrl,
+        status,
+        published_at AS publishedAt
+      FROM books
+      WHERE slug = ?
+    `,
+  )
+    .bind(bookSlug)
+    .first<BookSummary>();
+
+  if (!book) {
+    return c.json(
+      failure("not_found", `Book '${bookSlug}' was not found.`),
+      404,
+    );
+  }
+
+  const [chaptersResult, translationsResult] = await Promise.all([
+    c.env.DB.prepare(
+      `
+        SELECT
+          id,
+          slug,
+          position,
+          title,
+          is_preview AS isPreview,
+          source_r2_key AS sourceR2Key,
+          status,
+          published_at AS publishedAt
+        FROM chapters
+        WHERE book_id = ?
+        ORDER BY position ASC
+      `,
+    )
+      .bind(book.id)
+      .all<ChapterSummary>(),
+    c.env.DB.prepare(
+      `
+        SELECT
+          id,
+          slug,
+          name,
+          description,
+          output_r2_prefix AS outputR2Prefix,
+          status
+        FROM translations
+        WHERE book_id = ?
+        ORDER BY name ASC
+      `,
+    )
+      .bind(book.id)
+      .all<TranslationSummary>(),
+  ]);
+
+  const payload: BookDetail = {
+    ...book,
+    chapters: chaptersResult.results ?? [],
+    translations: translationsResult.results ?? [],
+  };
+
+  return c.json(success(payload));
+});
+
+// ── Catch-all ────────────────────────────────────────────────
+
 app.notFound((c) => {
   return c.json(failure("not_found", "Route not found."), 404);
 });
 
 export default app;
+
+// ── Helpers ──────────────────────────────────────────────────
 
 function success<T>(data: T): ApiSuccess<T> {
   return {

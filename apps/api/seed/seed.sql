@@ -4,6 +4,7 @@ DELETE FROM users;
 DELETE FROM translations;
 DELETE FROM chapters;
 DELETE FROM books;
+DELETE FROM app_settings;
 
 INSERT INTO books (
     id,
@@ -13,7 +14,7 @@ INSERT INTO books (
     original_language,
     description,
     cover_image_url,
-    is_published,
+    status,
     published_at
 ) VALUES (
     'book_iliad',
@@ -23,7 +24,7 @@ INSERT INTO books (
     'Ancient Greek',
     'A seeded sample used to validate metadata, D1 access, and R2 chapter retrieval during Phase 0.',
     NULL,
-    1,
+    'published',
     '2026-03-06T00:00:00.000Z'
 );
 
@@ -35,6 +36,7 @@ INSERT INTO chapters (
     title,
     is_preview,
     source_r2_key,
+    status,
     published_at
 ) VALUES (
     'chapter_iliad_book_1',
@@ -44,6 +46,7 @@ INSERT INTO chapters (
     'Book 1: The Rage',
     1,
     'epics/iliad/book-1-the-rage/original.json',
+    'published',
     '2026-03-06T00:00:00.000Z'
 );
 
@@ -56,7 +59,6 @@ INSERT INTO translations (
     ai_system_prompt,
     output_r2_prefix,
     status,
-    is_published,
     published_at
 ) VALUES (
     'translation_verse_meaning',
@@ -67,7 +69,6 @@ INSERT INTO translations (
     'Translate into contemporary English while preserving the emotional and poetic force of the original.',
     'epics/iliad/book-1-the-rage/translations',
     'published',
-    1,
     '2026-03-06T00:00:00.000Z'
 );
 
@@ -84,3 +85,8 @@ INSERT INTO users (
     'active',
     'admin'
 );
+
+-- Seed default app settings
+INSERT INTO app_settings (key, value) VALUES
+    ('openrouter_api_key', ''),
+    ('default_translation_model', 'openai/gpt-4o');

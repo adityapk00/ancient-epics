@@ -1,3 +1,7 @@
+-- ============================================================
+-- Ancient Epics – Phase 1 Schema
+-- ============================================================
+ 
 CREATE TABLE books (
     id TEXT PRIMARY KEY,
     slug TEXT NOT NULL UNIQUE,
@@ -6,7 +10,7 @@ CREATE TABLE books (
     original_language TEXT,
     description TEXT,
     cover_image_url TEXT,
-    is_published INTEGER NOT NULL DEFAULT 0,
+    status TEXT NOT NULL DEFAULT 'draft' CHECK (status IN ('draft', 'published')),
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
     published_at TEXT
@@ -20,6 +24,7 @@ CREATE TABLE chapters (
     title TEXT NOT NULL,
     is_preview INTEGER NOT NULL DEFAULT 0,
     source_r2_key TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'draft' CHECK (status IN ('draft', 'published')),
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
     published_at TEXT,
@@ -36,7 +41,6 @@ CREATE TABLE translations (
     ai_system_prompt TEXT,
     output_r2_prefix TEXT NOT NULL,
     status TEXT NOT NULL DEFAULT 'draft' CHECK (status IN ('draft', 'generating', 'ready', 'published', 'failed')),
-    is_published INTEGER NOT NULL DEFAULT 0,
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
     published_at TEXT,
@@ -76,8 +80,19 @@ CREATE TABLE translation_jobs (
     updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
+-- Key/value store for application-wide settings.
+-- Used for: openrouter_api_key, default_translation_model, etc.
+CREATE TABLE app_settings (
+    key TEXT PRIMARY KEY,
+    value TEXT NOT NULL,
+    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
 CREATE INDEX idx_books_slug ON books(slug);
+CREATE INDEX idx_books_status ON books(status);
 CREATE INDEX idx_chapters_book_position ON chapters(book_id, position);
+CREATE INDEX idx_chapters_status ON chapters(status);
 CREATE INDEX idx_translations_book_slug ON translations(book_id, slug);
+CREATE INDEX idx_translations_status ON translations(status);
 CREATE INDEX idx_notes_user_location ON notes(user_id, book_id, chapter_id);
 CREATE INDEX idx_translation_jobs_status ON translation_jobs(status);

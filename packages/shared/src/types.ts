@@ -1,5 +1,11 @@
+// ── Enum types ──────────────────────────────────────────────
+
 export type ChunkType = "prose" | "verse";
 
+/** Status for books and chapters. */
+export type ContentStatus = "draft" | "published";
+
+/** Status for translation variants (includes generation lifecycle). */
 export type TranslationStatus =
   | "draft"
   | "generating"
@@ -10,6 +16,8 @@ export type TranslationStatus =
 export type SubscriptionStatus = "free" | "trial" | "active" | "expired";
 
 export type UserRole = "reader" | "admin";
+
+// ── R2 document shapes ──────────────────────────────────────
 
 export interface TextChunk {
   id: string;
@@ -29,6 +37,8 @@ export interface TranslationChapterDocument {
   chunks: Record<string, string>;
 }
 
+// ── D1 row / API shapes ────────────────────────────────────
+
 export interface BookSummary {
   id: string;
   slug: string;
@@ -37,7 +47,7 @@ export interface BookSummary {
   originalLanguage: string | null;
   description: string | null;
   coverImageUrl: string | null;
-  isPublished: boolean;
+  status: ContentStatus;
   publishedAt: string | null;
 }
 
@@ -48,6 +58,7 @@ export interface ChapterSummary {
   title: string;
   isPreview: boolean;
   sourceR2Key: string;
+  status: ContentStatus;
   publishedAt: string | null;
 }
 
@@ -58,7 +69,6 @@ export interface TranslationSummary {
   description: string | null;
   outputR2Prefix: string;
   status: TranslationStatus;
-  isPublished: boolean;
 }
 
 export interface BookDetail extends BookSummary {
@@ -76,6 +86,8 @@ export interface TranslationPayload {
   translation: TranslationSummary;
   content: TranslationChapterDocument;
 }
+
+// ── User / Notes ────────────────────────────────────────────
 
 export interface UserProfile {
   id: string;
@@ -97,6 +109,47 @@ export interface NoteRecord {
   createdAt: string;
   updatedAt: string;
 }
+
+// ── App Settings ────────────────────────────────────────────
+
+export interface AppSetting {
+  key: string;
+  value: string;
+  updatedAt: string;
+}
+
+/** Well-known setting keys stored in the `app_settings` table. */
+export const APP_SETTING_KEYS = {
+  OPENROUTER_API_KEY: "openrouter_api_key",
+  DEFAULT_TRANSLATION_MODEL: "default_translation_model",
+} as const;
+
+// ── Export / Import shapes ──────────────────────────────────
+
+/** Portable archive for an original text (book + chapters + R2 chunks). */
+export interface BookExportArchive {
+  version: 1;
+  exportedAt: string;
+  book: Omit<BookSummary, "status"> & { originalLanguage: string | null };
+  chapters: Array<{
+    meta: Omit<ChapterSummary, "status">;
+    chunks: TextChunk[];
+  }>;
+}
+
+/** Portable archive for a single translation variant. */
+export interface TranslationExportArchive {
+  version: 1;
+  exportedAt: string;
+  bookSlug: string;
+  translation: Omit<TranslationSummary, "status"> & {
+    aiSystemPrompt: string | null;
+  };
+  /** Keyed by chapterSlug. */
+  chapters: Record<string, TranslationChapterDocument>;
+}
+
+// ── API response wrappers ───────────────────────────────────
 
 export interface ApiSuccess<T> {
   ok: true;
