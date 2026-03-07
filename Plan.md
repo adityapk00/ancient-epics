@@ -20,7 +20,7 @@ Ship the admin content pipeline first. This ensures high-quality data generation
 
 Goal: establish the repo structure, deployment pipeline, and shared contracts.
 
-### Phase 1: Database Schema & Core Setup
+### Phase 1: Database Schema & Core Setup (Completed)
 
 Goal: Establish the data models to support draft/published states and application settings.
 

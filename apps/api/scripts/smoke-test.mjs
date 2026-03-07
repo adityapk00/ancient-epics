@@ -236,6 +236,14 @@ try {
       "settings has default_translation_model",
       json.data?.settings?.default_translation_model !== undefined,
     );
+    assert(
+      "settings has admin_ingestion_model",
+      json.data?.settings?.admin_ingestion_model !== undefined,
+    );
+    assert(
+      "settings has admin_ingestion_prompt",
+      json.data?.settings?.admin_ingestion_prompt !== undefined,
+    );
   }
 
   // ── Admin Settings PUT ──
@@ -244,10 +252,11 @@ try {
       settings: {
         openrouter_api_key: "sk-or-smoke-test",
         default_translation_model: "anthropic/claude-3.5-sonnet",
+        admin_ingestion_model: "openai/gpt-4o-mini",
       },
     });
     assert("PUT /api/admin/settings returns 200", status === 200);
-    assert("updated keys returned", json.data?.updated?.length === 2);
+    assert("updated keys returned", json.data?.updated?.length === 3);
 
     // Read back
     const { json: after } = await api("GET", "/api/admin/settings");
@@ -259,6 +268,10 @@ try {
       "model persisted",
       after.data?.settings?.default_translation_model ===
         "anthropic/claude-3.5-sonnet",
+    );
+    assert(
+      "admin ingestion model persisted",
+      after.data?.settings?.admin_ingestion_model === "openai/gpt-4o-mini",
     );
   }
 
@@ -278,6 +291,89 @@ try {
     assert(
       "admin book detail has translations",
       json.data?.translations?.length > 0,
+    );
+  }
+
+  // ── Admin ingestion bootstrap + session flow ──
+  console.log("\n─── Admin Ingestion ───");
+  {
+    const { status, json } = await api("GET", "/api/admin/ingestion/bootstrap");
+    assert("GET /api/admin/ingestion/bootstrap returns 200", status === 200);
+    assert("ingestion bootstrap has books", json.data?.books?.length > 0);
+    assert(
+      "ingestion bootstrap has prompt setting",
+      typeof json.data?.settings?.admin_ingestion_prompt === "string",
+    );
+  }
+
+  {
+    const { status, json } = await api("POST", "/api/admin/ingestion/sessions", {
+      title: "Smoke Translation Session",
+      sourceMode: "paste",
+      model: "openai/gpt-4o-mini",
+      prompt: "Return JSON only.",
+      chapters: [
+        {
+          position: 0,
+          title: "Chapter One",
+          slug: "chapter-one",
+          sourceText: "Sing, goddess, the rage of Achilles.\nAnd the grief it set loose.",
+          sourceChapterSlug: null,
+        },
+        {
+          position: 1,
+          title: "Chapter Two",
+          slug: "chapter-two",
+          sourceText: "A second short chapter for context.",
+          sourceChapterSlug: null,
+        },
+      ],
+    });
+
+    assert("POST /api/admin/ingestion/sessions returns 201", status === 201);
+    assert("created session has chapters", json.data?.chapters?.length === 2);
+
+    const sessionId = json.data.id;
+    const reviewedResponse = JSON.stringify({
+      chapterTitle: "Chapter One",
+      notes: "Reviewed in smoke test.",
+      originalChunks: [
+        { text: "Sing, goddess, the rage of Achilles.", type: "verse" },
+        { text: "And the grief it set loose.", type: "verse" },
+      ],
+      translationChunks: [
+        {
+          text: "Sing, goddess, of Achilles' anger and the sorrow it unleashed.",
+          type: "verse",
+          sourceOrdinals: [1, 2],
+        },
+      ],
+    });
+
+    const saveResult = await api(
+      "PUT",
+      `/api/admin/ingestion/sessions/${sessionId}/chapters/0/save`,
+      { rawResponse: reviewedResponse },
+    );
+    assert(
+      "saving reviewed chapter returns 200",
+      saveResult.status === 200,
+    );
+    assert(
+      "saved chapter is marked saved",
+      saveResult.json.data?.chapter?.status === "saved",
+    );
+    assert(
+      "saved chapter has normalized original chunks",
+      saveResult.json.data?.chapter?.originalDocument?.chunks?.length === 2,
+    );
+    assert(
+      "saved chapter has normalized translation chunks",
+      saveResult.json.data?.chapter?.translationDocument?.chunks?.length === 1,
+    );
+    assert(
+      "session advances to the next chapter",
+      saveResult.json.data?.session?.currentChapterIndex === 1,
     );
   }
 } finally {

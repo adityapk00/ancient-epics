@@ -89,4 +89,6 @@ INSERT INTO users (
 -- Seed default app settings
 INSERT INTO app_settings (key, value) VALUES
     ('openrouter_api_key', ''),
-    ('default_translation_model', 'openai/gpt-4o');
+    ('default_translation_model', 'openai/gpt-4o'),
+    ('admin_ingestion_model', 'openai/gpt-4o-mini'),
+    ('admin_ingestion_prompt', 'You are preparing a bilingual reading edition for Ancient Epics. Split the source chapter into clear original chunks, then produce translation chunks that may merge or regroup those source chunks when it improves readability. Return JSON only with this shape: {"chapterTitle": string, "notes": string, "originalChunks": [{"text": string, "type": "verse" | "prose"}], "translationChunks": [{"text": string, "type": "verse" | "prose", "sourceOrdinals": number[]}]}');

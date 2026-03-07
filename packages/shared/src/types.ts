@@ -17,6 +17,14 @@ export type SubscriptionStatus = "free" | "trial" | "active" | "expired";
 
 export type UserRole = "reader" | "admin";
 
+export type AdminIngestionSourceMode = "paste" | "existing_story";
+
+export type AdminIngestionChapterStatus =
+  | "pending"
+  | "generated"
+  | "saved"
+  | "error";
+
 // ── R2 document shapes ──────────────────────────────────────
 
 export interface TextChunk {
@@ -128,7 +136,58 @@ export interface AppSetting {
 export const APP_SETTING_KEYS = {
   OPENROUTER_API_KEY: "openrouter_api_key",
   DEFAULT_TRANSLATION_MODEL: "default_translation_model",
+  ADMIN_INGESTION_MODEL: "admin_ingestion_model",
+  ADMIN_INGESTION_PROMPT: "admin_ingestion_prompt",
 } as const;
+
+// ── Admin ingestion workflow ────────────────────────────────
+
+export interface AdminIngestionChapterInput {
+  position: number;
+  title: string;
+  slug: string;
+  sourceText: string;
+  sourceChapterSlug: string | null;
+}
+
+export interface AdminIngestionSessionSummary {
+  id: string;
+  title: string;
+  sourceMode: AdminIngestionSourceMode;
+  sourceBookSlug: string | null;
+  model: string;
+  currentChapterIndex: number;
+  chapterCount: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface AdminIngestionChapterRecord extends AdminIngestionChapterInput {
+  id: string;
+  status: AdminIngestionChapterStatus;
+  rawResponse: string | null;
+  originalDocument: OriginalChapterDocument | null;
+  translationDocument: TranslationChapterDocument | null;
+  notes: string | null;
+  errorMessage: string | null;
+  updatedAt: string;
+}
+
+export interface AdminIngestionSessionDetail extends AdminIngestionSessionSummary {
+  prompt: string;
+  chapters: AdminIngestionChapterRecord[];
+}
+
+export interface AdminIngestionBootstrapPayload {
+  books: BookSummary[];
+  settings: Record<string, string>;
+  sessions: AdminIngestionSessionSummary[];
+}
+
+export interface AdminIngestionGeneratePayload {
+  chapter: AdminIngestionChapterRecord;
+  session: AdminIngestionSessionSummary & { prompt: string };
+}
 
 // ── Export / Import shapes ──────────────────────────────────
 
