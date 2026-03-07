@@ -17,7 +17,6 @@ import { cors } from "hono/cors";
 
 type AppEnv = {
   Bindings: {
-    AI: Ai;
     APP_ENV?: string;
     CONTENT_BUCKET: R2Bucket;
     DB: D1Database;

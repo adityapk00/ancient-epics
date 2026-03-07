@@ -164,31 +164,41 @@ export default function App() {
           </Panel>
 
           <Panel title="Aligned reader sample">
-            <div className="grid gap-3">
-              {rows.map((chunk) => (
-                <div
-                  key={chunk.id}
-                  className="grid gap-3 rounded-2xl border border-border/70 bg-white/75 p-4 md:grid-cols-2"
-                >
-                  <div>
-                    <p className="text-xs font-semibold uppercase tracking-[0.18em] text-accent">
-                      Original · {chunk.id}
-                    </p>
-                    <p className="mt-3 font-display text-2xl leading-9 text-ink">
-                      {chunk.text}
-                    </p>
+            <div className="grid gap-2">
+              <div className="hidden border-b border-border/60 pb-3 text-xs font-semibold uppercase tracking-[0.2em] text-accent md:grid md:grid-cols-2 md:gap-8">
+                <p>Original</p>
+                <p>Translation</p>
+              </div>
+
+              <div className="divide-y divide-border/35">
+                {rows.map((chunk) => (
+                  <div
+                    key={chunk.id}
+                    className="grid gap-4 py-4 md:grid-cols-2 md:gap-8"
+                  >
+                    <div>
+                      <p className="text-[0.72rem] font-semibold uppercase tracking-[0.18em] text-accent md:hidden">
+                        Original
+                      </p>
+                      <p className="mt-2 font-display text-2xl leading-9 text-ink md:mt-0">
+                        <span className="mr-3 align-top font-sans text-[0.72rem] font-semibold uppercase tracking-[0.18em] text-accent/85">
+                          {chunk.id}
+                        </span>
+                        {chunk.text}
+                      </p>
+                    </div>
+                    <div>
+                      <p className="text-[0.72rem] font-semibold uppercase tracking-[0.18em] text-accent md:hidden">
+                        Translation
+                      </p>
+                      <p className="mt-2 text-lg leading-8 text-ink/80 md:mt-0">
+                        {translationChunks[chunk.id] ??
+                          "Translation missing for this chunk."}
+                      </p>
+                    </div>
                   </div>
-                  <div>
-                    <p className="text-xs font-semibold uppercase tracking-[0.18em] text-accent">
-                      Translation
-                    </p>
-                    <p className="mt-3 text-lg leading-8 text-ink/80">
-                      {translationChunks[chunk.id] ??
-                        "Translation missing for this chunk."}
-                    </p>
-                  </div>
-                </div>
-              ))}
+                ))}
+              </div>
             </div>
           </Panel>
         </section>
