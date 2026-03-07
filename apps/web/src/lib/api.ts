@@ -3,7 +3,8 @@ import type {
   AdminBookSourcePayload,
   AdminIngestionBootstrapPayload,
   AdminIngestionSessionDetail,
-  AdminIngestionSessionSummary,
+  AdminTranslationDraftDetail,
+  AdminTranslationDraftSummary,
   AdminTranslationValidationPayload,
   ApiResponse,
   BookDetail,
@@ -76,7 +77,7 @@ export const api = {
   getAdminBookSource: (bookSlug: string) =>
     request<AdminBookSourcePayload>(`/api/admin/books/${bookSlug}/source`),
   listAdminTranslationDrafts: (bookSlug: string) =>
-    request<{ sessions: AdminIngestionSessionSummary[] }>(
+    request<{ drafts: AdminTranslationDraftSummary[] }>(
       `/api/admin/books/${bookSlug}/translation-drafts`,
     ),
   createAdminTranslationDraft: (
@@ -91,9 +92,32 @@ export const api = {
       contextAfterChapterCount?: number;
     },
   ) =>
-    requestJson<AdminIngestionSessionDetail>(
+    requestJson<AdminTranslationDraftDetail>(
       "POST",
       `/api/admin/books/${bookSlug}/translation-drafts`,
+      body,
+    ),
+  getAdminTranslationDraft: (translationId: string) =>
+    request<AdminTranslationDraftDetail>(
+      `/api/admin/translation-drafts/${translationId}`,
+    ),
+  updateAdminTranslationDraft: (
+    translationId: string,
+    body: {
+      name?: string;
+      slug?: string;
+      description?: string;
+      status?: "draft" | "generating" | "ready" | "published" | "failed";
+      model?: string;
+      prompt?: string;
+      contextBeforeChapterCount?: number;
+      contextAfterChapterCount?: number;
+      currentChapterIndex?: number;
+    },
+  ) =>
+    requestJson<AdminTranslationDraftDetail>(
+      "PUT",
+      `/api/admin/translation-drafts/${translationId}`,
       body,
     ),
   validateAdminTranslationDraft: (sessionId: string) =>

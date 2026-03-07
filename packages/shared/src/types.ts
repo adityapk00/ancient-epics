@@ -83,6 +83,34 @@ export interface TranslationSummary {
   status: TranslationStatus;
 }
 
+export interface AdminBookWorkflowSummary extends BookSummary {
+  chapterCount: number;
+  translationDraftCount: number;
+  readyTranslationCount: number;
+  savedChapterCount: number;
+  latestActivityAt: string | null;
+}
+
+export interface AdminTranslationDraftSessionSummary
+  extends AdminIngestionSessionSummary {}
+
+export interface AdminTranslationDraftSummary extends TranslationSummary {
+  bookSlug: string;
+  aiSystemPrompt: string | null;
+  latestSession: AdminTranslationDraftSessionSummary | null;
+  sessionCount: number;
+  chapterCount: number;
+  savedChapterCount: number;
+  generatedChapterCount: number;
+  pendingChapterCount: number;
+  latestActivityAt: string | null;
+}
+
+export interface AdminTranslationDraftDetail extends AdminTranslationDraftSummary {
+  currentSession: AdminIngestionSessionDetail | null;
+  sessions: AdminTranslationDraftSessionSummary[];
+}
+
 export interface BookDetail extends BookSummary {
   chapters: ChapterSummary[];
   translations: TranslationSummary[];
@@ -182,7 +210,7 @@ export interface AdminIngestionSessionDetail extends AdminIngestionSessionSummar
 }
 
 export interface AdminIngestionBootstrapPayload {
-  books: BookSummary[];
+  books: AdminBookWorkflowSummary[];
   settings: Record<string, string>;
   sessions: AdminIngestionSessionSummary[];
 }
@@ -202,6 +230,10 @@ export interface AdminBookSourcePayload {
 export interface AdminTranslationValidationIssue {
   level: "error" | "warning";
   message: string;
+  chapterPosition?: number;
+  chapterSlug?: string;
+  translationChunkId?: string;
+  sourceChunkId?: string;
 }
 
 export interface AdminTranslationValidationChapter {

@@ -1,18 +1,20 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 import {
   APP_SETTING_KEYS,
   type AdminBookChapterDraft,
   type AdminBookSourcePayload,
   type AdminIngestionBootstrapPayload,
-  type AdminIngestionSessionDetail,
-  type AdminIngestionSessionSummary,
+  type AdminIngestionChapterRecord,
+  type AdminTranslationDraftDetail,
+  type AdminTranslationDraftSummary,
   type AdminTranslationValidationPayload,
 } from "@ancient-epics/shared";
 
 import {
   splitSourceTextIntoChapters,
   type ChapterSplitMode,
+  type SplitChapterDraft,
 } from "./lib/chapter-splitting";
 import { api } from "./lib/api";
 
@@ -23,23 +25,39 @@ type AdminScreen =
   | "workspace"
   | "validate";
 
+type ChapterEditorState = {
+  chapterTitle: string;
+  notes: string;
+  originalChunks: Array<{ text: string; type: "prose" | "verse" }>;
+  translationChunks: Array<{
+    text: string;
+    type: "prose" | "verse";
+    sourceChunkIds: string[];
+  }>;
+};
+
+const DEFAULT_MODEL = "openai/gpt-4o-mini";
+const DEFAULT_HEADING_PATTERN = "^(book|chapter|canto|scroll)\\b.*$";
+
 export default function App() {
   const [screen, setScreen] = useState<AdminScreen>("books");
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [showAdvancedDraftSettings, setShowAdvancedDraftSettings] =
+    useState(false);
+  const [showRawJsonEditor, setShowRawJsonEditor] = useState(false);
 
   const [bootstrap, setBootstrap] =
     useState<AdminIngestionBootstrapPayload | null>(null);
   const [selectedBook, setSelectedBook] =
     useState<AdminBookSourcePayload | null>(null);
   const [translationDrafts, setTranslationDrafts] = useState<
-    AdminIngestionSessionSummary[]
+    AdminTranslationDraftSummary[]
   >([]);
-  const [activeSession, setActiveSession] =
-    useState<AdminIngestionSessionDetail | null>(null);
+  const [activeDraft, setActiveDraft] =
+    useState<AdminTranslationDraftDetail | null>(null);
   const [validation, setValidation] =
     useState<AdminTranslationValidationPayload | null>(null);
   const [selectedChapterIndex, setSelectedChapterIndex] = useState(0);
-  const [editedRawResponse, setEditedRawResponse] = useState("");
   const [validationPreviewIndex, setValidationPreviewIndex] = useState(0);
 
   const [isLoading, setIsLoading] = useState(true);
@@ -48,7 +66,7 @@ export default function App() {
   const [notice, setNotice] = useState<string | null>(null);
 
   const [settingsApiKey, setSettingsApiKey] = useState("");
-  const [settingsModel, setSettingsModel] = useState("openai/gpt-4o-mini");
+  const [settingsModel, setSettingsModel] = useState(DEFAULT_MODEL);
   const [settingsPrompt, setSettingsPrompt] = useState("");
 
   const [bookTitle, setBookTitle] = useState("");
@@ -58,20 +76,39 @@ export default function App() {
   const [bookDescription, setBookDescription] = useState("");
   const [bookRawText, setBookRawText] = useState("");
   const [splitMode, setSplitMode] = useState<ChapterSplitMode>("heading");
-  const [headingPattern, setHeadingPattern] = useState(
-    "^(book|chapter|canto|scroll)\\b.*$",
-  );
+  const [headingPattern, setHeadingPattern] = useState(DEFAULT_HEADING_PATTERN);
   const [delimiter, setDelimiter] = useState("\n\n\n");
+  const [stagedChapters, setStagedChapters] = useState<SplitChapterDraft[]>([]);
 
   const [translationTitle, setTranslationTitle] = useState("");
   const [translationSlug, setTranslationSlug] = useState("");
   const [translationDescription, setTranslationDescription] = useState("");
-  const [translationModel, setTranslationModel] =
-    useState("openai/gpt-4o-mini");
+  const [translationModel, setTranslationModel] = useState(DEFAULT_MODEL);
   const [translationPrompt, setTranslationPrompt] = useState("");
   const [contextBeforeChapterCount, setContextBeforeChapterCount] =
     useState("1");
   const [contextAfterChapterCount, setContextAfterChapterCount] = useState("1");
+  const [editedRawResponse, setEditedRawResponse] = useState("");
+  const [chapterEditor, setChapterEditor] = useState<ChapterEditorState | null>(
+    null,
+  );
+
+  const activeSession = activeDraft?.currentSession ?? null;
+  const currentWorkspaceChapter =
+    activeSession?.chapters[selectedChapterIndex] ?? null;
+  const validationPreviewChapter =
+    validation?.session.chapters[validationPreviewIndex] ?? null;
+
+  const chapterPreview = useMemo(
+    () =>
+      splitSourceTextIntoChapters({
+        rawText: bookRawText,
+        splitMode,
+        headingPattern,
+        delimiter,
+      }),
+    [bookRawText, delimiter, headingPattern, splitMode],
+  );
 
   useEffect(() => {
     async function load() {
@@ -84,7 +121,7 @@ export default function App() {
         const model =
           payload.settings[APP_SETTING_KEYS.ADMIN_INGESTION_MODEL] ??
           payload.settings[APP_SETTING_KEYS.DEFAULT_TRANSLATION_MODEL] ??
-          "openai/gpt-4o-mini";
+          DEFAULT_MODEL;
         const prompt =
           payload.settings[APP_SETTING_KEYS.ADMIN_INGESTION_PROMPT] ?? "";
         setSettingsModel(model);
@@ -106,25 +143,26 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    const chapter = activeSession?.chapters[selectedChapterIndex];
-    setEditedRawResponse(chapter?.rawResponse ?? "");
-  }, [activeSession, selectedChapterIndex]);
-
-  const chapterPreview = splitSourceTextIntoChapters({
-    rawText: bookRawText,
-    splitMode,
-    headingPattern,
-    delimiter,
-  });
-
-  const currentWorkspaceChapter =
-    activeSession?.chapters[selectedChapterIndex] ?? null;
-  const validationPreviewChapter =
-    validation?.session.chapters[validationPreviewIndex] ?? null;
+    const nextEditor = currentWorkspaceChapter
+      ? buildChapterEditorState(currentWorkspaceChapter)
+      : null;
+    setChapterEditor(nextEditor);
+    setEditedRawResponse(
+      nextEditor ? JSON.stringify(serializeEditorState(nextEditor), null, 2) : "",
+    );
+  }, [currentWorkspaceChapter]);
 
   async function refreshBootstrap() {
     const payload = await api.getAdminIngestionBootstrap();
     setBootstrap(payload);
+    setSettingsApiKey(payload.settings[APP_SETTING_KEYS.OPENROUTER_API_KEY] ?? "");
+    const model =
+      payload.settings[APP_SETTING_KEYS.ADMIN_INGESTION_MODEL] ??
+      payload.settings[APP_SETTING_KEYS.DEFAULT_TRANSLATION_MODEL] ??
+      DEFAULT_MODEL;
+    const prompt = payload.settings[APP_SETTING_KEYS.ADMIN_INGESTION_PROMPT] ?? "";
+    setSettingsModel(model);
+    setSettingsPrompt(prompt);
   }
 
   function resetBookForm() {
@@ -135,8 +173,9 @@ export default function App() {
     setBookDescription("");
     setBookRawText("");
     setSplitMode("heading");
-    setHeadingPattern("^(book|chapter|canto|scroll)\\b.*$");
+    setHeadingPattern(DEFAULT_HEADING_PATTERN);
     setDelimiter("\n\n\n");
+    setStagedChapters([]);
   }
 
   function resetTranslationForm() {
@@ -147,6 +186,7 @@ export default function App() {
     setTranslationPrompt(settingsPrompt);
     setContextBeforeChapterCount("1");
     setContextAfterChapterCount("1");
+    setShowAdvancedDraftSettings(false);
   }
 
   async function openBook(bookSlugValue: string) {
@@ -160,8 +200,8 @@ export default function App() {
         api.listAdminTranslationDrafts(bookSlugValue),
       ]);
       setSelectedBook(book);
-      setTranslationDrafts(drafts.sessions);
-      setActiveSession(null);
+      setTranslationDrafts(drafts.drafts);
+      setActiveDraft(null);
       setValidation(null);
       resetTranslationForm();
       setScreen("translations");
@@ -172,6 +212,11 @@ export default function App() {
     } finally {
       setIsBusy(false);
     }
+  }
+
+  async function refreshTranslationDrafts(bookSlugValue: string) {
+    const drafts = await api.listAdminTranslationDrafts(bookSlugValue);
+    setTranslationDrafts(drafts.drafts);
   }
 
   async function saveSettings() {
@@ -186,8 +231,6 @@ export default function App() {
         [APP_SETTING_KEYS.ADMIN_INGESTION_PROMPT]: settingsPrompt,
       });
       await refreshBootstrap();
-      setTranslationModel(settingsModel);
-      setTranslationPrompt(settingsPrompt);
       setSettingsOpen(false);
       setNotice("Saved settings.");
     } catch (saveError) {
@@ -199,6 +242,121 @@ export default function App() {
     } finally {
       setIsBusy(false);
     }
+  }
+
+  function seedStageFromPreview() {
+    setStagedChapters(
+      chapterPreview.map((chapter, index) => ({
+        ...chapter,
+        position: index,
+      })),
+    );
+  }
+
+  function updateStagedChapter(
+    index: number,
+    key: keyof SplitChapterDraft,
+    value: string | null,
+  ) {
+    setStagedChapters((current) =>
+      current.map((chapter, chapterIndex) =>
+        chapterIndex === index
+          ? {
+              ...chapter,
+              [key]:
+                key === "sourceChapterSlug"
+                  ? value
+                  : typeof value === "string"
+                    ? value
+                    : chapter[key],
+            }
+          : chapter,
+      ),
+    );
+  }
+
+  function moveStagedChapter(index: number, direction: -1 | 1) {
+    setStagedChapters((current) => {
+      const targetIndex = index + direction;
+      if (targetIndex < 0 || targetIndex >= current.length) {
+        return current;
+      }
+
+      const next = [...current];
+      const [chapter] = next.splice(index, 1);
+      if (!chapter) {
+        return current;
+      }
+      next.splice(targetIndex, 0, chapter);
+      return next.map((entry, position) => ({ ...entry, position }));
+    });
+  }
+
+  function deleteStagedChapter(index: number) {
+    setStagedChapters((current) =>
+      current
+        .filter((_, chapterIndex) => chapterIndex !== index)
+        .map((entry, position) => ({ ...entry, position })),
+    );
+  }
+
+  function splitStagedChapter(index: number) {
+    setStagedChapters((current) => {
+      const chapter = current[index];
+      if (!chapter) {
+        return current;
+      }
+
+      const parts = chapter.sourceText
+        .split(/\n\s*\n/)
+        .map((entry) => entry.trim())
+        .filter(Boolean);
+      if (parts.length < 2) {
+        return current;
+      }
+
+      const firstPart = parts[0];
+      if (!firstPart) {
+        return current;
+      }
+
+      const head = {
+        ...chapter,
+        title: `${chapter.title} I`,
+        slug: `${chapter.slug}-1`,
+        sourceText: firstPart,
+      };
+      const tail = {
+        ...chapter,
+        title: `${chapter.title} II`,
+        slug: `${chapter.slug}-2`,
+        sourceText: parts.slice(1).join("\n\n"),
+      };
+      const next = [...current];
+      next.splice(index, 1, head, tail);
+      return next.map((entry, position) => ({ ...entry, position }));
+    });
+  }
+
+  function mergeStagedChapter(index: number) {
+    setStagedChapters((current) => {
+      if (index === 0) {
+        return current;
+      }
+      const previous = current[index - 1];
+      const chapter = current[index];
+      if (!previous || !chapter) {
+        return current;
+      }
+      const merged = {
+        ...previous,
+        sourceText: `${previous.sourceText}\n\n${chapter.sourceText}`.trim(),
+        title: `${previous.title} / ${chapter.title}`,
+      };
+      const next = [...current];
+      next.splice(index - 1, 2, merged);
+      return next.map((entry, position) => ({ ...entry, position }));
+    });
   }
 
   async function createBook() {
@@ -213,7 +371,12 @@ export default function App() {
         author: bookAuthor || undefined,
         originalLanguage: bookLanguage || undefined,
         description: bookDescription || undefined,
-        chapters: chapterPreview as AdminBookChapterDraft[],
+        chapters: stagedChapters.map((chapter, index) => ({
+          position: index + 1,
+          title: chapter.title,
+          slug: chapter.slug,
+          sourceText: chapter.sourceText,
+        })) as AdminBookChapterDraft[],
       });
       await refreshBootstrap();
       setSelectedBook(created);
@@ -243,31 +406,25 @@ export default function App() {
     setNotice(null);
 
     try {
-      const session = await api.createAdminTranslationDraft(
-        selectedBook.book.slug,
-        {
-          title: translationTitle,
-          slug: translationSlug || undefined,
-          description: translationDescription || undefined,
-          model: translationModel,
-          prompt: translationPrompt,
-          contextBeforeChapterCount: Number(contextBeforeChapterCount || 0),
-          contextAfterChapterCount: Number(contextAfterChapterCount || 0),
-        },
-      );
-      const drafts = await api.listAdminTranslationDrafts(
-        selectedBook.book.slug,
-      );
-      setTranslationDrafts(drafts.sessions);
-      setActiveSession(session);
+      const draft = await api.createAdminTranslationDraft(selectedBook.book.slug, {
+        title: translationTitle,
+        slug: translationSlug || undefined,
+        description: translationDescription || undefined,
+        model: translationModel,
+        prompt: translationPrompt,
+        contextBeforeChapterCount: Number(contextBeforeChapterCount || 0),
+        contextAfterChapterCount: Number(contextAfterChapterCount || 0),
+      });
+      await refreshTranslationDrafts(selectedBook.book.slug);
+      setActiveDraft(draft);
       setSelectedChapterIndex(
         Math.min(
-          session.currentChapterIndex,
-          Math.max(session.chapters.length - 1, 0),
+          draft.currentSession?.currentChapterIndex ?? 0,
+          Math.max((draft.currentSession?.chapters.length ?? 1) - 1, 0),
         ),
       );
       setScreen("workspace");
-      setNotice(`Created translation draft '${session.title}'.`);
+      setNotice(`Created translation draft '${draft.name}'.`);
     } catch (createError) {
       setError(
         createError instanceof Error
@@ -279,26 +436,14 @@ export default function App() {
     }
   }
 
-  async function openTranslationDraft(sessionId: string) {
+  async function openTranslationDraft(translationId: string) {
     setIsBusy(true);
     setError(null);
     setNotice(null);
 
     try {
-      const session = await api.getAdminIngestionSession(sessionId);
-      setActiveSession(session);
-      setTranslationTitle(session.title);
-      setTranslationSlug("");
-      setTranslationModel(session.model);
-      setTranslationPrompt(session.prompt);
-      setContextBeforeChapterCount(String(session.contextBeforeChapterCount));
-      setContextAfterChapterCount(String(session.contextAfterChapterCount));
-      setSelectedChapterIndex(
-        Math.min(
-          session.currentChapterIndex,
-          Math.max(session.chapters.length - 1, 0),
-        ),
-      );
+      const draft = await api.getAdminTranslationDraft(translationId);
+      hydrateActiveDraft(draft);
       setValidation(null);
       setScreen("workspace");
     } catch (loadError) {
@@ -312,20 +457,50 @@ export default function App() {
     }
   }
 
-  async function saveWorkspaceConfig() {
-    if (!activeSession) {
-      return;
+  function hydrateActiveDraft(draft: AdminTranslationDraftDetail) {
+    setActiveDraft(draft);
+    setTranslationTitle(draft.name);
+    setTranslationSlug(draft.slug);
+    setTranslationDescription(draft.description ?? "");
+    setTranslationModel(draft.currentSession?.model ?? DEFAULT_MODEL);
+    setTranslationPrompt(draft.currentSession?.prompt ?? draft.aiSystemPrompt ?? "");
+    setContextBeforeChapterCount(
+      String(draft.currentSession?.contextBeforeChapterCount ?? 1),
+    );
+    setContextAfterChapterCount(
+      String(draft.currentSession?.contextAfterChapterCount ?? 1),
+    );
+    setSelectedChapterIndex(
+      Math.min(
+        draft.currentSession?.currentChapterIndex ?? 0,
+        Math.max((draft.currentSession?.chapters.length ?? 1) - 1, 0),
+      ),
+    );
+  }
+
+  async function saveDraftSettings(extra?: {
+    status?: "draft" | "ready" | "published";
+  }) {
+    if (!activeDraft) {
+      return null;
     }
 
-    const updated = await api.updateAdminIngestionSession(activeSession.id, {
-      title: translationTitle || activeSession.title,
+    const updated = await api.updateAdminTranslationDraft(activeDraft.id, {
+      name: translationTitle || activeDraft.name,
+      slug: translationSlug || activeDraft.slug,
+      description: translationDescription,
       model: translationModel,
       prompt: translationPrompt,
+      status: extra?.status,
       contextBeforeChapterCount: Number(contextBeforeChapterCount || 0),
       contextAfterChapterCount: Number(contextAfterChapterCount || 0),
       currentChapterIndex: selectedChapterIndex,
     });
-    setActiveSession(updated);
+
+    hydrateActiveDraft(updated);
+    if (selectedBook) {
+      await refreshTranslationDrafts(selectedBook.book.slug);
+    }
     return updated;
   }
 
@@ -339,23 +514,26 @@ export default function App() {
     setNotice(null);
 
     try {
-      const updatedSession = await saveWorkspaceConfig();
-      const sessionId = updatedSession?.id ?? activeSession.id;
+      const updatedDraft = await saveDraftSettings();
+      const sessionId = updatedDraft?.currentSession?.id ?? activeSession.id;
       const result = await api.generateAdminIngestionChapter(
         sessionId,
         currentWorkspaceChapter.position,
       );
-      setActiveSession((current) =>
-        current
-          ? {
-              ...current,
-              chapters: current.chapters.map((chapter) =>
-                chapter.id === result.chapter.id ? result.chapter : chapter,
-              ),
-            }
-          : current,
-      );
-      setEditedRawResponse(result.chapter.rawResponse ?? "");
+
+      if (updatedDraft?.currentSession) {
+        const nextDraft = {
+          ...updatedDraft,
+          currentSession: {
+            ...updatedDraft.currentSession,
+            chapters: updatedDraft.currentSession.chapters.map((chapter) =>
+              chapter.id === result.chapter.id ? result.chapter : chapter,
+            ),
+          },
+        };
+        hydrateActiveDraft(nextDraft);
+      }
+
       setNotice(`Generated '${currentWorkspaceChapter.title}'.`);
     } catch (generateError) {
       setError(
@@ -369,7 +547,7 @@ export default function App() {
   }
 
   async function saveCurrentChapter() {
-    if (!activeSession || !currentWorkspaceChapter) {
+    if (!activeSession || !currentWorkspaceChapter || !chapterEditor) {
       return;
     }
 
@@ -381,24 +559,18 @@ export default function App() {
       const result = await api.saveAdminIngestionChapter(
         activeSession.id,
         currentWorkspaceChapter.position,
-        editedRawResponse,
+        JSON.stringify(serializeEditorState(chapterEditor), null, 2),
       );
 
-      if (result.session) {
-        setActiveSession(result.session);
+      if (result.session && activeDraft) {
+        const refreshedDraft = await api.getAdminTranslationDraft(activeDraft.id);
+        hydrateActiveDraft(refreshedDraft);
         setSelectedChapterIndex(
           Math.min(
             currentWorkspaceChapter.position + 1,
             Math.max(result.session.chapters.length - 1, 0),
           ),
         );
-      }
-
-      if (selectedBook) {
-        const drafts = await api.listAdminTranslationDrafts(
-          selectedBook.book.slug,
-        );
-        setTranslationDrafts(drafts.sessions);
       }
 
       setNotice(`Saved '${currentWorkspaceChapter.title}'.`);
@@ -414,7 +586,7 @@ export default function App() {
   }
 
   async function validateCurrentDraft() {
-    if (!activeSession) {
+    if (!activeDraft) {
       return;
     }
 
@@ -423,10 +595,8 @@ export default function App() {
     setNotice(null);
 
     try {
-      const updatedSession = await saveWorkspaceConfig();
-      const payload = await api.validateAdminTranslationDraft(
-        updatedSession?.id ?? activeSession.id,
-      );
+      await saveDraftSettings();
+      const payload = await api.validateAdminTranslationDraft(activeDraft.id);
       setValidation(payload);
       setValidationPreviewIndex(0);
       setScreen("validate");
@@ -444,6 +614,85 @@ export default function App() {
     }
   }
 
+  async function markDraftStatus(status: "ready" | "published") {
+    setIsBusy(true);
+    setError(null);
+    setNotice(null);
+
+    try {
+      await saveDraftSettings({ status });
+      setNotice(status === "ready" ? "Draft marked ready." : "Draft published.");
+    } catch (statusError) {
+      setError(
+        statusError instanceof Error
+          ? statusError.message
+          : "Failed to update draft status.",
+      );
+    } finally {
+      setIsBusy(false);
+    }
+  }
+
+  function exportDraftJson() {
+    if (!activeDraft?.currentSession) {
+      return;
+    }
+    const blob = new Blob([JSON.stringify(activeDraft.currentSession, null, 2)], {
+      type: "application/json",
+    });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = `${activeDraft.slug}-draft.json`;
+    anchor.click();
+    URL.revokeObjectURL(url);
+  }
+
+  function openValidationIssue(issueIndex: number) {
+    const issue = validation?.issues[issueIndex];
+    if (!issue || issue.chapterPosition == null) {
+      return;
+    }
+    setSelectedChapterIndex(issue.chapterPosition);
+    setScreen("workspace");
+  }
+
+  function openValidationChapter(index: number) {
+    setValidationPreviewIndex(index);
+    const chapter = validation?.chapters[index];
+    if (chapter) {
+      setSelectedChapterIndex(chapter.position);
+    }
+  }
+
+  function updateChapterEditor(
+    updater: (current: ChapterEditorState) => ChapterEditorState,
+  ) {
+    setChapterEditor((current) => {
+      if (!current) {
+        return current;
+      }
+      const next = updater(current);
+      setEditedRawResponse(JSON.stringify(serializeEditorState(next), null, 2));
+      return next;
+    });
+  }
+
+  function reloadEditorFromRawJson() {
+    try {
+      const parsed = parseEditorStateFromRaw(editedRawResponse);
+      setChapterEditor(parsed);
+      setNotice("Reloaded the structured editor from raw JSON.");
+      setError(null);
+    } catch (parseError) {
+      setError(
+        parseError instanceof Error
+          ? parseError.message
+          : "Failed to parse raw JSON.",
+      );
+    }
+  }
+
   return (
     <main className="min-h-screen bg-paper text-ink">
       <div className="mx-auto flex min-h-screen max-w-7xl flex-col gap-8 px-6 py-8 lg:px-10">
@@ -453,12 +702,12 @@ export default function App() {
               Admin Console
             </p>
             <h1 className="font-display text-5xl leading-tight text-ink sm:text-6xl">
-              Manage books, translation drafts, and validation in one flow.
+              Run ingestion as draft production, not session archaeology.
             </h1>
             <p className="max-w-3xl text-lg leading-8 text-ink/75">
-              Start from the library, create a book, open its translation
-              drafts, run the chapter-by-chapter AI loop, then validate the
-              whole draft before you publish or export it.
+              Start from books that show where work is blocked, stage source
+              chapters before creation, then edit translation drafts chapter by
+              chapter and finish with actionable validation.
             </p>
           </div>
           <div className="flex flex-wrap gap-3">
@@ -496,9 +745,14 @@ export default function App() {
                     onClick={() => void openBook(book.slug)}
                     className="rounded-[24px] border border-border/70 bg-paper/80 p-5 text-left transition hover:border-accent/50 hover:bg-white"
                   >
-                    <p className="text-xs font-semibold uppercase tracking-[0.18em] text-accent">
-                      {book.status}
-                    </p>
+                    <div className="flex items-center justify-between gap-3">
+                      <p className="text-xs font-semibold uppercase tracking-[0.18em] text-accent">
+                        {book.status}
+                      </p>
+                      <span className="text-xs text-ink/55">
+                        {formatTimestamp(book.latestActivityAt)}
+                      </span>
+                    </div>
                     <h2 className="mt-3 font-display text-3xl text-ink">
                       {book.title}
                     </h2>
@@ -506,20 +760,30 @@ export default function App() {
                     <p className="mt-4 text-sm leading-7 text-ink/75">
                       {book.description || "No description yet."}
                     </p>
+                    <div className="mt-4 grid grid-cols-2 gap-3 text-sm text-ink/70">
+                      <Metric label="Chapters" value={String(book.chapterCount)} />
+                      <Metric
+                        label="Drafts"
+                        value={String(book.translationDraftCount)}
+                      />
+                      <Metric
+                        label="Saved"
+                        value={`${book.savedChapterCount}/${book.chapterCount || 0}`}
+                      />
+                      <Metric
+                        label="Ready"
+                        value={String(book.readyTranslationCount)}
+                      />
+                    </div>
                   </button>
                 ))}
-                {(bootstrap?.books?.length ?? 0) === 0 ? (
-                  <p className="text-base leading-7 text-ink/70">
-                    No books yet.
-                  </p>
-                ) : null}
               </div>
             </Panel>
 
             <Panel title="Create New">
               <p className="text-base leading-7 text-ink/70">
-                Create a new source text, paste the full work, then split it
-                into chapters before moving into translation drafts.
+                Paste a source text, auto-split it, then hand-edit the staged
+                chapter list before anything is written to D1 or R2.
               </p>
               <div className="mt-6">
                 <ActionButton
@@ -536,21 +800,9 @@ export default function App() {
           <section className="grid gap-6 xl:grid-cols-[380px_1fr]">
             <Panel title="Book Details">
               <div className="space-y-4">
-                <InputField
-                  label="Title"
-                  value={bookTitle}
-                  onChange={setBookTitle}
-                />
-                <InputField
-                  label="Slug"
-                  value={bookSlug}
-                  onChange={setBookSlug}
-                />
-                <InputField
-                  label="Author"
-                  value={bookAuthor}
-                  onChange={setBookAuthor}
-                />
+                <InputField label="Title" value={bookTitle} onChange={setBookTitle} />
+                <InputField label="Slug" value={bookSlug} onChange={setBookSlug} />
+                <InputField label="Author" value={bookAuthor} onChange={setBookAuthor} />
                 <InputField
                   label="Original Language"
                   value={bookLanguage}
@@ -580,16 +832,9 @@ export default function App() {
                   />
                 ) : null}
                 {splitMode === "delimiter" ? (
-                  <InputField
-                    label="Delimiter"
-                    value={delimiter}
-                    onChange={setDelimiter}
-                  />
+                  <InputField label="Delimiter" value={delimiter} onChange={setDelimiter} />
                 ) : null}
-                <ActionButton
-                  label="Back To Books"
-                  onClick={() => setScreen("books")}
-                />
+                <ActionButton label="Back To Books" onClick={() => setScreen("books")} />
               </div>
             </Panel>
 
@@ -599,40 +844,83 @@ export default function App() {
                   label="Full Text"
                   value={bookRawText}
                   onChange={setBookRawText}
-                  rows={18}
+                  rows={16}
                   placeholder="Paste the full source text here."
                 />
+                <div className="mt-4 flex flex-wrap gap-3">
+                  <ActionButton
+                    label="Load Auto-Split Into Editor"
+                    onClick={seedStageFromPreview}
+                    tone="accent"
+                    disabled={chapterPreview.length === 0}
+                  />
+                  <span className="text-sm text-ink/60">
+                    {chapterPreview.length} chapter draft(s) detected.
+                  </span>
+                </div>
               </Panel>
 
-              <Panel title="Chapter Preview">
+              <Panel title="Editable Chapter Staging">
                 <div className="space-y-4">
-                  {chapterPreview.map((chapter) => (
+                  {stagedChapters.map((chapter, index) => (
                     <div
-                      key={chapter.slug + chapter.position}
+                      key={`${chapter.slug}-${index}`}
                       className="rounded-2xl border border-border/60 bg-paper/80 p-4"
                     >
-                      <div className="flex items-center justify-between gap-3">
-                        <div>
-                          <p className="font-semibold text-ink">
-                            {chapter.title}
-                          </p>
-                          <p className="mt-1 text-xs uppercase tracking-[0.18em] text-accent">
-                            {chapter.slug}
-                          </p>
+                      <div className="grid gap-4 lg:grid-cols-[1fr_1fr_auto]">
+                        <InputField
+                          label={`Chapter ${index + 1} Title`}
+                          value={chapter.title}
+                          onChange={(value) =>
+                            updateStagedChapter(index, "title", value)
+                          }
+                        />
+                        <InputField
+                          label="Slug"
+                          value={chapter.slug}
+                          onChange={(value) =>
+                            updateStagedChapter(index, "slug", value)
+                          }
+                        />
+                        <div className="flex flex-wrap items-end gap-2">
+                          <MiniButton
+                            label="Up"
+                            onClick={() => moveStagedChapter(index, -1)}
+                            disabled={index === 0}
+                          />
+                          <MiniButton
+                            label="Down"
+                            onClick={() => moveStagedChapter(index, 1)}
+                            disabled={index === stagedChapters.length - 1}
+                          />
+                          <MiniButton label="Split" onClick={() => splitStagedChapter(index)} />
+                          <MiniButton
+                            label="Merge"
+                            onClick={() => mergeStagedChapter(index)}
+                            disabled={index === 0}
+                          />
+                          <MiniButton
+                            label="Delete"
+                            onClick={() => deleteStagedChapter(index)}
+                          />
                         </div>
-                        <span className="text-xs uppercase tracking-[0.18em] text-accent/80">
-                          {chapter.sourceText.length} chars
-                        </span>
                       </div>
-                      <p className="mt-3 line-clamp-5 text-sm leading-7 text-ink/75">
-                        {chapter.sourceText}
-                      </p>
+                      <div className="mt-4">
+                        <TextareaField
+                          label="Source Text"
+                          value={chapter.sourceText}
+                          onChange={(value) =>
+                            updateStagedChapter(index, "sourceText", value)
+                          }
+                          rows={8}
+                        />
+                      </div>
                     </div>
                   ))}
-                  {chapterPreview.length === 0 ? (
+                  {stagedChapters.length === 0 ? (
                     <p className="text-base leading-7 text-ink/65">
-                      Paste source text and choose a chapter split strategy to
-                      preview chapters.
+                      Generate an auto-split preview, then edit the staged
+                      chapters here before creating the book.
                     </p>
                   ) : null}
                 </div>
@@ -641,9 +929,7 @@ export default function App() {
                     label={isBusy ? "Saving..." : "Create Book"}
                     onClick={createBook}
                     tone="accent"
-                    disabled={
-                      isBusy || !bookTitle.trim() || chapterPreview.length === 0
-                    }
+                    disabled={isBusy || !bookTitle.trim() || stagedChapters.length === 0}
                   />
                 </div>
               </Panel>
@@ -661,24 +947,23 @@ export default function App() {
                 <h2 className="font-display text-4xl text-ink">
                   {selectedBook.book.title}
                 </h2>
-                <p className="text-sm text-ink/65">
-                  {selectedBook.book.author}
-                </p>
+                <p className="text-sm text-ink/65">{selectedBook.book.author}</p>
                 <p className="text-sm leading-7 text-ink/75">
                   {selectedBook.book.description || "No description yet."}
                 </p>
-                <div className="rounded-2xl border border-border/70 bg-paper/75 p-4 text-sm leading-7 text-ink/70">
-                  {selectedBook.chapters.length} chapters saved to D1/R2.
+                <div className="grid grid-cols-2 gap-3 rounded-2xl border border-border/70 bg-paper/75 p-4 text-sm text-ink/70">
+                  <Metric label="Chapters" value={String(selectedBook.chapters.length)} />
+                  <Metric
+                    label="Drafts"
+                    value={String(translationDrafts.length)}
+                  />
                 </div>
-                <ActionButton
-                  label="Back To Books"
-                  onClick={() => setScreen("books")}
-                />
+                <ActionButton label="Back To Books" onClick={() => setScreen("books")} />
               </div>
             </Panel>
 
             <div className="grid gap-6">
-              <Panel title="Translations">
+              <Panel title="Translation Drafts">
                 <div className="grid gap-4 md:grid-cols-2">
                   {translationDrafts.map((draft) => (
                     <button
@@ -687,139 +972,167 @@ export default function App() {
                       onClick={() => void openTranslationDraft(draft.id)}
                       className="rounded-[24px] border border-border/70 bg-paper/80 p-5 text-left transition hover:border-accent/50 hover:bg-white"
                     >
-                      <p className="text-xs font-semibold uppercase tracking-[0.18em] text-accent">
-                        {draft.chapterCount} chapters
-                      </p>
+                      <div className="flex items-center justify-between gap-3">
+                        <p className="text-xs font-semibold uppercase tracking-[0.18em] text-accent">
+                          {draft.status}
+                        </p>
+                        <span className="text-xs text-ink/55">
+                          {formatTimestamp(draft.latestActivityAt)}
+                        </span>
+                      </div>
                       <h3 className="mt-3 font-display text-3xl text-ink">
-                        {draft.title}
+                        {draft.name}
                       </h3>
                       <p className="mt-2 text-sm leading-7 text-ink/70">
-                        {draft.model}
+                        {draft.description || "No description yet."}
                       </p>
-                      <p className="mt-3 text-sm leading-7 text-ink/60">
-                        Context: {draft.contextBeforeChapterCount} before,{" "}
-                        {draft.contextAfterChapterCount} after
-                      </p>
+                      <div className="mt-4 grid grid-cols-2 gap-3 text-sm text-ink/70">
+                        <Metric label="Saved" value={`${draft.savedChapterCount}/${draft.chapterCount}`} />
+                        <Metric label="Generated" value={String(draft.generatedChapterCount)} />
+                        <Metric label="Pending" value={String(draft.pendingChapterCount)} />
+                        <Metric label="Runs" value={String(draft.sessionCount)} />
+                      </div>
                     </button>
                   ))}
-                  {translationDrafts.length === 0 ? (
-                    <p className="text-base leading-7 text-ink/65">
-                      No translation drafts yet.
-                    </p>
-                  ) : null}
                 </div>
               </Panel>
 
               <Panel title="Create Translation Draft">
+                <div className="grid gap-4 lg:grid-cols-[1fr_auto] lg:items-end">
+                  <InputField
+                    label="Translation Name"
+                    value={translationTitle}
+                    onChange={setTranslationTitle}
+                  />
+                  <ActionButton
+                    label={
+                      isBusy ? "Creating..." : "Create Draft From Defaults"
+                    }
+                    onClick={createTranslationDraft}
+                    tone="accent"
+                    disabled={isBusy || !translationTitle.trim()}
+                  />
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setShowAdvancedDraftSettings((current) => !current)}
+                  className="mt-4 text-sm font-semibold text-accent"
+                >
+                  {showAdvancedDraftSettings ? "Hide advanced settings" : "Show advanced settings"}
+                </button>
+                {showAdvancedDraftSettings ? (
+                  <>
+                    <div className="mt-4 grid gap-4 lg:grid-cols-2">
+                      <InputField
+                        label="Slug"
+                        value={translationSlug}
+                        onChange={setTranslationSlug}
+                      />
+                      <InputField
+                        label="Description"
+                        value={translationDescription}
+                        onChange={setTranslationDescription}
+                      />
+                      <InputField
+                        label="Model"
+                        value={translationModel}
+                        onChange={setTranslationModel}
+                      />
+                      <InputField
+                        label="Context Before Chapters"
+                        value={contextBeforeChapterCount}
+                        onChange={setContextBeforeChapterCount}
+                      />
+                      <InputField
+                        label="Context After Chapters"
+                        value={contextAfterChapterCount}
+                        onChange={setContextAfterChapterCount}
+                      />
+                    </div>
+                    <div className="mt-4">
+                      <TextareaField
+                        label="Prompt"
+                        value={translationPrompt}
+                        onChange={setTranslationPrompt}
+                        rows={10}
+                      />
+                    </div>
+                  </>
+                ) : null}
+              </Panel>
+            </div>
+          </section>
+        ) : null}
+
+        {screen === "workspace" && activeDraft && activeSession ? (
+          <section className="grid gap-6 xl:grid-cols-[320px_1fr]">
+            <Panel title="Draft Queue">
+              <div className="rounded-2xl border border-border/60 bg-paper/70 p-4 text-sm text-ink/70">
+                <p className="text-xs font-semibold uppercase tracking-[0.18em] text-accent">
+                  Draft
+                </p>
+                <h3 className="mt-2 font-display text-3xl text-ink">
+                  {activeDraft.name}
+                </h3>
+                <p className="mt-2 leading-7">
+                  {activeDraft.description || "No description yet."}
+                </p>
+              </div>
+              <div className="mt-4 space-y-3">
+                {activeSession.chapters.map((chapter, index) => {
+                  const issueCount =
+                    validation?.chapters.find(
+                      (validationChapter) =>
+                        validationChapter.position === chapter.position,
+                    )?.issues.length ?? 0;
+                  return (
+                    <button
+                      key={chapter.id}
+                      type="button"
+                      onClick={() => setSelectedChapterIndex(index)}
+                      className={`w-full rounded-2xl border px-4 py-3 text-left transition ${
+                        selectedChapterIndex === index
+                          ? "border-accent bg-accent/10"
+                          : "border-border/70 bg-paper/80 hover:border-accent/50"
+                      }`}
+                    >
+                      <div className="flex items-start justify-between gap-3">
+                        <div>
+                          <p className="font-semibold text-ink">{chapter.title}</p>
+                          <p className="mt-1 text-xs uppercase tracking-[0.18em] text-accent">
+                            {chapter.slug}
+                          </p>
+                        </div>
+                        <StatusPill status={chapter.status} />
+                      </div>
+                      <p className="mt-2 text-sm text-ink/60">
+                        {issueCount > 0 ? `${issueCount} validation issues` : "No flagged issues"}
+                      </p>
+                    </button>
+                  );
+                })}
+              </div>
+              <div className="mt-6 flex flex-wrap gap-3">
+                <ActionButton label="Back To Drafts" onClick={() => setScreen("translations")} />
+                <ActionButton label="Validate Draft" onClick={validateCurrentDraft} tone="accent" />
+              </div>
+            </Panel>
+
+            <div className="grid gap-6">
+              <Panel title="Draft Settings">
                 <div className="grid gap-4 lg:grid-cols-2">
                   <InputField
                     label="Translation Name"
                     value={translationTitle}
                     onChange={setTranslationTitle}
                   />
-                  <InputField
-                    label="Slug"
-                    value={translationSlug}
-                    onChange={setTranslationSlug}
-                  />
-                  <InputField
-                    label="Model"
-                    value={translationModel}
-                    onChange={setTranslationModel}
-                  />
+                  <InputField label="Slug" value={translationSlug} onChange={setTranslationSlug} />
                   <InputField
                     label="Description"
                     value={translationDescription}
                     onChange={setTranslationDescription}
                   />
                   <InputField
-                    label="Context Before Chapters"
-                    value={contextBeforeChapterCount}
-                    onChange={setContextBeforeChapterCount}
-                  />
-                  <InputField
-                    label="Context After Chapters"
-                    value={contextAfterChapterCount}
-                    onChange={setContextAfterChapterCount}
-                  />
-                </div>
-                <div className="mt-4">
-                  <TextareaField
-                    label="Prompt"
-                    value={translationPrompt}
-                    onChange={setTranslationPrompt}
-                    rows={10}
-                  />
-                </div>
-                <div className="mt-6 flex flex-wrap gap-3">
-                  <ActionButton
-                    label={isBusy ? "Creating..." : "Create Translation Draft"}
-                    onClick={createTranslationDraft}
-                    tone="accent"
-                    disabled={
-                      isBusy ||
-                      !translationTitle.trim() ||
-                      !translationModel.trim() ||
-                      !translationPrompt.trim()
-                    }
-                  />
-                </div>
-              </Panel>
-            </div>
-          </section>
-        ) : null}
-
-        {screen === "workspace" && activeSession ? (
-          <section className="grid gap-6 xl:grid-cols-[300px_1fr]">
-            <Panel title="Chapter Queue">
-              <div className="space-y-3">
-                {activeSession.chapters.map((chapter, index) => (
-                  <button
-                    key={chapter.id}
-                    type="button"
-                    onClick={() => setSelectedChapterIndex(index)}
-                    className={`w-full rounded-2xl border px-4 py-3 text-left transition ${
-                      selectedChapterIndex === index
-                        ? "border-accent bg-accent/10"
-                        : "border-border/70 bg-paper/80 hover:border-accent/50"
-                    }`}
-                  >
-                    <div className="flex items-start justify-between gap-3">
-                      <div>
-                        <p className="font-semibold text-ink">
-                          {chapter.title}
-                        </p>
-                        <p className="mt-1 text-xs uppercase tracking-[0.18em] text-accent">
-                          {chapter.slug}
-                        </p>
-                      </div>
-                      <StatusPill status={chapter.status} />
-                    </div>
-                  </button>
-                ))}
-              </div>
-              <div className="mt-6 flex flex-wrap gap-3">
-                <ActionButton
-                  label="Back To Translations"
-                  onClick={() => setScreen("translations")}
-                />
-                <ActionButton
-                  label="Validate Draft"
-                  onClick={validateCurrentDraft}
-                  tone="accent"
-                />
-              </div>
-            </Panel>
-
-            <div className="grid gap-6">
-              <Panel title="Translation Workspace">
-                <div className="grid gap-4 lg:grid-cols-2">
-                  <InputField
-                    label="Translation Name"
-                    value={translationTitle}
-                    onChange={setTranslationTitle}
-                  />
-                  <InputField
                     label="Model"
                     value={translationModel}
                     onChange={setTranslationModel}
@@ -840,32 +1153,30 @@ export default function App() {
                     label="Prompt"
                     value={translationPrompt}
                     onChange={setTranslationPrompt}
-                    rows={10}
+                    rows={8}
                   />
                 </div>
                 <div className="mt-6 flex flex-wrap gap-3">
                   <ActionButton
-                    label={isBusy ? "Saving..." : "Save Draft Settings"}
-                    onClick={() => void saveWorkspaceConfig()}
+                    label={isBusy ? "Saving..." : "Save Draft Metadata"}
+                    onClick={() => void saveDraftSettings()}
                     disabled={isBusy}
                   />
                   <ActionButton
-                    label={
-                      isBusy ? "Generating..." : "Generate Current Chapter"
-                    }
+                    label={isBusy ? "Generating..." : "Generate Current Chapter"}
                     onClick={generateCurrentChapter}
                     tone="accent"
                     disabled={isBusy || !currentWorkspaceChapter}
                   />
                   <ActionButton
-                    label={isBusy ? "Saving..." : "Save Review And Continue"}
+                    label={isBusy ? "Saving..." : "Save Chapter To Draft"}
                     onClick={saveCurrentChapter}
-                    disabled={isBusy || !editedRawResponse.trim()}
+                    disabled={isBusy || !chapterEditor}
                   />
                 </div>
               </Panel>
 
-              {currentWorkspaceChapter ? (
+              {currentWorkspaceChapter && chapterEditor ? (
                 <>
                   <Panel title={`Source: ${currentWorkspaceChapter.title}`}>
                     <p className="whitespace-pre-wrap text-base leading-7 text-ink/80">
@@ -873,82 +1184,154 @@ export default function App() {
                     </p>
                   </Panel>
 
-                  <Panel title="Review AI Response">
-                    <textarea
-                      className="min-h-[360px] w-full rounded-2xl border border-border/70 bg-paper/70 px-4 py-3 font-mono text-sm leading-6 text-ink outline-none transition focus:border-accent"
-                      value={editedRawResponse}
-                      onChange={(event) =>
-                        setEditedRawResponse(event.target.value)
-                      }
-                      placeholder="Generate the chapter, then review and edit the JSON response here."
-                    />
+                  <Panel title="Structured Chapter Review">
+                    <div className="grid gap-4 lg:grid-cols-2">
+                      <InputField
+                        label="Chapter Title"
+                        value={chapterEditor.chapterTitle}
+                        onChange={(value) =>
+                          updateChapterEditor((current) => ({
+                            ...current,
+                            chapterTitle: value,
+                          }))
+                        }
+                      />
+                      <TextareaField
+                        label="Editor Notes"
+                        value={chapterEditor.notes}
+                        onChange={(value) =>
+                          updateChapterEditor((current) => ({
+                            ...current,
+                            notes: value,
+                          }))
+                        }
+                        rows={3}
+                      />
+                    </div>
+                    <section className="mt-6 grid gap-6 xl:grid-cols-2">
+                      <ChunkEditor
+                        title="Original Chunks"
+                        chunks={chapterEditor.originalChunks}
+                        onChange={(chunks) =>
+                          updateChapterEditor((current) => ({
+                            ...current,
+                            originalChunks: chunks,
+                          }))
+                        }
+                      />
+                      <TranslationChunkEditor
+                        title="Translation Chunks"
+                        chunks={chapterEditor.translationChunks}
+                        sourceChunkCount={chapterEditor.originalChunks.length}
+                        onChange={(chunks) =>
+                          updateChapterEditor((current) => ({
+                            ...current,
+                            translationChunks: chunks,
+                          }))
+                        }
+                      />
+                    </section>
+                    <button
+                      type="button"
+                      onClick={() => setShowRawJsonEditor((current) => !current)}
+                      className="mt-6 text-sm font-semibold text-accent"
+                    >
+                      {showRawJsonEditor ? "Hide raw JSON" : "Show raw JSON"}
+                    </button>
+                    {showRawJsonEditor ? (
+                      <div className="mt-4">
+                        <textarea
+                          className="min-h-[260px] w-full rounded-2xl border border-border/70 bg-paper/70 px-4 py-3 font-mono text-sm leading-6 text-ink outline-none transition focus:border-accent"
+                          value={editedRawResponse}
+                          onChange={(event) => setEditedRawResponse(event.target.value)}
+                        />
+                        <div className="mt-3">
+                          <ActionButton label="Reload Editor From Raw JSON" onClick={reloadEditorFromRawJson} />
+                        </div>
+                      </div>
+                    ) : null}
                   </Panel>
-
-                  <section className="grid gap-6 xl:grid-cols-2">
-                    <DocumentPreview
-                      title="Original Chunks"
-                      chunks={
-                        currentWorkspaceChapter.originalDocument?.chunks ?? []
-                      }
-                      emptyMessage="No normalized original chunks yet."
-                    />
-                    <TranslationPreview
-                      title="Translation Chunks"
-                      chunks={
-                        currentWorkspaceChapter.translationDocument?.chunks ??
-                        []
-                      }
-                      emptyMessage="No normalized translation chunks yet."
-                    />
-                  </section>
                 </>
               ) : null}
             </div>
           </section>
         ) : null}
 
-        {screen === "validate" && validation ? (
+        {screen === "validate" && validation && activeDraft ? (
           <section className="grid gap-6 xl:grid-cols-[320px_1fr]">
             <Panel title="Validation Summary">
               <p className="text-sm font-semibold uppercase tracking-[0.18em] text-accent">
-                {validation.isValid ? "Ready for next step" : "Issues found"}
+                {validation.isValid ? "Ready for finish line" : "Issues found"}
               </p>
-              <div className="mt-4 space-y-3">
-                {validation.issues.length > 0 ? (
-                  validation.issues.map((issue, index) => (
-                    <div
-                      key={`${issue.level}-${index}`}
-                      className={`rounded-2xl border p-3 text-sm leading-6 ${
-                        issue.level === "error"
-                          ? "border-red-200 bg-red-50 text-red-800"
-                          : "border-amber-200 bg-amber-50 text-amber-900"
-                      }`}
-                    >
-                      {issue.message}
-                    </div>
-                  ))
-                ) : (
-                  <p className="text-base leading-7 text-ink/70">
-                    No validation issues found.
-                  </p>
-                )}
+              <div className="mt-4 grid grid-cols-2 gap-3 text-sm text-ink/70">
+                <Metric label="Chapters" value={String(validation.chapters.length)} />
+                <Metric
+                  label="Errors"
+                  value={String(
+                    validation.issues.filter((issue) => issue.level === "error").length,
+                  )}
+                />
+                <Metric
+                  label="Warnings"
+                  value={String(
+                    validation.issues.filter((issue) => issue.level === "warning").length,
+                  )}
+                />
+                <Metric label="Status" value={activeDraft.status} />
               </div>
               <div className="mt-6 flex flex-wrap gap-3">
+                <ActionButton label="Continue Editing" onClick={() => setScreen("workspace")} />
                 <ActionButton
-                  label="Back To Workspace"
-                  onClick={() => setScreen("workspace")}
+                  label="Mark Ready"
+                  onClick={() => void markDraftStatus("ready")}
+                  tone="accent"
+                  disabled={!validation.isValid || isBusy}
                 />
+                <ActionButton
+                  label="Publish Draft"
+                  onClick={() => void markDraftStatus("published")}
+                  disabled={!validation.isValid || isBusy}
+                />
+                <ActionButton label="Export Draft JSON" onClick={exportDraftJson} />
               </div>
             </Panel>
 
             <div className="grid gap-6">
+              <Panel title="Actionable Issues">
+                <div className="space-y-3">
+                  {validation.issues.length > 0 ? (
+                    validation.issues.map((issue, index) => (
+                      <button
+                        key={`${issue.level}-${index}`}
+                        type="button"
+                        onClick={() => openValidationIssue(index)}
+                        className={`w-full rounded-2xl border p-3 text-left text-sm leading-6 ${
+                          issue.level === "error"
+                            ? "border-red-200 bg-red-50 text-red-800"
+                            : "border-amber-200 bg-amber-50 text-amber-900"
+                        }`}
+                      >
+                        <span className="font-semibold">
+                          {issue.chapterSlug ?? "Draft"}
+                        </span>{" "}
+                        {issue.message}
+                      </button>
+                    ))
+                  ) : (
+                    <p className="text-base leading-7 text-ink/70">
+                      No validation issues found.
+                    </p>
+                  )}
+                </div>
+              </Panel>
+
               <Panel title="Chapter Checks">
                 <div className="grid gap-3 md:grid-cols-2">
                   {validation.chapters.map((chapter, index) => (
                     <button
                       key={chapter.slug + chapter.position}
                       type="button"
-                      onClick={() => setValidationPreviewIndex(index)}
+                      onClick={() => openValidationChapter(index)}
                       className={`rounded-2xl border px-4 py-3 text-left transition ${
                         validationPreviewIndex === index
                           ? "border-accent bg-accent/10"
@@ -957,24 +1340,18 @@ export default function App() {
                     >
                       <div className="flex items-start justify-between gap-3">
                         <div>
-                          <p className="font-semibold text-ink">
-                            {chapter.title}
-                          </p>
+                          <p className="font-semibold text-ink">{chapter.title}</p>
                           <p className="mt-1 text-xs uppercase tracking-[0.18em] text-accent">
                             {chapter.slug}
                           </p>
                         </div>
                         <StatusPill status={chapter.status} />
                       </div>
-                      {chapter.issues.length > 0 ? (
-                        <p className="mt-2 text-sm leading-6 text-ink/65">
-                          {chapter.issues.length} issue(s)
-                        </p>
-                      ) : (
-                        <p className="mt-2 text-sm leading-6 text-emerald-700">
-                          No issues
-                        </p>
-                      )}
+                      <p className="mt-2 text-sm leading-6 text-ink/65">
+                        {chapter.issues.length > 0
+                          ? `${chapter.issues.length} issue(s) · Open in workspace`
+                          : "No issues"}
+                      </p>
                     </button>
                   ))}
                 </div>
@@ -982,9 +1359,7 @@ export default function App() {
 
               {validationPreviewChapter ? (
                 <Panel title="Side-by-Side Preview">
-                  <ChapterSideBySidePreview
-                    chapter={validationPreviewChapter}
-                  />
+                  <ChapterSideBySidePreview chapter={validationPreviewChapter} />
                 </Panel>
               ) : null}
             </div>
@@ -1005,24 +1380,34 @@ export default function App() {
                 Close
               </button>
             </div>
-            <div className="mt-6 space-y-4">
-              <InputField
-                label="OpenRouter API Key"
-                value={settingsApiKey}
-                onChange={setSettingsApiKey}
-                type="password"
-              />
-              <InputField
-                label="Default Model"
-                value={settingsModel}
-                onChange={setSettingsModel}
-              />
-              <TextareaField
-                label="Default Prompt"
-                value={settingsPrompt}
-                onChange={setSettingsPrompt}
-                rows={12}
-              />
+            <div className="mt-6 space-y-6">
+              <section className="space-y-4">
+                <p className="text-xs font-semibold uppercase tracking-[0.18em] text-accent">
+                  Credentials
+                </p>
+                <InputField
+                  label="OpenRouter API Key"
+                  value={settingsApiKey}
+                  onChange={setSettingsApiKey}
+                  type="password"
+                />
+              </section>
+              <section className="space-y-4">
+                <p className="text-xs font-semibold uppercase tracking-[0.18em] text-accent">
+                  Generation Defaults
+                </p>
+                <InputField
+                  label="Default Model"
+                  value={settingsModel}
+                  onChange={setSettingsModel}
+                />
+                <TextareaField
+                  label="Default Prompt"
+                  value={settingsPrompt}
+                  onChange={setSettingsPrompt}
+                  rows={10}
+                />
+              </section>
               <ActionButton
                 label={isBusy ? "Saving..." : "Save Settings"}
                 onClick={saveSettings}
@@ -1170,13 +1555,45 @@ function ActionButton({
   );
 }
 
+function MiniButton({
+  label,
+  onClick,
+  disabled,
+}: {
+  label: string;
+  onClick: () => void;
+  disabled?: boolean;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={disabled}
+      className="rounded-full border border-border/70 px-3 py-2 text-xs font-semibold text-ink disabled:opacity-40"
+    >
+      {label}
+    </button>
+  );
+}
+
+function Metric({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-2xl border border-border/50 bg-white/70 p-3">
+      <p className="text-xs font-semibold uppercase tracking-[0.18em] text-accent/80">
+        {label}
+      </p>
+      <p className="mt-1 text-lg font-semibold text-ink">{value}</p>
+    </div>
+  );
+}
+
 function StatusPill({ status }: { status: string }) {
   const tone =
     status === "saved"
       ? "bg-emerald-100 text-emerald-800"
-      : status === "generated"
+      : status === "generated" || status === "ready" || status === "published"
         ? "bg-amber-100 text-amber-800"
-        : status === "error"
+        : status === "error" || status === "failed"
           ? "bg-red-100 text-red-800"
           : "bg-stone-200 text-stone-700";
 
@@ -1189,71 +1606,199 @@ function StatusPill({ status }: { status: string }) {
   );
 }
 
-function DocumentPreview({
+function ChunkEditor({
   title,
   chunks,
-  emptyMessage,
+  onChange,
 }: {
   title: string;
-  chunks: Array<{ id: string; text: string; ordinal: number }>;
-  emptyMessage: string;
+  chunks: Array<{ text: string; type: "prose" | "verse" }>;
+  onChange: (chunks: Array<{ text: string; type: "prose" | "verse" }>) => void;
 }) {
   return (
     <div className="rounded-2xl border border-border/70 bg-paper/75 p-4">
       <p className="text-xs font-semibold uppercase tracking-[0.18em] text-accent">
         {title}
       </p>
-      <div className="mt-4 space-y-3">
-        {chunks.length > 0 ? (
-          chunks.map((chunk) => (
-            <div
-              key={chunk.id}
-              className="rounded-2xl border border-border/50 bg-white/80 p-3"
-            >
-              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-accent/80">
-                {chunk.id} · {chunk.ordinal}
-              </p>
-              <p className="mt-2 text-sm leading-7 text-ink/80">{chunk.text}</p>
+      <div className="mt-4 space-y-4">
+        {chunks.map((chunk, index) => (
+          <div
+            key={`${title}-${index}`}
+            className="rounded-2xl border border-border/50 bg-white/80 p-3"
+          >
+            <div className="grid gap-3 lg:grid-cols-[1fr_auto_auto]">
+              <SegmentedControl
+                label={`Chunk ${index + 1} Type`}
+                value={chunk.type}
+                options={[
+                  { value: "prose", label: "Prose" },
+                  { value: "verse", label: "Verse" },
+                ]}
+                onChange={(value) =>
+                  onChange(
+                    chunks.map((entry, chunkIndex) =>
+                      chunkIndex === index
+                        ? { ...entry, type: value as "prose" | "verse" }
+                        : entry,
+                    ),
+                  )
+                }
+              />
+              <MiniButton
+                label="Add Below"
+                onClick={() =>
+                  onChange([
+                    ...chunks.slice(0, index + 1),
+                    { text: "", type: chunk.type },
+                    ...chunks.slice(index + 1),
+                  ])
+                }
+              />
+              <MiniButton
+                label="Delete"
+                onClick={() => onChange(chunks.filter((_, chunkIndex) => chunkIndex !== index))}
+                disabled={chunks.length === 1}
+              />
             </div>
-          ))
-        ) : (
-          <p className="text-sm leading-6 text-ink/60">{emptyMessage}</p>
-        )}
+            <div className="mt-3">
+              <TextareaField
+                label="Text"
+                value={chunk.text}
+                onChange={(value) =>
+                  onChange(
+                    chunks.map((entry, chunkIndex) =>
+                      chunkIndex === index ? { ...entry, text: value } : entry,
+                    ),
+                  )
+                }
+                rows={5}
+              />
+            </div>
+          </div>
+        ))}
       </div>
     </div>
   );
 }
 
-function TranslationPreview({
+function TranslationChunkEditor({
   title,
   chunks,
-  emptyMessage,
+  sourceChunkCount,
+  onChange,
 }: {
   title: string;
-  chunks: Array<{ id: string; text: string; sourceChunkIds: string[] }>;
-  emptyMessage: string;
+  chunks: Array<{
+    text: string;
+    type: "prose" | "verse";
+    sourceChunkIds: string[];
+  }>;
+  sourceChunkCount: number;
+  onChange: (
+    chunks: Array<{
+      text: string;
+      type: "prose" | "verse";
+      sourceChunkIds: string[];
+    }>,
+  ) => void;
 }) {
+  const sourceOptions = Array.from({ length: sourceChunkCount }, (_, index) => `c${index + 1}`);
+
   return (
     <div className="rounded-2xl border border-border/70 bg-paper/75 p-4">
       <p className="text-xs font-semibold uppercase tracking-[0.18em] text-accent">
         {title}
       </p>
-      <div className="mt-4 space-y-3">
-        {chunks.length > 0 ? (
-          chunks.map((chunk) => (
-            <div
-              key={chunk.id}
-              className="rounded-2xl border border-border/50 bg-white/80 p-3"
-            >
-              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-accent/80">
-                {chunk.id} · {chunk.sourceChunkIds.join(" + ")}
-              </p>
-              <p className="mt-2 text-sm leading-7 text-ink/80">{chunk.text}</p>
+      <div className="mt-4 space-y-4">
+        {chunks.map((chunk, index) => (
+          <div
+            key={`${title}-${index}`}
+            className="rounded-2xl border border-border/50 bg-white/80 p-3"
+          >
+            <div className="grid gap-3 lg:grid-cols-[1fr_auto_auto]">
+              <SegmentedControl
+                label={`Chunk ${index + 1} Type`}
+                value={chunk.type}
+                options={[
+                  { value: "prose", label: "Prose" },
+                  { value: "verse", label: "Verse" },
+                ]}
+                onChange={(value) =>
+                  onChange(
+                    chunks.map((entry, chunkIndex) =>
+                      chunkIndex === index
+                        ? { ...entry, type: value as "prose" | "verse" }
+                        : entry,
+                    ),
+                  )
+                }
+              />
+              <MiniButton
+                label="Add Below"
+                onClick={() =>
+                  onChange([
+                    ...chunks.slice(0, index + 1),
+                    {
+                      text: "",
+                      type: chunk.type,
+                      sourceChunkIds: chunk.sourceChunkIds,
+                    },
+                    ...chunks.slice(index + 1),
+                  ])
+                }
+              />
+              <MiniButton
+                label="Delete"
+                onClick={() => onChange(chunks.filter((_, chunkIndex) => chunkIndex !== index))}
+                disabled={chunks.length === 1}
+              />
             </div>
-          ))
-        ) : (
-          <p className="text-sm leading-6 text-ink/60">{emptyMessage}</p>
-        )}
+            <div className="mt-3 flex flex-wrap gap-2">
+              {sourceOptions.map((sourceChunkId) => {
+                const active = chunk.sourceChunkIds.includes(sourceChunkId);
+                return (
+                  <button
+                    key={`${index}-${sourceChunkId}`}
+                    type="button"
+                    onClick={() =>
+                      onChange(
+                        chunks.map((entry, chunkIndex) =>
+                          chunkIndex === index
+                            ? {
+                                ...entry,
+                                sourceChunkIds: active
+                                  ? entry.sourceChunkIds.filter((id) => id !== sourceChunkId)
+                                  : [...entry.sourceChunkIds, sourceChunkId],
+                              }
+                            : entry,
+                        ),
+                      )
+                    }
+                    className={`rounded-full px-3 py-2 text-xs font-semibold ${
+                      active ? "bg-accent text-paper" : "border border-border/70 text-ink"
+                    }`}
+                  >
+                    {sourceChunkId}
+                  </button>
+                );
+              })}
+            </div>
+            <div className="mt-3">
+              <TextareaField
+                label="Translation Text"
+                value={chunk.text}
+                onChange={(value) =>
+                  onChange(
+                    chunks.map((entry, chunkIndex) =>
+                      chunkIndex === index ? { ...entry, text: value } : entry,
+                    ),
+                  )
+                }
+                rows={5}
+              />
+            </div>
+          </div>
+        ))}
       </div>
     </div>
   );
@@ -1311,6 +1856,104 @@ function ChapterSideBySidePreview({
       })}
     </div>
   );
+}
+
+function buildChapterEditorState(
+  chapter: AdminIngestionChapterRecord,
+): ChapterEditorState {
+  if (chapter.rawResponse?.trim()) {
+    try {
+      return parseEditorStateFromRaw(chapter.rawResponse);
+    } catch {
+      // Fall back to normalized documents below.
+    }
+  }
+
+  return {
+    chapterTitle: chapter.title,
+    notes: chapter.notes ?? "",
+    originalChunks: (chapter.originalDocument?.chunks ?? [{ text: "", type: "prose", id: "c1", ordinal: 1 }]).map(
+      (chunk) => ({
+        text: chunk.text,
+        type: chunk.type,
+      }),
+    ),
+    translationChunks: (
+      chapter.translationDocument?.chunks ?? [
+        { text: "", type: "prose", id: "t1", ordinal: 1, sourceChunkIds: ["c1"] },
+      ]
+    ).map((chunk) => ({
+      text: chunk.text,
+      type: chunk.type,
+      sourceChunkIds: chunk.sourceChunkIds,
+    })),
+  };
+}
+
+function parseEditorStateFromRaw(rawResponse: string): ChapterEditorState {
+  const parsed = JSON.parse(rawResponse) as {
+    chapterTitle?: string;
+    notes?: string;
+    originalChunks?: Array<{ text?: string; type?: "prose" | "verse" }>;
+    translationChunks?: Array<{
+      text?: string;
+      type?: "prose" | "verse";
+      sourceOrdinals?: number[];
+      sourceChunkIds?: string[];
+    }>;
+  };
+
+  const originalChunks: ChapterEditorState["originalChunks"] = (
+    parsed.originalChunks ?? []
+  ).map((chunk) => ({
+    text: chunk.text?.trim() ?? "",
+    type: chunk.type === "verse" ? "verse" : "prose",
+  }));
+  const translationChunks: ChapterEditorState["translationChunks"] = (
+    parsed.translationChunks ?? []
+  ).map((chunk) => ({
+    text: chunk.text?.trim() ?? "",
+    type: chunk.type === "verse" ? "verse" : "prose",
+    sourceChunkIds:
+      chunk.sourceChunkIds ??
+      (chunk.sourceOrdinals ?? []).map((ordinal) => `c${ordinal}`),
+  }));
+
+  if (originalChunks.length === 0 || translationChunks.length === 0) {
+    throw new Error("Raw JSON must include originalChunks and translationChunks.");
+  }
+
+  return {
+    chapterTitle: parsed.chapterTitle ?? "Untitled Chapter",
+    notes: parsed.notes ?? "",
+    originalChunks,
+    translationChunks,
+  };
+}
+
+function serializeEditorState(editor: ChapterEditorState) {
+  return {
+    chapterTitle: editor.chapterTitle,
+    notes: editor.notes,
+    originalChunks: editor.originalChunks.map((chunk) => ({
+      text: chunk.text,
+      type: chunk.type,
+    })),
+    translationChunks: editor.translationChunks.map((chunk) => ({
+      text: chunk.text,
+      type: chunk.type,
+      sourceOrdinals: chunk.sourceChunkIds
+        .map((sourceChunkId) => Number(sourceChunkId.replace(/^c/, "")))
+        .filter((ordinal) => Number.isInteger(ordinal) && ordinal > 0),
+    })),
+  };
+}
+
+function formatTimestamp(value: string | null) {
+  if (!value) {
+    return "No activity";
+  }
+  return new Date(value).toLocaleDateString();
 }
 
 function isPresent<T>(value: T | null | undefined): value is T {

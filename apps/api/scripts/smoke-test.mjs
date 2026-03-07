@@ -418,7 +418,7 @@ try {
       createDraftResult.status === 201,
     );
 
-    const linkedSessionId = createDraftResult.json.data?.id;
+    const linkedDraftId = createDraftResult.json.data?.id;
     const draftsResult = await api(
       "GET",
       "/api/admin/books/iliad/translation-drafts",
@@ -429,14 +429,14 @@ try {
     );
     assert(
       "translation drafts include the linked draft",
-      draftsResult.json.data?.sessions?.some(
-        (session) => session.id === linkedSessionId,
+      draftsResult.json.data?.drafts?.some(
+        (draft) => draft.id === linkedDraftId,
       ),
     );
 
     const validationResult = await api(
       "GET",
-      `/api/admin/translation-drafts/${linkedSessionId}/validate`,
+      `/api/admin/translation-drafts/${linkedDraftId}/validate`,
     );
     assert(
       "validate translation draft returns 200",
