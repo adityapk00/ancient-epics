@@ -20,11 +20,10 @@ type AdminScreen = "books" | "create-book" | "translations" | "workspace" | "val
 type ChapterEditorState = {
   chapterTitle: string;
   notes: string;
-  originalChunks: Array<{ text: string; type: "prose" | "verse" }>;
-  translationChunks: Array<{
-    text: string;
+  chunks: Array<{
+    originalText: string;
+    translatedText: string;
     type: "prose" | "verse";
-    sourceChunkIds: string[];
   }>;
 };
 
@@ -1154,18 +1153,11 @@ export default function App() {
                     </div>
                     <section className="mt-4 space-y-4">
                       <AlignedTranslationReview
-                        originalChunks={chapterEditor.originalChunks}
-                        onOriginalChunksChange={(originalChunks) =>
-                          updateChapterEditor((current) => ({
-                            ...current,
-                            originalChunks,
-                          }))
-                        }
-                        chunks={chapterEditor.translationChunks}
+                        chunks={chapterEditor.chunks}
                         onChange={(chunks) =>
                           updateChapterEditor((current) => ({
                             ...current,
-                            translationChunks: chunks,
+                            chunks,
                           }))
                         }
                       />
@@ -1647,46 +1639,36 @@ function StatusPill({ status }: { status: string }) {
 }
 
 function AlignedTranslationReview({
-  originalChunks,
-  onOriginalChunksChange,
   chunks,
   onChange,
 }: {
-  originalChunks: Array<{ text: string; type: "prose" | "verse" }>;
-  onOriginalChunksChange: (chunks: Array<{ text: string; type: "prose" | "verse" }>) => void;
   chunks: Array<{
-    text: string;
+    originalText: string;
+    translatedText: string;
     type: "prose" | "verse";
-    sourceChunkIds: string[];
   }>;
   onChange: (
     chunks: Array<{
-      text: string;
+      originalText: string;
+      translatedText: string;
       type: "prose" | "verse";
-      sourceChunkIds: string[];
     }>,
   ) => void;
 }) {
-  const sourceOptions = Array.from({ length: originalChunks.length }, (_, index) => `c${index + 1}`);
-
   return (
     <div className="rounded-2xl border border-border/70 bg-paper/70 p-4">
       <div className="flex items-center justify-between gap-3">
         <p className="text-xs font-semibold uppercase tracking-[0.18em] text-accent">Aligned Translation Review</p>
         <div className="flex flex-wrap gap-2">
           <MiniButton
-            label="Add Original Chunk"
-            onClick={() => onOriginalChunksChange([...originalChunks, { text: "", type: "prose" }])}
-          />
-          <MiniButton
-            label="Add Translation Chunk"
+            label="Add Chunk"
             onClick={() =>
               onChange([
                 ...chunks,
                 {
-                  text: "",
+                  originalText: "",
+                  translatedText: "",
                   type: "prose",
-                  sourceChunkIds: [sourceOptions[0] ?? "c1"],
                 },
               ])
             }
@@ -1695,14 +1677,6 @@ function AlignedTranslationReview({
       </div>
       <div className="mt-3 space-y-3">
         {chunks.map((chunk, index) => {
-          const sourceChunks = chunk.sourceChunkIds
-            .map((chunkId) => {
-              const sourceIndex = Number(chunkId.replace(/^c/, "")) - 1;
-              const sourceChunk = originalChunks[sourceIndex];
-              return sourceChunk ? { id: chunkId, sourceIndex, ...sourceChunk } : null;
-            })
-            .filter(isPresent);
-
           return (
             <div
               key={`translation-${index}`}
@@ -1711,73 +1685,25 @@ function AlignedTranslationReview({
               <div className="min-w-0 border-r border-border/35 pr-4 xl:pr-5">
                 <div className="flex items-center justify-between gap-3">
                   <p className="text-xs font-semibold uppercase tracking-[0.18em] text-accent/80">Source</p>
+                  <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-accent/75">T{index + 1}</p>
                 </div>
-                <div className="mt-3 space-y-3">
-                  {sourceChunks.map((sourceChunk) => (
-                    <div key={`${index}-${sourceChunk.id}`}>
-                      <div className="flex flex-wrap items-center gap-2">
-                        <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-accent/75">
-                          {sourceChunk.id}
-                        </p>
-                        <CompactSelect
-                          value={sourceChunk.type}
-                          onChange={(value) =>
-                            onOriginalChunksChange(
-                              originalChunks.map((entry, sourceIndex) =>
-                                sourceIndex === sourceChunk.sourceIndex
-                                  ? { ...entry, type: value as "prose" | "verse" }
-                                  : entry,
-                              ),
-                            )
-                          }
-                          options={[
-                            { value: "prose", label: "Prose" },
-                            { value: "verse", label: "Verse" },
-                          ]}
-                          ariaLabel={`Original chunk ${sourceChunk.id} type`}
-                        />
-                      </div>
-                      <textarea
-                        rows={Math.max(3, sourceChunk.text.split("\n").length)}
-                        value={sourceChunk.text}
-                        onChange={(event) =>
-                          onOriginalChunksChange(
-                            originalChunks.map((entry, sourceIndex) =>
-                              sourceIndex === sourceChunk.sourceIndex ? { ...entry, text: event.target.value } : entry,
-                            ),
-                          )
-                        }
-                        placeholder="Source text"
-                        className="mt-2 w-full rounded-xl border border-border/60 bg-paper/65 px-3 py-2 text-base leading-7 text-ink outline-none transition focus:border-accent"
-                      />
-                    </div>
-                  ))}
-                </div>
+                <textarea
+                  rows={Math.max(5, chunk.originalText.split("\n").length)}
+                  value={chunk.originalText}
+                  onChange={(event) =>
+                    onChange(
+                      chunks.map((entry, chunkIndex) =>
+                        chunkIndex === index ? { ...entry, originalText: event.target.value } : entry,
+                      ),
+                    )
+                  }
+                  placeholder="Original text"
+                  className="mt-3 w-full rounded-xl border border-border/60 bg-paper/65 px-3 py-2 text-base leading-7 text-ink outline-none transition focus:border-accent"
+                />
               </div>
 
               <div className="min-w-0">
                 <div className="flex flex-wrap items-center gap-2">
-                  <p className="mr-1 text-xs font-semibold uppercase tracking-[0.18em] text-accent/80">T{index + 1}</p>
-                  <CompactSelect
-                    value={chunk.sourceChunkIds[0] ?? ""}
-                    onChange={(value) =>
-                      onChange(
-                        chunks.map((entry, chunkIndex) =>
-                          chunkIndex === index
-                            ? {
-                                ...entry,
-                                sourceChunkIds: value ? [value] : [],
-                              }
-                            : entry,
-                        ),
-                      )
-                    }
-                    options={sourceOptions.map((option) => ({
-                      value: option,
-                      label: option,
-                    }))}
-                    ariaLabel={`Source chunk for translation ${index + 1}`}
-                  />
                   <CompactSelect
                     value={chunk.type}
                     onChange={(value) =>
@@ -1799,9 +1725,9 @@ function AlignedTranslationReview({
                       onChange([
                         ...chunks.slice(0, index + 1),
                         {
-                          text: "",
+                          originalText: "",
+                          translatedText: "",
                           type: chunk.type,
-                          sourceChunkIds: chunk.sourceChunkIds,
                         },
                         ...chunks.slice(index + 1),
                       ])
@@ -1816,14 +1742,15 @@ function AlignedTranslationReview({
 
                 <textarea
                   rows={5}
-                  value={chunk.text}
+                  value={chunk.translatedText}
                   onChange={(event) =>
                     onChange(
                       chunks.map((entry, chunkIndex) =>
-                        chunkIndex === index ? { ...entry, text: event.target.value } : entry,
+                        chunkIndex === index ? { ...entry, translatedText: event.target.value } : entry,
                       ),
                     )
                   }
+                  placeholder="Translated text"
                   className="mt-3 w-full rounded-xl border border-border/60 bg-paper/65 px-3 py-2 text-base leading-7 text-ink outline-none transition focus:border-accent"
                 />
               </div>
@@ -1867,33 +1794,18 @@ function ChapterSideBySidePreview({
 }: {
   chapter: NonNullable<AdminTranslationValidationPayload["session"]>["chapters"][number];
 }) {
-  const originalMap = new Map((chapter.originalDocument?.chunks ?? []).map((chunk) => [chunk.id, chunk]));
-
   return (
     <div className="divide-y divide-border/35">
       {(chapter.translationDocument?.chunks ?? []).map((chunk) => {
-        const sourceChunks = chunk.sourceChunkIds.map((chunkId) => originalMap.get(chunkId)).filter(isPresent);
-
         return (
           <div key={chunk.id} className="grid gap-4 py-4 md:grid-cols-2 md:gap-8">
             <div>
-              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-accent">
-                Source · {chunk.sourceChunkIds.join(" + ")}
-              </p>
-              <div className="mt-3 space-y-3">
-                {sourceChunks.map((sourceChunk) => (
-                  <p key={sourceChunk.id} className="font-display text-2xl leading-9 text-ink">
-                    <span className="mr-3 align-top font-sans text-[0.72rem] font-semibold uppercase tracking-[0.18em] text-accent/85">
-                      {sourceChunk.id}
-                    </span>
-                    {sourceChunk.text}
-                  </p>
-                ))}
-              </div>
+              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-accent">Source</p>
+              <p className="mt-3 whitespace-pre-wrap font-display text-2xl leading-9 text-ink">{chunk.originalText}</p>
             </div>
             <div>
               <p className="text-xs font-semibold uppercase tracking-[0.18em] text-accent">Translation · {chunk.id}</p>
-              <p className="mt-3 text-lg leading-8 text-ink/80">{chunk.text}</p>
+              <p className="mt-3 whitespace-pre-wrap text-lg leading-8 text-ink/80">{chunk.translatedText}</p>
             </div>
           </div>
         );
@@ -1914,26 +1826,20 @@ function buildChapterEditorState(chapter: AdminIngestionChapterRecord): ChapterE
   return {
     chapterTitle: chapter.title,
     notes: chapter.notes ?? "",
-    originalChunks: (chapter.originalDocument?.chunks ?? [{ text: "", type: "prose", id: "c1", ordinal: 1 }]).map(
-      (chunk) => ({
-        text: chunk.text,
-        type: chunk.type,
-      }),
-    ),
-    translationChunks: (
+    chunks: (
       chapter.translationDocument?.chunks ?? [
         {
-          text: "",
+          originalText: "",
+          translatedText: "",
           type: "prose",
           id: "t1",
           ordinal: 1,
-          sourceChunkIds: ["c1"],
         },
       ]
     ).map((chunk) => ({
-      text: chunk.text,
+      originalText: chunk.originalText,
+      translatedText: chunk.translatedText,
       type: chunk.type,
-      sourceChunkIds: chunk.sourceChunkIds,
     })),
   };
 }
@@ -2078,34 +1984,27 @@ function parseEditorStateFromRaw(rawResponse: string): ChapterEditorState {
   const parsed = JSON.parse(rawResponse) as {
     chapterTitle?: string;
     notes?: string;
-    originalChunks?: Array<{ text?: string; type?: "prose" | "verse" }>;
-    translationChunks?: Array<{
-      text?: string;
+    chunks?: Array<{
+      originalText?: string;
+      translatedText?: string;
       type?: "prose" | "verse";
-      sourceOrdinals?: number[];
-      sourceChunkIds?: string[];
     }>;
   };
 
-  const originalChunks: ChapterEditorState["originalChunks"] = (parsed.originalChunks ?? []).map((chunk) => ({
-    text: chunk.text?.trim() ?? "",
+  const chunks: ChapterEditorState["chunks"] = (parsed.chunks ?? []).map((chunk) => ({
+    originalText: chunk.originalText?.trim() ?? "",
+    translatedText: chunk.translatedText?.trim() ?? "",
     type: chunk.type === "verse" ? "verse" : "prose",
-  }));
-  const translationChunks: ChapterEditorState["translationChunks"] = (parsed.translationChunks ?? []).map((chunk) => ({
-    text: chunk.text?.trim() ?? "",
-    type: chunk.type === "verse" ? "verse" : "prose",
-    sourceChunkIds: chunk.sourceChunkIds ?? (chunk.sourceOrdinals ?? []).map((ordinal) => `c${ordinal}`),
   }));
 
-  if (originalChunks.length === 0 || translationChunks.length === 0) {
-    throw new Error("Raw JSON must include originalChunks and translationChunks.");
+  if (chunks.length === 0) {
+    throw new Error("Raw JSON must include chunks.");
   }
 
   return {
     chapterTitle: parsed.chapterTitle ?? "Untitled Chapter",
     notes: parsed.notes ?? "",
-    originalChunks,
-    translationChunks,
+    chunks,
   };
 }
 
@@ -2113,16 +2012,10 @@ function serializeEditorState(editor: ChapterEditorState) {
   return {
     chapterTitle: editor.chapterTitle,
     notes: editor.notes,
-    originalChunks: editor.originalChunks.map((chunk) => ({
-      text: chunk.text,
+    chunks: editor.chunks.map((chunk) => ({
+      originalText: chunk.originalText,
+      translatedText: chunk.translatedText,
       type: chunk.type,
-    })),
-    translationChunks: editor.translationChunks.map((chunk) => ({
-      text: chunk.text,
-      type: chunk.type,
-      sourceOrdinals: chunk.sourceChunkIds
-        .map((sourceChunkId) => Number(sourceChunkId.replace(/^c/, "")))
-        .filter((ordinal) => Number.isInteger(ordinal) && ordinal > 0),
     })),
   };
 }

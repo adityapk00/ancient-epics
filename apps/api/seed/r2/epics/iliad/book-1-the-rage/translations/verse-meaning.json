@@ -3,17 +3,17 @@
   "chunks": [
     {
       "id": "t1",
-      "type": "verse",
-      "text": "Sing, goddess, the wrath of Achilles, Peleus' son, and the ruin it brought down in wave after wave upon the Achaeans.",
       "ordinal": 1,
-      "sourceChunkIds": ["c1", "c2"]
+      "type": "verse",
+      "originalText": "Mῆνιν ἄειδε θεὰ Πηληϊάδεω Ἀχιλῆος\nοὐλομένην, ἣ μυρί᾽ Ἀχαιοῖς ἄλγε᾽ ἔθηκε,",
+      "translatedText": "Sing, goddess, the wrath of Achilles, Peleus' son, and the ruin it brought down in wave after wave upon the Achaeans."
     },
     {
       "id": "t2",
-      "type": "verse",
-      "text": "It drove so many valiant souls ahead to the house of Hades.",
       "ordinal": 2,
-      "sourceChunkIds": ["c3"]
+      "type": "verse",
+      "originalText": "πολλὰς δ᾽ ἰφθίμους ψυχὰς Ἄϊδι προΐαψεν",
+      "translatedText": "It drove so many valiant souls ahead to the house of Hades."
     }
   ]
 }

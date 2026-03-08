@@ -631,7 +631,7 @@ export async function buildChapterInputsFromExistingStory(
 }
 
 function sourceDocumentToText(document: OriginalChapterDocument): string {
-  return document.chunks.map((chunk) => chunk.text).join("\n\n");
+  return document.fullText;
 }
 
 export async function getAdminBookSourcePayload(
@@ -731,27 +731,10 @@ export function buildInitialOriginalDocument(
   chapterSlug: string,
   sourceText: string,
 ): OriginalChapterDocument {
-  const normalized = sourceText.trim();
-  const lines = normalized
-    .split(/\r?\n/)
-    .map((line) => line.trim())
-    .filter(Boolean);
-  const paragraphs = normalized
-    .split(/\n\s*\n/)
-    .map((chunk) => chunk.trim())
-    .filter(Boolean);
-  const useVerse = lines.length > 1 && lines.length >= paragraphs.length * 2;
-  const rawChunks = useVerse ? lines : paragraphs.length > 0 ? paragraphs : [normalized];
-
   return {
     bookSlug,
     chapterSlug,
-    chunks: rawChunks.map((text, index) => ({
-      id: `c${index + 1}`,
-      type: useVerse ? "verse" : "prose",
-      text,
-      ordinal: index + 1,
-    })),
+    fullText: sourceText.trim(),
   };
 }
 
@@ -857,12 +840,11 @@ export async function validateTranslation(
 
   const chapterChecks = session.chapters.map((chapter) => {
     const issues: AdminTranslationValidationPayload["chapters"][number]["issues"] = [];
-    const originalChunkIds = new Set(chapter.originalDocument?.chunks.map((chunk) => chunk.id) ?? []);
 
-    if (!chapter.originalDocument || chapter.originalDocument.chunks.length === 0) {
+    if (!chapter.originalDocument?.fullText.trim()) {
       issues.push({
         level: "error",
-        message: "Original chunks are missing.",
+        message: "Original chapter text is missing.",
         chapterPosition: chapter.position,
         chapterSlug: chapter.slug,
       });
@@ -878,28 +860,43 @@ export async function validateTranslation(
     }
 
     for (const translationChunk of chapter.translationDocument?.chunks ?? []) {
-      if (translationChunk.sourceChunkIds.length === 0) {
+      if (!translationChunk.originalText.trim()) {
         issues.push({
           level: "error",
-          message: `Translation chunk ${translationChunk.id} has no source anchors.`,
+          message: `Translation chunk ${translationChunk.id} is missing original text.`,
           chapterPosition: chapter.position,
           chapterSlug: chapter.slug,
           translationChunkId: translationChunk.id,
         });
       }
 
-      for (const sourceChunkId of translationChunk.sourceChunkIds) {
-        if (!originalChunkIds.has(sourceChunkId)) {
-          issues.push({
-            level: "error",
-            message: `Translation chunk ${translationChunk.id} points to missing source chunk ${sourceChunkId}.`,
-            chapterPosition: chapter.position,
-            chapterSlug: chapter.slug,
-            translationChunkId: translationChunk.id,
-            sourceChunkId,
-          });
-        }
+      if (!translationChunk.translatedText.trim()) {
+        issues.push({
+          level: "error",
+          message: `Translation chunk ${translationChunk.id} is missing translated text.`,
+          chapterPosition: chapter.position,
+          chapterSlug: chapter.slug,
+          translationChunkId: translationChunk.id,
+        });
       }
+    }
+
+    const originalFullText = chapter.originalDocument?.fullText ?? "";
+    const reconstructedOriginalText = (chapter.translationDocument?.chunks ?? [])
+      .map((chunk) => chunk.originalText)
+      .join("\n\n");
+
+    if (
+      chapter.originalDocument &&
+      chapter.translationDocument &&
+      normalizeChapterText(originalFullText) !== normalizeChapterText(reconstructedOriginalText)
+    ) {
+      issues.push({
+        level: "error",
+        message: "Translation chunk original text does not exactly reconstruct the chapter source text.",
+        chapterPosition: chapter.position,
+        chapterSlug: chapter.slug,
+      });
     }
 
     if (chapter.status !== "saved") {
@@ -939,4 +936,8 @@ export async function seedInitialOriginalDocument(input: {
   const originalDocument = buildInitialOriginalDocument(input.bookSlug, input.chapterSlug, input.sourceText);
   await writeObjectJson(input.bucket, buildOriginalChapterKey(input.bookSlug, input.chapterSlug), originalDocument);
   return originalDocument;
+}
+
+function normalizeChapterText(value: string): string {
+  return value.replace(/\r\n/g, "\n").trim();
 }

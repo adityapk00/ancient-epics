@@ -22,21 +22,18 @@ export type AiProvider = "google" | "openrouter";
 
 // ── R2 document shapes ──────────────────────────────────────
 
-export interface TextChunk {
+export interface TranslationChunk {
   id: string;
   type: ChunkType;
-  text: string;
+  originalText: string;
+  translatedText: string;
   ordinal: number;
-}
-
-export interface TranslationChunk extends TextChunk {
-  sourceChunkIds: string[];
 }
 
 export interface OriginalChapterDocument {
   bookSlug: string;
   chapterSlug: string;
-  chunks: TextChunk[];
+  fullText: string;
 }
 
 export interface TranslationChapterDocument {
@@ -138,8 +135,7 @@ export interface NoteRecord {
   userId: string;
   bookId: string;
   chapterId: string;
-  translationId: string | null;
-  anchorDocument: "original" | "translation";
+  translationId: string;
   anchorId: string;
   content: string;
   createdAt: string;
@@ -263,7 +259,7 @@ export interface BookExportArchive {
   book: Omit<BookSummary, "status"> & { originalLanguage: string | null };
   chapters: Array<{
     meta: Omit<ChapterSummary, "status">;
-    chunks: TextChunk[];
+    fullText: string;
   }>;
 }
 
