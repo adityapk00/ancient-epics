@@ -8,3 +8,4 @@ dist
 coverage
 apps/web/.env
 apps/api/.dev.vars
+apps/api/export-local/
