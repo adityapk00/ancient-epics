@@ -15,6 +15,8 @@
  */
 
 import { spawn, spawnSync } from "node:child_process";
+import { existsSync, mkdtempSync, mkdirSync, rmSync } from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -22,12 +24,19 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const apiRoot = path.resolve(__dirname, "..");
 const PORT = 8688; // avoid colliding with a running dev server on 8787
+const smokePersistOverride = process.env.SMOKE_PERSIST_TO?.trim();
+const smokePersistTo = smokePersistOverride
+  ? path.resolve(smokePersistOverride)
+  : mkdtempSync(path.join(os.tmpdir(), "ancient-epics-smoke-"));
+const shouldCleanupPersistTo = !smokePersistOverride;
+const smokeEnv = { ...process.env, AE_LOCAL_PERSIST_TO: smokePersistTo };
 
 // ── Helpers ──────────────────────────────────────────────────
 
 let passed = 0;
 let failed = 0;
 const failures = [];
+let server;
 
 function assert(label, condition, detail) {
   if (condition) {
@@ -53,66 +62,106 @@ async function api(method, urlPath, body) {
   return { status: res.status, json };
 }
 
-function runSync(args) {
-  const result = spawnSync("pnpm", ["exec", "wrangler", ...args], {
-    cwd: apiRoot,
-    stdio: "pipe",
-  });
-  if (result.status !== 0) {
-    console.error(result.stderr?.toString());
-    process.exit(1);
-  }
-}
-
 function sleep(ms) {
   return new Promise((r) => setTimeout(r, ms));
 }
 
-// ── Setup ────────────────────────────────────────────────────
+function runNodeScript(scriptName, label) {
+  const result = spawnSync("node", [path.join(apiRoot, "scripts", scriptName)], {
+    cwd: apiRoot,
+    env: smokeEnv,
+    stdio: "inherit",
+  });
 
-console.log("\n🧹  Nuking local D1 + R2 state…");
-spawnSync("node", [path.join(apiRoot, "scripts", "seed-nuke.mjs")], {
-  cwd: apiRoot,
-  stdio: "inherit",
-});
+  if (result.status !== 0) {
+    throw new Error(`${label} failed with exit code ${result.status ?? 1}.`);
+  }
+}
 
-console.log("🌱  Re-seeding…");
-spawnSync("node", [path.join(apiRoot, "scripts", "seed-local.mjs")], {
-  cwd: apiRoot,
-  stdio: "inherit",
-});
+function ensurePersistParentExists() {
+  mkdirSync(path.dirname(smokePersistTo), { recursive: true });
+}
 
-console.log(`🚀  Starting Wrangler dev server on port ${PORT}…`);
-const server = spawn("pnpm", ["exec", "wrangler", "dev", "--port", String(PORT)], { cwd: apiRoot, stdio: "pipe" });
+function cleanupPersistDir() {
+  if (!shouldCleanupPersistTo || !existsSync(smokePersistTo)) {
+    return;
+  }
 
-// Wait for "Ready" message before running tests
-let ready = false;
-const readyPromise = new Promise((resolve) => {
-  const onData = (chunk) => {
-    const text = chunk.toString();
-    if (text.includes("Ready on")) {
-      ready = true;
-      resolve();
-    }
-  };
-  server.stdout.on("data", onData);
-  server.stderr.on("data", onData);
-  // Safety timeout
-  setTimeout(() => {
-    if (!ready) {
-      console.error("⏳  Timed out waiting for Wrangler to start.");
-      server.kill();
-      process.exit(1);
-    }
-  }, 30_000);
-});
+  rmSync(smokePersistTo, { recursive: true, force: true });
+}
 
-await readyPromise;
-console.log("✔  Server is ready.\n");
+async function stopServer() {
+  if (!server || server.killed) {
+    return;
+  }
+
+  server.kill("SIGTERM");
+  await sleep(500);
+}
+
+async function startServer() {
+  console.log(`🚀  Starting Wrangler dev server on port ${PORT}…`);
+  server = spawn("pnpm", ["exec", "wrangler", "dev", "--port", String(PORT), "--persist-to", smokePersistTo], {
+    cwd: apiRoot,
+    env: smokeEnv,
+    stdio: "pipe",
+  });
+
+  let ready = false;
+
+  await new Promise((resolve, reject) => {
+    const onData = (chunk) => {
+      const text = chunk.toString();
+      if (text.includes("Ready on")) {
+        ready = true;
+        resolve();
+      }
+    };
+
+    const onExit = (code, signal) => {
+      if (ready) {
+        return;
+      }
+
+      reject(new Error(`Wrangler dev exited before startup (code: ${code ?? "null"}, signal: ${signal ?? "null"}).`));
+    };
+
+    server.stdout.on("data", onData);
+    server.stderr.on("data", onData);
+    server.once("exit", onExit);
+
+    setTimeout(() => {
+      if (ready) {
+        return;
+      }
+
+      reject(new Error("Timed out waiting for Wrangler to start."));
+    }, 30_000);
+  });
+
+  console.log("✔  Server is ready.\n");
+}
 
 // ── Tests ────────────────────────────────────────────────────
 
 try {
+  ensurePersistParentExists();
+
+  console.log(`\n🧪  Using isolated smoke state at ${smokePersistTo}`);
+  if (shouldCleanupPersistTo) {
+    console.log("🧹  Smoke state will be deleted after the run.");
+  } else {
+    console.log("🗂️  Keeping smoke state after the run because SMOKE_PERSIST_TO is set.");
+  }
+
+  console.log("\n🧹  Nuking local D1 + R2 state…");
+  runNodeScript("seed-nuke.mjs", "seed:nuke");
+
+  console.log("🌱  Re-seeding…");
+  runNodeScript("seed-local.mjs", "seed:local");
+
+  await startServer();
+
   // ── Health ──
   console.log("─── Health ───");
   {
@@ -345,12 +394,16 @@ try {
     assert("validate translation returns 200", validationResult.status === 200);
     assert("validation payload has chapters", validationResult.json.data?.chapters?.length > 0);
   }
+} catch (error) {
+  failed++;
+  const detail = error instanceof Error ? error.message : String(error);
+  failures.push(`Smoke test setup/runtime error — ${detail}`);
+  console.error(`\n❌  Smoke test aborted: ${detail}`);
 } finally {
   // ── Teardown ─────────────────────────────────────────────────
 
-  server.kill("SIGTERM");
-  // Give it a moment to clean up
-  await sleep(500);
+  await stopServer();
+  cleanupPersistDir();
 
   console.log("\n═══════════════════════════════════════════");
   console.log(`  Results:  ${passed} passed, ${failed} failed`);

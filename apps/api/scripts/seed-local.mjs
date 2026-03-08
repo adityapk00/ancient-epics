@@ -3,6 +3,7 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawnSync } from "node:child_process";
+import { getLocalWranglerArgs } from "./local-persist.mjs";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -13,6 +14,7 @@ const r2SeedRoot = path.join(apiRoot, "seed", "r2");
 const databaseName = "ancient-epics";
 const localBucketName = "ancient-epics-content-preview";
 const envFilePath = path.join(workspaceRoot, ".env");
+const localWranglerArgs = getLocalWranglerArgs(apiRoot);
 
 ensureEnvFile(envFilePath);
 
@@ -22,14 +24,16 @@ const seededSettings = [
   ["google_api_key", env.GEMINI_API_KEY ?? env.GOOGLE_API_KEY ?? ""],
 ];
 
-runWrangler(["d1", "migrations", "apply", databaseName, "--local"], { stdio: ["ignore", "inherit", "inherit"] });
-runWrangler(["d1", "execute", databaseName, "--local", "--file", seedSqlPath]);
+runWrangler(["d1", "migrations", "apply", databaseName, "--local", ...localWranglerArgs], {
+  stdio: ["ignore", "inherit", "inherit"],
+});
+runWrangler(["d1", "execute", databaseName, "--local", "--file", seedSqlPath, ...localWranglerArgs]);
 seedAppSettings(seededSettings);
 
 for (const relativeFilePath of collectFiles(r2SeedRoot)) {
   const absoluteFilePath = path.join(r2SeedRoot, relativeFilePath);
   const objectKey = `${localBucketName}/${relativeFilePath.split(path.sep).join("/")}`;
-  runWrangler(["r2", "object", "put", objectKey, "--file", absoluteFilePath, "--local"]);
+  runWrangler(["r2", "object", "put", objectKey, "--file", absoluteFilePath, "--local", ...localWranglerArgs]);
 }
 
 console.log("Local D1 and R2 seed completed.");
@@ -117,7 +121,7 @@ function seedAppSettings(settings) {
   writeFileSync(tempSqlPath, `${statements.join("\n")}\n`, "utf8");
 
   try {
-    runWrangler(["d1", "execute", databaseName, "--local", "--file", tempSqlPath]);
+    runWrangler(["d1", "execute", databaseName, "--local", "--file", tempSqlPath, ...localWranglerArgs]);
   } finally {
     unlinkSync(tempSqlPath);
   }

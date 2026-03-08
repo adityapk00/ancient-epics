@@ -85,9 +85,18 @@ packages/
 - pnpm seed:nuke
 - pnpm smoke
 
+`pnpm smoke` runs against an isolated Wrangler persistence directory, so it does not wipe your normal local D1/R2 state under `.wrangler/state`.
+
+If you want to keep the smoke-test state around for debugging, point it at a fixed directory:
+
+```bash
+SMOKE_PERSIST_TO=/tmp/ancient-epics-smoke pnpm smoke
+```
+
 ## Environment Configuration
 
 - Local seed keys: `pnpm seed:local` reads `OPENROUTER_API_KEY` and `GEMINI_API_KEY` from the repo root `.env` and seeds them into local `app_settings`.
+- Internal local-state override: scripts use `AE_LOCAL_PERSIST_TO` to point Wrangler local D1/R2 commands at a non-default persistence directory. `pnpm smoke` sets this automatically for its isolated run.
 - Frontend: copy apps/web/.env.example to apps/web/.env if you want to override the API origin.
 - API: copy apps/api/.dev.vars.example to apps/api/.dev.vars and add local secrets.
 
