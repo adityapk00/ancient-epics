@@ -1,6 +1,6 @@
 export type ChapterSplitMode = "single" | "heading" | "delimiter";
 
-export interface SplitChapterDraft {
+export interface SplitChapterInput {
   position: number;
   title: string;
   slug: string;
@@ -13,7 +13,7 @@ export function splitSourceTextIntoChapters(input: {
   splitMode: ChapterSplitMode;
   headingPattern: string;
   delimiter: string;
-}): SplitChapterDraft[] {
+}): SplitChapterInput[] {
   const rawText = input.rawText.trim();
 
   if (!rawText) {
@@ -21,7 +21,7 @@ export function splitSourceTextIntoChapters(input: {
   }
 
   if (input.splitMode === "single") {
-    return [createDraftChapter(0, "Chapter 1", rawText)];
+    return [createChapterInput(0, "Chapter 1", rawText)];
   }
 
   if (input.splitMode === "delimiter") {
@@ -32,7 +32,7 @@ export function splitSourceTextIntoChapters(input: {
       .map((section) => section.trim())
       .filter(Boolean)
       .map((section, index) =>
-        createDraftChapter(index, `Chapter ${index + 1}`, section),
+        createChapterInput(index, `Chapter ${index + 1}`, section),
       );
   }
 
@@ -65,16 +65,16 @@ export function splitSourceTextIntoChapters(input: {
 
   return chapters
     .map((chapter, index) =>
-      createDraftChapter(index, chapter.title, chapter.lines.join("\n").trim()),
+      createChapterInput(index, chapter.title, chapter.lines.join("\n").trim()),
     )
     .filter((chapter) => chapter.sourceText.length > 0);
 }
 
-function createDraftChapter(
+function createChapterInput(
   position: number,
   title: string,
   sourceText: string,
-): SplitChapterDraft {
+): SplitChapterInput {
   return {
     position,
     title,

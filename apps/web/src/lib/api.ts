@@ -1,10 +1,10 @@
 import type {
-  AdminBookChapterDraft,
+  AdminBookChapterInput,
   AdminBookSourcePayload,
   AdminIngestionBootstrapPayload,
   AdminIngestionSessionDetail,
-  AdminTranslationDraftDetail,
-  AdminTranslationDraftSummary,
+  AdminTranslationDetail,
+  AdminTranslationSummary,
   AdminTranslationValidationPayload,
   ApiResponse,
   BookDetail,
@@ -72,15 +72,15 @@ export const api = {
     author?: string;
     originalLanguage?: string;
     description?: string;
-    chapters: AdminBookChapterDraft[];
+    chapters: AdminBookChapterInput[];
   }) => requestJson<AdminBookSourcePayload>("POST", "/api/admin/books", body),
   getAdminBookSource: (bookSlug: string) =>
     request<AdminBookSourcePayload>(`/api/admin/books/${bookSlug}/source`),
-  listAdminTranslationDrafts: (bookSlug: string) =>
-    request<{ drafts: AdminTranslationDraftSummary[] }>(
-      `/api/admin/books/${bookSlug}/translation-drafts`,
+  listAdminTranslations: (bookSlug: string) =>
+    request<{ translations: AdminTranslationSummary[] }>(
+      `/api/admin/books/${bookSlug}/translations`,
     ),
-  createAdminTranslationDraft: (
+  createAdminTranslation: (
     bookSlug: string,
     body: {
       title: string;
@@ -92,16 +92,16 @@ export const api = {
       contextAfterChapterCount?: number;
     },
   ) =>
-    requestJson<AdminTranslationDraftDetail>(
+    requestJson<AdminTranslationDetail>(
       "POST",
-      `/api/admin/books/${bookSlug}/translation-drafts`,
+      `/api/admin/books/${bookSlug}/translations`,
       body,
     ),
-  getAdminTranslationDraft: (translationId: string) =>
-    request<AdminTranslationDraftDetail>(
-      `/api/admin/translation-drafts/${translationId}`,
+  getAdminTranslation: (translationId: string) =>
+    request<AdminTranslationDetail>(
+      `/api/admin/translations/${translationId}`,
     ),
-  updateAdminTranslationDraft: (
+  updateAdminTranslation: (
     translationId: string,
     body: {
       name?: string;
@@ -115,14 +115,14 @@ export const api = {
       currentChapterIndex?: number;
     },
   ) =>
-    requestJson<AdminTranslationDraftDetail>(
+    requestJson<AdminTranslationDetail>(
       "PUT",
-      `/api/admin/translation-drafts/${translationId}`,
+      `/api/admin/translations/${translationId}`,
       body,
     ),
-  validateAdminTranslationDraft: (sessionId: string) =>
+  validateAdminTranslation: (translationId: string) =>
     request<AdminTranslationValidationPayload>(
-      `/api/admin/translation-drafts/${sessionId}/validate`,
+      `/api/admin/translations/${translationId}/validate`,
     ),
   createAdminIngestionSession: (body: {
     title: string;

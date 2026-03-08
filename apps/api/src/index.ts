@@ -1,7 +1,7 @@
 import {
   APP_SETTING_KEYS,
   type AdminBookWorkflowSummary,
-  type AdminBookChapterDraft,
+  type AdminBookChapterInput,
   type AdminBookSourcePayload,
   buildOriginalChapterKey,
   buildTranslationChapterKey,
@@ -12,8 +12,8 @@ import {
   type AdminIngestionSessionDetail,
   type AdminIngestionSessionSummary,
   type AdminIngestionSourceMode,
-  type AdminTranslationDraftDetail,
-  type AdminTranslationDraftSummary,
+  type AdminTranslationDetail,
+  type AdminTranslationSummary,
   type AdminTranslationValidationPayload,
   type ApiFailure,
   type ApiSuccess,
@@ -80,7 +80,7 @@ type AdminIngestionChapterRow = {
   updatedAt: string;
 };
 
-type AdminTranslationDraftRow = {
+type AdminTranslationRow = {
   id: string;
   bookId: string;
   bookSlug: string;
@@ -533,7 +533,7 @@ app.post("/api/admin/books", async (c) => {
       author?: string;
       originalLanguage?: string;
       description?: string;
-      chapters?: AdminBookChapterDraft[];
+      chapters?: AdminBookChapterInput[];
     }>();
 
     if (!body.title?.trim()) {
@@ -675,15 +675,15 @@ app.get("/api/admin/books/:bookSlug/source", async (c) => {
   return c.json(success(payload));
 });
 
-app.get("/api/admin/books/:bookSlug/translation-drafts", async (c) => {
-  const drafts = await listAdminTranslationDrafts(
+app.get("/api/admin/books/:bookSlug/translations", async (c) => {
+  const translations = await listAdminTranslations(
     c.env.DB,
     c.req.param("bookSlug"),
   );
-  return c.json(success({ drafts }));
+  return c.json(success({ translations }));
 });
 
-app.post("/api/admin/books/:bookSlug/translation-drafts", async (c) => {
+app.post("/api/admin/books/:bookSlug/translations", async (c) => {
   try {
     const bookSlug = c.req.param("bookSlug");
     const body = await c.req.json<{
@@ -771,52 +771,52 @@ app.post("/api/admin/books/:bookSlug/translation-drafts", async (c) => {
       return c.json(
         failure(
           "internal_error",
-          "Translation draft was created but could not be reloaded.",
+          "Translation was created but could not be reloaded.",
         ),
         500,
       );
     }
 
-    const draft = await getAdminTranslationDraftDetail(c.env.DB, translationId);
+    const translation = await getAdminTranslationDetail(c.env.DB, translationId);
 
-    if (!draft) {
+    if (!translation) {
       return c.json(
         failure(
           "internal_error",
-          "Translation draft was created but could not be reloaded.",
+          "Translation was created but could not be reloaded.",
         ),
         500,
       );
     }
 
-    return c.json(success(draft), 201);
+    return c.json(success(translation), 201);
   } catch (error) {
     return c.json(
       failure(
         "bad_request",
         error instanceof Error
           ? error.message
-          : "Failed to create translation draft.",
+          : "Failed to create translation.",
       ),
       400,
     );
   }
 });
 
-app.get("/api/admin/translation-drafts/:translationId", async (c) => {
-  const draft = await getAdminTranslationDraftDetail(
+app.get("/api/admin/translations/:translationId", async (c) => {
+  const translation = await getAdminTranslationDetail(
     c.env.DB,
     c.req.param("translationId"),
   );
 
-  if (!draft) {
-    return c.json(failure("not_found", "Translation draft was not found."), 404);
+  if (!translation) {
+    return c.json(failure("not_found", "Translation was not found."), 404);
   }
 
-  return c.json(success(draft));
+  return c.json(success(translation));
 });
 
-app.put("/api/admin/translation-drafts/:translationId", async (c) => {
+app.put("/api/admin/translations/:translationId", async (c) => {
   const translationId = c.req.param("translationId");
   const body = await c.req.json<{
     name?: string;
@@ -830,10 +830,10 @@ app.put("/api/admin/translation-drafts/:translationId", async (c) => {
     currentChapterIndex?: number;
   }>();
 
-  const existing = await getAdminTranslationDraftDetail(c.env.DB, translationId);
+  const existing = await getAdminTranslationDetail(c.env.DB, translationId);
 
   if (!existing) {
-    return c.json(failure("not_found", "Translation draft was not found."), 404);
+    return c.json(failure("not_found", "Translation was not found."), 404);
   }
 
   const now = new Date().toISOString();
@@ -920,13 +920,13 @@ app.put("/api/admin/translation-drafts/:translationId", async (c) => {
       .run();
   }
 
-  const updated = await getAdminTranslationDraftDetail(c.env.DB, translationId);
+  const updated = await getAdminTranslationDetail(c.env.DB, translationId);
 
   if (!updated) {
     return c.json(
       failure(
         "internal_error",
-        "Translation draft was updated but could not be reloaded.",
+        "Translation was updated but could not be reloaded.",
       ),
       500,
     );
@@ -935,15 +935,15 @@ app.put("/api/admin/translation-drafts/:translationId", async (c) => {
   return c.json(success(updated));
 });
 
-app.get("/api/admin/translation-drafts/:translationId/validate", async (c) => {
-  const payload = await validateTranslationDraft(
+app.get("/api/admin/translations/:translationId/validate", async (c) => {
+  const payload = await validateTranslation(
     c.env.DB,
     c.req.param("translationId"),
   );
 
   if (!payload) {
     return c.json(
-      failure("not_found", "Translation draft was not found."),
+      failure("not_found", "Translation was not found."),
       404,
     );
   }
@@ -1425,7 +1425,7 @@ async function listAdminBookWorkflowSummaries(
           books.status,
           books.published_at AS publishedAt,
           COUNT(DISTINCT chapters.id) AS chapterCount,
-          COUNT(DISTINCT translations.id) AS translationDraftCount,
+          COUNT(DISTINCT translations.id) AS translationCount,
           COUNT(DISTINCT CASE WHEN translations.status IN ('ready', 'published') THEN translations.id END) AS readyTranslationCount,
           COUNT(DISTINCT CASE WHEN ingestion_chapters.status = 'saved' THEN ingestion_chapters.id END) AS savedChapterCount,
           MAX(
@@ -1450,7 +1450,7 @@ async function listAdminBookWorkflowSummaries(
     .all<
       AdminBookWorkflowSummary & {
         chapterCount: number;
-        translationDraftCount: number;
+        translationCount: number;
         readyTranslationCount: number;
         savedChapterCount: number;
       }
@@ -1459,17 +1459,17 @@ async function listAdminBookWorkflowSummaries(
   return (results.results ?? []).map((row) => ({
     ...row,
     chapterCount: Number(row.chapterCount ?? 0),
-    translationDraftCount: Number(row.translationDraftCount ?? 0),
+    translationCount: Number(row.translationCount ?? 0),
     readyTranslationCount: Number(row.readyTranslationCount ?? 0),
     savedChapterCount: Number(row.savedChapterCount ?? 0),
     latestActivityAt: row.latestActivityAt ?? null,
   }));
 }
 
-async function listAdminTranslationDrafts(
+async function listAdminTranslations(
   db: D1Database,
   bookSlug: string,
-): Promise<AdminTranslationDraftSummary[]> {
+): Promise<AdminTranslationSummary[]> {
   const translationRows = await db
     .prepare(
       `
@@ -1506,15 +1506,15 @@ async function listAdminTranslationDrafts(
       `,
     )
     .bind(bookSlug)
-    .all<AdminTranslationDraftRow>();
+    .all<AdminTranslationRow>();
 
-  return hydrateTranslationDraftSummaries(db, translationRows.results ?? []);
+  return hydrateTranslationSummaries(db, translationRows.results ?? []);
 }
 
-async function getAdminTranslationDraftDetail(
+async function getAdminTranslationDetail(
   db: D1Database,
   translationId: string,
-): Promise<AdminTranslationDraftDetail | null> {
+): Promise<AdminTranslationDetail | null> {
   const row = await db
     .prepare(
       `
@@ -1550,13 +1550,13 @@ async function getAdminTranslationDraftDetail(
       `,
     )
     .bind(translationId)
-    .first<AdminTranslationDraftRow>();
+    .first<AdminTranslationRow>();
 
   if (!row) {
     return null;
   }
 
-  const [summary] = await hydrateTranslationDraftSummaries(db, [row]);
+  const [summary] = await hydrateTranslationSummaries(db, [row]);
 
   if (!summary) {
     return null;
@@ -1574,10 +1574,10 @@ async function getAdminTranslationDraftDetail(
   };
 }
 
-async function hydrateTranslationDraftSummaries(
+async function hydrateTranslationSummaries(
   db: D1Database,
-  rows: AdminTranslationDraftRow[],
-): Promise<AdminTranslationDraftSummary[]> {
+  rows: AdminTranslationRow[],
+): Promise<AdminTranslationSummary[]> {
   if (rows.length === 0) {
     return [];
   }
@@ -1591,7 +1591,7 @@ async function hydrateTranslationDraftSummaries(
   );
 
   const counts = await Promise.all(
-    rows.map((row) => countTranslationDraftProgress(db, row.id)),
+    rows.map((row) => countTranslationProgress(db, row.id)),
   );
 
   return rows.map((row, index) => {
@@ -1622,7 +1622,7 @@ async function hydrateTranslationDraftSummaries(
   });
 }
 
-async function countTranslationDraftProgress(
+async function countTranslationProgress(
   db: D1Database,
   translationId: string,
 ): Promise<{
@@ -2059,7 +2059,7 @@ async function getAdminBookSourcePayload(
   ]);
 
   const chapters = chaptersResult.results ?? [];
-  const sourceDrafts: AdminBookChapterDraft[] = [];
+  const sourceChapterInputs: AdminBookChapterInput[] = [];
 
   for (const chapter of chapters) {
     const original = await readObjectJson<OriginalChapterDocument>(
@@ -2067,7 +2067,7 @@ async function getAdminBookSourcePayload(
       chapter.sourceR2Key,
     );
 
-    sourceDrafts.push({
+    sourceChapterInputs.push({
       position: chapter.position,
       title: chapter.title,
       slug: chapter.slug,
@@ -2081,7 +2081,7 @@ async function getAdminBookSourcePayload(
       chapters,
       translations: translationsResult.results ?? [],
     },
-    chapters: sourceDrafts,
+    chapters: sourceChapterInputs,
   };
 }
 
@@ -2217,14 +2217,14 @@ async function createAdminIngestionSessionForBook(input: {
   return getAdminIngestionSessionDetail(input.db, sessionId);
 }
 
-async function validateTranslationDraft(
+async function validateTranslation(
   db: D1Database,
   translationId: string,
 ): Promise<AdminTranslationValidationPayload | null> {
-  const draft = await getAdminTranslationDraftDetail(db, translationId);
-  const session = draft?.currentSession;
+  const translation = await getAdminTranslationDetail(db, translationId);
+  const session = translation?.currentSession;
 
-  if (!draft || !session) {
+  if (!translation || !session) {
     return null;
   }
 

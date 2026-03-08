@@ -2,19 +2,19 @@ import { useEffect, useMemo, useState } from "react";
 
 import {
   APP_SETTING_KEYS,
-  type AdminBookChapterDraft,
+  type AdminBookChapterInput,
   type AdminBookSourcePayload,
   type AdminIngestionBootstrapPayload,
   type AdminIngestionChapterRecord,
-  type AdminTranslationDraftDetail,
-  type AdminTranslationDraftSummary,
+  type AdminTranslationDetail,
+  type AdminTranslationSummary,
   type AdminTranslationValidationPayload,
 } from "@ancient-epics/shared";
 
 import {
   splitSourceTextIntoChapters,
   type ChapterSplitMode,
-  type SplitChapterDraft,
+  type SplitChapterInput,
 } from "./lib/chapter-splitting";
 import { api } from "./lib/api";
 
@@ -42,7 +42,7 @@ const DEFAULT_HEADING_PATTERN = "^(book|chapter|canto|scroll)\\b.*$";
 export default function App() {
   const [screen, setScreen] = useState<AdminScreen>("books");
   const [settingsOpen, setSettingsOpen] = useState(false);
-  const [showAdvancedDraftSettings, setShowAdvancedDraftSettings] =
+  const [showAdvancedTranslationSettings, setShowAdvancedTranslationSettings] =
     useState(false);
   const [showRawJsonEditor, setShowRawJsonEditor] = useState(false);
 
@@ -50,11 +50,11 @@ export default function App() {
     useState<AdminIngestionBootstrapPayload | null>(null);
   const [selectedBook, setSelectedBook] =
     useState<AdminBookSourcePayload | null>(null);
-  const [translationDrafts, setTranslationDrafts] = useState<
-    AdminTranslationDraftSummary[]
-  >([]);
-  const [activeDraft, setActiveDraft] =
-    useState<AdminTranslationDraftDetail | null>(null);
+  const [translations, setTranslations] = useState<AdminTranslationSummary[]>(
+    [],
+  );
+  const [activeTranslation, setActiveTranslation] =
+    useState<AdminTranslationDetail | null>(null);
   const [validation, setValidation] =
     useState<AdminTranslationValidationPayload | null>(null);
   const [selectedChapterIndex, setSelectedChapterIndex] = useState(0);
@@ -78,7 +78,7 @@ export default function App() {
   const [splitMode, setSplitMode] = useState<ChapterSplitMode>("heading");
   const [headingPattern, setHeadingPattern] = useState(DEFAULT_HEADING_PATTERN);
   const [delimiter, setDelimiter] = useState("\n\n\n");
-  const [stagedChapters, setStagedChapters] = useState<SplitChapterDraft[]>([]);
+  const [stagedChapters, setStagedChapters] = useState<SplitChapterInput[]>([]);
 
   const [translationTitle, setTranslationTitle] = useState("");
   const [translationSlug, setTranslationSlug] = useState("");
@@ -93,20 +93,20 @@ export default function App() {
     null,
   );
 
-  const activeSession = activeDraft?.currentSession ?? null;
+  const activeSession = activeTranslation?.currentSession ?? null;
   const currentWorkspaceChapter =
     activeSession?.chapters[selectedChapterIndex] ?? null;
   const validationPreviewChapter =
     validation?.session.chapters[validationPreviewIndex] ?? null;
-  const draftMetadataIsDirty = useMemo(() => {
-    if (!activeDraft) {
+  const translationMetadataIsDirty = useMemo(() => {
+    if (!activeTranslation) {
       return false;
     }
 
     return (
       JSON.stringify(
-        buildDraftMetadataSnapshot({
-          activeDraft,
+        buildTranslationMetadataSnapshot({
+          activeTranslation,
           activeSession,
         }),
       ) !==
@@ -121,7 +121,7 @@ export default function App() {
       })
     );
   }, [
-    activeDraft,
+    activeTranslation,
     activeSession,
     contextAfterChapterCount,
     contextBeforeChapterCount,
@@ -137,8 +137,9 @@ export default function App() {
     }
 
     return (
-      JSON.stringify(serializeEditorState(buildChapterEditorState(currentWorkspaceChapter))) !==
-      JSON.stringify(serializeEditorState(chapterEditor))
+      JSON.stringify(
+        serializeEditorState(buildChapterEditorState(currentWorkspaceChapter)),
+      ) !== JSON.stringify(serializeEditorState(chapterEditor))
     );
   }, [chapterEditor, currentWorkspaceChapter]);
 
@@ -191,19 +192,24 @@ export default function App() {
       : null;
     setChapterEditor(nextEditor);
     setEditedRawResponse(
-      nextEditor ? JSON.stringify(serializeEditorState(nextEditor), null, 2) : "",
+      nextEditor
+        ? JSON.stringify(serializeEditorState(nextEditor), null, 2)
+        : "",
     );
   }, [currentWorkspaceChapter]);
 
   async function refreshBootstrap() {
     const payload = await api.getAdminIngestionBootstrap();
     setBootstrap(payload);
-    setSettingsApiKey(payload.settings[APP_SETTING_KEYS.OPENROUTER_API_KEY] ?? "");
+    setSettingsApiKey(
+      payload.settings[APP_SETTING_KEYS.OPENROUTER_API_KEY] ?? "",
+    );
     const model =
       payload.settings[APP_SETTING_KEYS.ADMIN_INGESTION_MODEL] ??
       payload.settings[APP_SETTING_KEYS.DEFAULT_TRANSLATION_MODEL] ??
       DEFAULT_MODEL;
-    const prompt = payload.settings[APP_SETTING_KEYS.ADMIN_INGESTION_PROMPT] ?? "";
+    const prompt =
+      payload.settings[APP_SETTING_KEYS.ADMIN_INGESTION_PROMPT] ?? "";
     setSettingsModel(model);
     setSettingsPrompt(prompt);
   }
@@ -229,7 +235,7 @@ export default function App() {
     setTranslationPrompt(settingsPrompt);
     setContextBeforeChapterCount("1");
     setContextAfterChapterCount("1");
-    setShowAdvancedDraftSettings(false);
+    setShowAdvancedTranslationSettings(false);
   }
 
   async function openBook(bookSlugValue: string) {
@@ -238,13 +244,13 @@ export default function App() {
     setNotice(null);
 
     try {
-      const [book, drafts] = await Promise.all([
+      const [book, translationResult] = await Promise.all([
         api.getAdminBookSource(bookSlugValue),
-        api.listAdminTranslationDrafts(bookSlugValue),
+        api.listAdminTranslations(bookSlugValue),
       ]);
       setSelectedBook(book);
-      setTranslationDrafts(drafts.drafts);
-      setActiveDraft(null);
+      setTranslations(translationResult.translations);
+      setActiveTranslation(null);
       setValidation(null);
       resetTranslationForm();
       setScreen("translations");
@@ -257,9 +263,9 @@ export default function App() {
     }
   }
 
-  async function refreshTranslationDrafts(bookSlugValue: string) {
-    const drafts = await api.listAdminTranslationDrafts(bookSlugValue);
-    setTranslationDrafts(drafts.drafts);
+  async function refreshTranslations(bookSlugValue: string) {
+    const translationResult = await api.listAdminTranslations(bookSlugValue);
+    setTranslations(translationResult.translations);
   }
 
   async function saveSettings() {
@@ -298,7 +304,7 @@ export default function App() {
 
   function updateStagedChapter(
     index: number,
-    key: keyof SplitChapterDraft,
+    key: keyof SplitChapterInput,
     value: string | null,
   ) {
     setStagedChapters((current) =>
@@ -419,11 +425,11 @@ export default function App() {
           title: chapter.title,
           slug: chapter.slug,
           sourceText: chapter.sourceText,
-        })) as AdminBookChapterDraft[],
+        })) as AdminBookChapterInput[],
       });
       await refreshBootstrap();
       setSelectedBook(created);
-      setTranslationDrafts([]);
+      setTranslations([]);
       resetBookForm();
       resetTranslationForm();
       setScreen("translations");
@@ -439,7 +445,7 @@ export default function App() {
     }
   }
 
-  async function createTranslationDraft() {
+  async function createTranslation() {
     if (!selectedBook) {
       return;
     }
@@ -449,88 +455,93 @@ export default function App() {
     setNotice(null);
 
     try {
-      const draft = await api.createAdminTranslationDraft(selectedBook.book.slug, {
-        title: translationTitle,
-        slug: translationSlug || undefined,
-        description: translationDescription || undefined,
-        model: translationModel,
-        prompt: translationPrompt,
-        contextBeforeChapterCount: Number(contextBeforeChapterCount || 0),
-        contextAfterChapterCount: Number(contextAfterChapterCount || 0),
-      });
-      await refreshTranslationDrafts(selectedBook.book.slug);
-      setActiveDraft(draft);
+      const translation = await api.createAdminTranslation(
+        selectedBook.book.slug,
+        {
+          title: translationTitle,
+          slug: translationSlug || undefined,
+          description: translationDescription || undefined,
+          model: translationModel,
+          prompt: translationPrompt,
+          contextBeforeChapterCount: Number(contextBeforeChapterCount || 0),
+          contextAfterChapterCount: Number(contextAfterChapterCount || 0),
+        },
+      );
+      await refreshTranslations(selectedBook.book.slug);
+      setActiveTranslation(translation);
       setSelectedChapterIndex(
         Math.min(
-          draft.currentSession?.currentChapterIndex ?? 0,
-          Math.max((draft.currentSession?.chapters.length ?? 1) - 1, 0),
+          translation.currentSession?.currentChapterIndex ?? 0,
+          Math.max((translation.currentSession?.chapters.length ?? 1) - 1, 0),
         ),
       );
       setScreen("workspace");
-      setNotice(`Created translation draft '${draft.name}'.`);
+      setNotice(`Created translation '${translation.name}'.`);
     } catch (createError) {
       setError(
         createError instanceof Error
           ? createError.message
-          : "Failed to create translation draft.",
+          : "Failed to create translation.",
       );
     } finally {
       setIsBusy(false);
     }
   }
 
-  async function openTranslationDraft(translationId: string) {
+  async function openTranslation(translationId: string) {
     setIsBusy(true);
     setError(null);
     setNotice(null);
 
     try {
-      const draft = await api.getAdminTranslationDraft(translationId);
-      hydrateActiveDraft(draft);
+      const translation = await api.getAdminTranslation(translationId);
+      hydrateActiveTranslation(translation);
       setValidation(null);
       setScreen("workspace");
     } catch (loadError) {
       setError(
         loadError instanceof Error
           ? loadError.message
-          : "Failed to load translation draft.",
+          : "Failed to load translation.",
       );
     } finally {
       setIsBusy(false);
     }
   }
 
-  function hydrateActiveDraft(draft: AdminTranslationDraftDetail) {
-    setActiveDraft(draft);
-    setTranslationTitle(draft.name);
-    setTranslationSlug(draft.slug);
-    setTranslationDescription(draft.description ?? "");
-    setTranslationModel(draft.currentSession?.model ?? DEFAULT_MODEL);
-    setTranslationPrompt(draft.currentSession?.prompt ?? draft.aiSystemPrompt ?? "");
+  function hydrateActiveTranslation(translation: AdminTranslationDetail) {
+    setActiveTranslation(translation);
+    setTranslationTitle(translation.name);
+    setTranslationSlug(translation.slug);
+    setTranslationDescription(translation.description ?? "");
+    setTranslationModel(translation.currentSession?.model ?? DEFAULT_MODEL);
+    setTranslationPrompt(
+      translation.currentSession?.prompt ?? translation.aiSystemPrompt ?? "",
+    );
     setContextBeforeChapterCount(
-      String(draft.currentSession?.contextBeforeChapterCount ?? 1),
+      String(translation.currentSession?.contextBeforeChapterCount ?? 1),
     );
     setContextAfterChapterCount(
-      String(draft.currentSession?.contextAfterChapterCount ?? 1),
+      String(translation.currentSession?.contextAfterChapterCount ?? 1),
     );
     setSelectedChapterIndex(
       Math.min(
-        draft.currentSession?.currentChapterIndex ?? 0,
-        Math.max((draft.currentSession?.chapters.length ?? 1) - 1, 0),
+        translation.currentSession?.currentChapterIndex ?? 0,
+        Math.max((translation.currentSession?.chapters.length ?? 1) - 1, 0),
       ),
     );
   }
 
-  async function saveDraftSettings(extra?: {
+  async function saveTranslationSettings(extra?: {
     status?: "draft" | "ready" | "published";
   }) {
-    if (!activeDraft) {
+    if (!activeTranslation) {
       return null;
     }
 
-    const updated = await api.updateAdminTranslationDraft(activeDraft.id, {
-      name: translationTitle || activeDraft.name,
-      slug: translationSlug || activeDraft.slug,
+    const updated = await api.updateAdminTranslation(activeTranslation.id, {
+      name: translationTitle || activeTranslation.name,
+      slug: translationSlug || activeTranslation.slug,
       description: translationDescription,
       model: translationModel,
       prompt: translationPrompt,
@@ -540,9 +551,9 @@ export default function App() {
       currentChapterIndex: selectedChapterIndex,
     });
 
-    hydrateActiveDraft(updated);
+    hydrateActiveTranslation(updated);
     if (selectedBook) {
-      await refreshTranslationDrafts(selectedBook.book.slug);
+      await refreshTranslations(selectedBook.book.slug);
     }
     return updated;
   }
@@ -557,24 +568,26 @@ export default function App() {
     setNotice(null);
 
     try {
-      const updatedDraft = await saveDraftSettings();
-      const sessionId = updatedDraft?.currentSession?.id ?? activeSession.id;
+      const updatedTranslation = await saveTranslationSettings();
+      const sessionId =
+        updatedTranslation?.currentSession?.id ?? activeSession.id;
       const result = await api.generateAdminIngestionChapter(
         sessionId,
         currentWorkspaceChapter.position,
       );
 
-      if (updatedDraft?.currentSession) {
-        const nextDraft = {
-          ...updatedDraft,
+      if (updatedTranslation?.currentSession) {
+        const nextTranslation = {
+          ...updatedTranslation,
           currentSession: {
-            ...updatedDraft.currentSession,
-            chapters: updatedDraft.currentSession.chapters.map((chapter) =>
-              chapter.id === result.chapter.id ? result.chapter : chapter,
+            ...updatedTranslation.currentSession,
+            chapters: updatedTranslation.currentSession.chapters.map(
+              (chapter) =>
+                chapter.id === result.chapter.id ? result.chapter : chapter,
             ),
           },
         };
-        hydrateActiveDraft(nextDraft);
+        hydrateActiveTranslation(nextTranslation);
       }
 
       setNotice(`Generated '${currentWorkspaceChapter.title}'.`);
@@ -605,9 +618,11 @@ export default function App() {
         JSON.stringify(serializeEditorState(chapterEditor), null, 2),
       );
 
-      if (result.session && activeDraft) {
-        const refreshedDraft = await api.getAdminTranslationDraft(activeDraft.id);
-        hydrateActiveDraft(refreshedDraft);
+      if (result.session && activeTranslation) {
+        const refreshedTranslation = await api.getAdminTranslation(
+          activeTranslation.id,
+        );
+        hydrateActiveTranslation(refreshedTranslation);
         setSelectedChapterIndex(
           Math.min(
             currentWorkspaceChapter.position + 1,
@@ -628,8 +643,8 @@ export default function App() {
     }
   }
 
-  async function validateCurrentDraft() {
-    if (!activeDraft) {
+  async function validateCurrentTranslation() {
+    if (!activeTranslation) {
       return;
     }
 
@@ -638,8 +653,8 @@ export default function App() {
     setNotice(null);
 
     try {
-      await saveDraftSettings();
-      const payload = await api.validateAdminTranslationDraft(activeDraft.id);
+      await saveTranslationSettings();
+      const payload = await api.validateAdminTranslation(activeTranslation.id);
       setValidation(payload);
       setValidationPreviewIndex(0);
       setScreen("validate");
@@ -650,21 +665,25 @@ export default function App() {
       setError(
         validateError instanceof Error
           ? validateError.message
-          : "Failed to validate translation draft.",
+          : "Failed to validate translation.",
       );
     } finally {
       setIsBusy(false);
     }
   }
 
-  async function markDraftStatus(status: "ready" | "published") {
+  async function markTranslationStatus(status: "ready" | "published") {
     setIsBusy(true);
     setError(null);
     setNotice(null);
 
     try {
-      await saveDraftSettings({ status });
-      setNotice(status === "ready" ? "Draft marked ready." : "Draft published.");
+      await saveTranslationSettings({ status });
+      setNotice(
+        status === "ready"
+          ? "Translation marked ready."
+          : "Translation published.",
+      );
     } catch (statusError) {
       setError(
         statusError instanceof Error
@@ -676,17 +695,20 @@ export default function App() {
     }
   }
 
-  function exportDraftJson() {
-    if (!activeDraft?.currentSession) {
+  function exportTranslationJson() {
+    if (!activeTranslation?.currentSession) {
       return;
     }
-    const blob = new Blob([JSON.stringify(activeDraft.currentSession, null, 2)], {
-      type: "application/json",
-    });
+    const blob = new Blob(
+      [JSON.stringify(activeTranslation.currentSession, null, 2)],
+      {
+        type: "application/json",
+      },
+    );
     const url = URL.createObjectURL(blob);
     const anchor = document.createElement("a");
     anchor.href = url;
-    anchor.download = `${activeDraft.slug}-draft.json`;
+    anchor.download = `${activeTranslation.slug}-translation.json`;
     anchor.click();
     URL.revokeObjectURL(url);
   }
@@ -736,40 +758,77 @@ export default function App() {
     }
   }
 
+  const breadcrumbs = buildBreadcrumbs({
+    screen,
+    selectedBookTitle: selectedBook?.book.title ?? null,
+    activeTranslationName: activeTranslation?.name ?? null,
+    onBooks: () => setScreen("books"),
+    onCreateBook: () => setScreen("create-book"),
+    onTranslations: selectedBook ? () => setScreen("translations") : null,
+    onWorkspace: activeTranslation ? () => setScreen("workspace") : null,
+  });
+
   return (
     <main className="min-h-screen bg-paper text-ink">
       <div className="flex min-h-screen w-full flex-col gap-8 px-6 py-8 lg:px-10">
-        <header className="flex flex-wrap items-start justify-between gap-4 rounded-[32px] border border-border/70 bg-white/85 p-8 shadow-panel backdrop-blur">
-          <div className="space-y-3">
-            <p className="text-sm font-semibold uppercase tracking-[0.24em] text-accent">
-              Admin Console
-            </p>
-            <h1 className="font-display text-5xl leading-tight text-ink sm:text-6xl">
-              Run ingestion as draft production, not session archaeology.
-            </h1>
-            <p className="max-w-3xl text-lg leading-8 text-ink/75">
-              Start from books that show where work is blocked, stage source
-              chapters before creation, then edit translation drafts chapter by
-              chapter and finish with actionable validation.
-            </p>
-          </div>
+        <header className="rounded-[24px] border border-border/70 bg-white/85 px-5 py-4 shadow-panel backdrop-blur">
           <div className="flex flex-wrap gap-3">
-            {selectedBook ? (
-              <button
-                type="button"
-                onClick={() => setScreen("books")}
-                className="rounded-full border border-border/70 bg-paper/80 px-5 py-3 text-sm font-semibold text-ink transition hover:border-accent/50"
-              >
-                All Books
-              </button>
-            ) : null}
+            <button
+              type="button"
+              onClick={() => setScreen("books")}
+              className={`rounded-full px-4 py-2 text-sm font-semibold transition ${
+                screen === "books"
+                  ? "bg-ink text-paper"
+                  : "border border-border/70 bg-paper/80 text-ink hover:border-accent/50"
+              }`}
+            >
+              Books
+            </button>
+            <button
+              type="button"
+              onClick={() => setScreen("create-book")}
+              className={`rounded-full px-4 py-2 text-sm font-semibold transition ${
+                screen === "create-book"
+                  ? "bg-ink text-paper"
+                  : "border border-border/70 bg-paper/80 text-ink hover:border-accent/50"
+              }`}
+            >
+              Create Book
+            </button>
             <button
               type="button"
               onClick={() => setSettingsOpen(true)}
-              className="rounded-full bg-ink px-5 py-3 text-sm font-semibold text-paper transition hover:bg-ink/90"
+              className="ml-auto rounded-full border border-border/70 bg-paper/80 px-4 py-2 text-sm font-semibold text-ink transition hover:border-accent/50"
             >
               Settings
             </button>
+          </div>
+          <div className="mt-4 flex flex-wrap items-center gap-2 text-sm text-ink/60">
+            {breadcrumbs.map((crumb, index) => (
+              <div
+                key={`${crumb.label}-${index}`}
+                className="flex items-center gap-2"
+              >
+                {index > 0 ? <span className="text-ink/35">/</span> : null}
+                {crumb.isCurrent || !crumb.onClick ? (
+                  <span
+                    className={
+                      crumb.isCurrent ? "font-semibold text-ink" : undefined
+                    }
+                  >
+                    {crumb.label}
+                  </span>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={crumb.onClick}
+                    className="transition hover:text-ink"
+                  >
+                    {crumb.label}
+                  </button>
+                )}
+              </div>
+            ))}
           </div>
         </header>
 
@@ -779,7 +838,7 @@ export default function App() {
 
         {screen === "books" ? (
           <section className="grid gap-6 lg:grid-cols-[1fr_320px]">
-            <Panel title="Books / Stories">
+            <Panel title="Books">
               <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
                 {(bootstrap?.books ?? []).map((book) => (
                   <button
@@ -804,10 +863,13 @@ export default function App() {
                       {book.description || "No description yet."}
                     </p>
                     <div className="mt-4 grid grid-cols-2 gap-3 text-sm text-ink/70">
-                      <Metric label="Chapters" value={String(book.chapterCount)} />
                       <Metric
-                        label="Drafts"
-                        value={String(book.translationDraftCount)}
+                        label="Chapters"
+                        value={String(book.chapterCount)}
+                      />
+                      <Metric
+                        label="Translations"
+                        value={String(book.translationCount)}
                       />
                       <Metric
                         label="Saved"
@@ -843,9 +905,21 @@ export default function App() {
           <section className="grid gap-6 xl:grid-cols-[380px_1fr]">
             <Panel title="Book Details">
               <div className="space-y-4">
-                <InputField label="Title" value={bookTitle} onChange={setBookTitle} />
-                <InputField label="Slug" value={bookSlug} onChange={setBookSlug} />
-                <InputField label="Author" value={bookAuthor} onChange={setBookAuthor} />
+                <InputField
+                  label="Title"
+                  value={bookTitle}
+                  onChange={setBookTitle}
+                />
+                <InputField
+                  label="Slug"
+                  value={bookSlug}
+                  onChange={setBookSlug}
+                />
+                <InputField
+                  label="Author"
+                  value={bookAuthor}
+                  onChange={setBookAuthor}
+                />
                 <InputField
                   label="Original Language"
                   value={bookLanguage}
@@ -875,9 +949,16 @@ export default function App() {
                   />
                 ) : null}
                 {splitMode === "delimiter" ? (
-                  <InputField label="Delimiter" value={delimiter} onChange={setDelimiter} />
+                  <InputField
+                    label="Delimiter"
+                    value={delimiter}
+                    onChange={setDelimiter}
+                  />
                 ) : null}
-                <ActionButton label="Back To Books" onClick={() => setScreen("books")} />
+                <ActionButton
+                  label="Back To Books"
+                  onClick={() => setScreen("books")}
+                />
               </div>
             </Panel>
 
@@ -898,7 +979,7 @@ export default function App() {
                     disabled={chapterPreview.length === 0}
                   />
                   <span className="text-sm text-ink/60">
-                    {chapterPreview.length} chapter draft(s) detected.
+                    {chapterPreview.length} chapter split(s) detected.
                   </span>
                 </div>
               </Panel>
@@ -936,7 +1017,10 @@ export default function App() {
                             onClick={() => moveStagedChapter(index, 1)}
                             disabled={index === stagedChapters.length - 1}
                           />
-                          <MiniButton label="Split" onClick={() => splitStagedChapter(index)} />
+                          <MiniButton
+                            label="Split"
+                            onClick={() => splitStagedChapter(index)}
+                          />
                           <MiniButton
                             label="Merge"
                             onClick={() => mergeStagedChapter(index)}
@@ -972,7 +1056,9 @@ export default function App() {
                     label={isBusy ? "Saving..." : "Create Book"}
                     onClick={createBook}
                     tone="accent"
-                    disabled={isBusy || !bookTitle.trim() || stagedChapters.length === 0}
+                    disabled={
+                      isBusy || !bookTitle.trim() || stagedChapters.length === 0
+                    }
                   />
                 </div>
               </Panel>
@@ -990,57 +1076,77 @@ export default function App() {
                 <h2 className="font-display text-4xl text-ink">
                   {selectedBook.book.title}
                 </h2>
-                <p className="text-sm text-ink/65">{selectedBook.book.author}</p>
+                <p className="text-sm text-ink/65">
+                  {selectedBook.book.author}
+                </p>
                 <p className="text-sm leading-7 text-ink/75">
                   {selectedBook.book.description || "No description yet."}
                 </p>
                 <div className="grid grid-cols-2 gap-3 rounded-2xl border border-border/70 bg-paper/75 p-4 text-sm text-ink/70">
-                  <Metric label="Chapters" value={String(selectedBook.chapters.length)} />
                   <Metric
-                    label="Drafts"
-                    value={String(translationDrafts.length)}
+                    label="Chapters"
+                    value={String(selectedBook.chapters.length)}
+                  />
+                  <Metric
+                    label="Translations"
+                    value={String(translations.length)}
                   />
                 </div>
-                <ActionButton label="Back To Books" onClick={() => setScreen("books")} />
+                <ActionButton
+                  label="Back To Books"
+                  onClick={() => setScreen("books")}
+                />
               </div>
             </Panel>
 
             <div className="grid gap-6">
-              <Panel title="Translation Drafts">
+              <Panel title="Translations">
                 <div className="grid gap-4 md:grid-cols-2">
-                  {translationDrafts.map((draft) => (
+                  {translations.map((translation) => (
                     <button
-                      key={draft.id}
+                      key={translation.id}
                       type="button"
-                      onClick={() => void openTranslationDraft(draft.id)}
+                      onClick={() => void openTranslation(translation.id)}
                       className="rounded-[24px] border border-border/70 bg-paper/80 p-5 text-left transition hover:border-accent/50 hover:bg-white"
                     >
                       <div className="flex items-center justify-between gap-3">
                         <p className="text-xs font-semibold uppercase tracking-[0.18em] text-accent">
-                          {draft.status}
+                          {translation.status}
                         </p>
                         <span className="text-xs text-ink/55">
-                          {formatTimestamp(draft.latestActivityAt)}
+                          {formatTimestamp(translation.latestActivityAt)}
                         </span>
                       </div>
                       <h3 className="mt-3 font-display text-3xl text-ink">
-                        {draft.name}
+                        {translation.name}
                       </h3>
                       <p className="mt-2 text-sm leading-7 text-ink/70">
-                        {draft.description || "No description yet."}
+                        {translation.description || "No description yet."}
                       </p>
                       <div className="mt-4 grid grid-cols-2 gap-3 text-sm text-ink/70">
-                        <Metric label="Saved" value={`${draft.savedChapterCount}/${draft.chapterCount}`} />
-                        <Metric label="Generated" value={String(draft.generatedChapterCount)} />
-                        <Metric label="Pending" value={String(draft.pendingChapterCount)} />
-                        <Metric label="Runs" value={String(draft.sessionCount)} />
+                        <Metric
+                          label="Saved"
+                          value={`${translation.savedChapterCount}/${translation.chapterCount}`}
+                        />
+                        <Metric
+                          label="Generated"
+                          value={String(translation.generatedChapterCount)}
+                        />
+                        <Metric
+                          label="Pending"
+                          value={String(translation.pendingChapterCount)}
+                        />
+                        <Metric
+                          label="Runs"
+                          value={String(translation.sessionCount)}
+                        />
                       </div>
                     </button>
                   ))}
                 </div>
               </Panel>
 
-              <Panel title="Create Translation Draft">
+              <Panel title="Create Translation">
                 <div className="grid gap-4 lg:grid-cols-[1fr_auto] lg:items-end">
                   <InputField
                     label="Translation Name"
@@ -1048,22 +1154,24 @@ export default function App() {
                     onChange={setTranslationTitle}
                   />
                   <ActionButton
-                    label={
-                      isBusy ? "Creating..." : "Create Draft From Defaults"
-                    }
-                    onClick={createTranslationDraft}
+                    label={isBusy ? "Creating..." : "Create Translation"}
+                    onClick={createTranslation}
                     tone="accent"
                     disabled={isBusy || !translationTitle.trim()}
                   />
                 </div>
                 <button
                   type="button"
-                  onClick={() => setShowAdvancedDraftSettings((current) => !current)}
+                  onClick={() =>
+                    setShowAdvancedTranslationSettings((current) => !current)
+                  }
                   className="mt-4 text-sm font-semibold text-accent"
                 >
-                  {showAdvancedDraftSettings ? "Hide advanced settings" : "Show advanced settings"}
+                  {showAdvancedTranslationSettings
+                    ? "Hide advanced settings"
+                    : "Show advanced settings"}
                 </button>
-                {showAdvancedDraftSettings ? (
+                {showAdvancedTranslationSettings ? (
                   <>
                     <div className="mt-4 grid gap-4 lg:grid-cols-2">
                       <InputField
@@ -1107,18 +1215,18 @@ export default function App() {
           </section>
         ) : null}
 
-        {screen === "workspace" && activeDraft && activeSession ? (
+        {screen === "workspace" && activeTranslation && activeSession ? (
           <section className="grid gap-6 xl:grid-cols-[320px_1fr]">
-            <Panel title="Draft Queue">
+            <Panel title="Translation">
               <div className="rounded-2xl border border-border/60 bg-paper/70 p-4 text-sm text-ink/70">
                 <p className="text-xs font-semibold uppercase tracking-[0.18em] text-accent">
-                  Draft
+                  Translation
                 </p>
                 <h3 className="mt-2 font-display text-3xl text-ink">
-                  {activeDraft.name}
+                  {activeTranslation.name}
                 </h3>
                 <p className="mt-2 leading-7">
-                  {activeDraft.description || "No description yet."}
+                  {activeTranslation.description || "No description yet."}
                 </p>
               </div>
               <div className="mt-4 space-y-3">
@@ -1141,7 +1249,9 @@ export default function App() {
                     >
                       <div className="flex items-start justify-between gap-3">
                         <div>
-                          <p className="font-semibold text-ink">{chapter.title}</p>
+                          <p className="font-semibold text-ink">
+                            {chapter.title}
+                          </p>
                           <p className="mt-1 text-xs uppercase tracking-[0.18em] text-accent">
                             {chapter.slug}
                           </p>
@@ -1149,27 +1259,40 @@ export default function App() {
                         <StatusPill status={chapter.status} />
                       </div>
                       <p className="mt-2 text-sm text-ink/60">
-                        {issueCount > 0 ? `${issueCount} validation issues` : "No flagged issues"}
+                        {issueCount > 0
+                          ? `${issueCount} validation issues`
+                          : "No flagged issues"}
                       </p>
                     </button>
                   );
                 })}
               </div>
               <div className="mt-6 flex flex-wrap gap-3">
-                <ActionButton label="Back To Drafts" onClick={() => setScreen("translations")} />
-                <ActionButton label="Validate Draft" onClick={validateCurrentDraft} tone="accent" />
+                <ActionButton
+                  label="Back To Translations"
+                  onClick={() => setScreen("translations")}
+                />
+                <ActionButton
+                  label="Validate Translation"
+                  onClick={validateCurrentTranslation}
+                  tone="accent"
+                />
               </div>
             </Panel>
 
             <div className="grid gap-6">
-              <Panel title="Draft Settings">
+              <Panel title="Translation Settings">
                 <div className="grid gap-4 lg:grid-cols-2">
                   <InputField
                     label="Translation Name"
                     value={translationTitle}
                     onChange={setTranslationTitle}
                   />
-                  <InputField label="Slug" value={translationSlug} onChange={setTranslationSlug} />
+                  <InputField
+                    label="Slug"
+                    value={translationSlug}
+                    onChange={setTranslationSlug}
+                  />
                   <InputField
                     label="Description"
                     value={translationDescription}
@@ -1202,17 +1325,19 @@ export default function App() {
                 <div className="mt-6 flex flex-wrap gap-3">
                   <ActionButton
                     label={
-                      isBusy && draftMetadataIsDirty
+                      isBusy && translationMetadataIsDirty
                         ? "Saving..."
-                        : draftMetadataIsDirty
-                          ? "Save Draft Metadata"
-                          : "Draft Metadata Saved"
+                        : translationMetadataIsDirty
+                          ? "Save Translation Metadata"
+                          : "Translation Metadata Saved"
                     }
-                    onClick={() => void saveDraftSettings()}
-                    disabled={isBusy || !draftMetadataIsDirty}
+                    onClick={() => void saveTranslationSettings()}
+                    disabled={isBusy || !translationMetadataIsDirty}
                   />
                   <ActionButton
-                    label={isBusy ? "Generating..." : "Generate Current Chapter"}
+                    label={
+                      isBusy ? "Generating..." : "Generate Current Chapter"
+                    }
                     onClick={generateCurrentChapter}
                     tone="accent"
                     disabled={isBusy || !currentWorkspaceChapter}
@@ -1275,7 +1400,9 @@ export default function App() {
                     </section>
                     <button
                       type="button"
-                      onClick={() => setShowRawJsonEditor((current) => !current)}
+                      onClick={() =>
+                        setShowRawJsonEditor((current) => !current)
+                      }
                       className="mt-4 text-sm font-semibold text-accent"
                     >
                       {showRawJsonEditor ? "Hide raw JSON" : "Show raw JSON"}
@@ -1285,10 +1412,15 @@ export default function App() {
                         <textarea
                           className="min-h-[260px] w-full rounded-2xl border border-border/70 bg-paper/70 px-4 py-3 font-mono text-sm leading-6 text-ink outline-none transition focus:border-accent"
                           value={editedRawResponse}
-                          onChange={(event) => setEditedRawResponse(event.target.value)}
+                          onChange={(event) =>
+                            setEditedRawResponse(event.target.value)
+                          }
                         />
                         <div className="mt-3">
-                          <ActionButton label="Reload Editor From Raw JSON" onClick={reloadEditorFromRawJson} />
+                          <ActionButton
+                            label="Reload Editor From Raw JSON"
+                            onClick={reloadEditorFromRawJson}
+                          />
                         </div>
                       </div>
                     ) : null}
@@ -1298,7 +1430,7 @@ export default function App() {
                           isBusy && chapterIsDirty
                             ? "Saving..."
                             : chapterIsDirty
-                              ? "Save Chapter To Draft"
+                              ? "Save Chapter To Translation"
                               : "Chapter Saved"
                         }
                         onClick={saveCurrentChapter}
@@ -1313,42 +1445,54 @@ export default function App() {
           </section>
         ) : null}
 
-        {screen === "validate" && validation && activeDraft ? (
+        {screen === "validate" && validation && activeTranslation ? (
           <section className="grid gap-6 xl:grid-cols-[320px_1fr]">
             <Panel title="Validation Summary">
               <p className="text-sm font-semibold uppercase tracking-[0.18em] text-accent">
                 {validation.isValid ? "Ready for finish line" : "Issues found"}
               </p>
               <div className="mt-4 grid grid-cols-2 gap-3 text-sm text-ink/70">
-                <Metric label="Chapters" value={String(validation.chapters.length)} />
+                <Metric
+                  label="Chapters"
+                  value={String(validation.chapters.length)}
+                />
                 <Metric
                   label="Errors"
                   value={String(
-                    validation.issues.filter((issue) => issue.level === "error").length,
+                    validation.issues.filter((issue) => issue.level === "error")
+                      .length,
                   )}
                 />
                 <Metric
                   label="Warnings"
                   value={String(
-                    validation.issues.filter((issue) => issue.level === "warning").length,
+                    validation.issues.filter(
+                      (issue) => issue.level === "warning",
+                    ).length,
                   )}
                 />
-                <Metric label="Status" value={activeDraft.status} />
+                <Metric label="Status" value={activeTranslation.status} />
               </div>
               <div className="mt-6 flex flex-wrap gap-3">
-                <ActionButton label="Continue Editing" onClick={() => setScreen("workspace")} />
+                <ActionButton
+                  label="Continue Editing"
+                  onClick={() => setScreen("workspace")}
+                />
                 <ActionButton
                   label="Mark Ready"
-                  onClick={() => void markDraftStatus("ready")}
+                  onClick={() => void markTranslationStatus("ready")}
                   tone="accent"
                   disabled={!validation.isValid || isBusy}
                 />
                 <ActionButton
-                  label="Publish Draft"
-                  onClick={() => void markDraftStatus("published")}
+                  label="Publish Translation"
+                  onClick={() => void markTranslationStatus("published")}
                   disabled={!validation.isValid || isBusy}
                 />
-                <ActionButton label="Export Draft JSON" onClick={exportDraftJson} />
+                <ActionButton
+                  label="Export Translation JSON"
+                  onClick={exportTranslationJson}
+                />
               </div>
             </Panel>
 
@@ -1368,7 +1512,7 @@ export default function App() {
                         }`}
                       >
                         <span className="font-semibold">
-                          {issue.chapterSlug ?? "Draft"}
+                          {issue.chapterSlug ?? "Translation"}
                         </span>{" "}
                         {issue.message}
                       </button>
@@ -1396,7 +1540,9 @@ export default function App() {
                     >
                       <div className="flex items-start justify-between gap-3">
                         <div>
-                          <p className="font-semibold text-ink">{chapter.title}</p>
+                          <p className="font-semibold text-ink">
+                            {chapter.title}
+                          </p>
                           <p className="mt-1 text-xs uppercase tracking-[0.18em] text-accent">
                             {chapter.slug}
                           </p>
@@ -1415,7 +1561,9 @@ export default function App() {
 
               {validationPreviewChapter ? (
                 <Panel title="Side-by-Side Preview">
-                  <ChapterSideBySidePreview chapter={validationPreviewChapter} />
+                  <ChapterSideBySidePreview
+                    chapter={validationPreviewChapter}
+                  />
                 </Panel>
               ) : null}
             </div>
@@ -1736,7 +1884,9 @@ function CompactOriginalChunkList({
               <MiniButton
                 label="Delete"
                 onClick={() =>
-                  onChange(chunks.filter((_, chunkIndex) => chunkIndex !== index))
+                  onChange(
+                    chunks.filter((_, chunkIndex) => chunkIndex !== index),
+                  )
                 }
                 disabled={chunks.length === 1}
               />
@@ -1886,7 +2036,9 @@ function AlignedTranslationReview({
                   <MiniButton
                     label="Delete"
                     onClick={() =>
-                      onChange(chunks.filter((_, chunkIndex) => chunkIndex !== index))
+                      onChange(
+                        chunks.filter((_, chunkIndex) => chunkIndex !== index),
+                      )
                     }
                     disabled={chunks.length === 1}
                   />
@@ -2010,15 +2162,23 @@ function buildChapterEditorState(
   return {
     chapterTitle: chapter.title,
     notes: chapter.notes ?? "",
-    originalChunks: (chapter.originalDocument?.chunks ?? [{ text: "", type: "prose", id: "c1", ordinal: 1 }]).map(
-      (chunk) => ({
-        text: chunk.text,
-        type: chunk.type,
-      }),
-    ),
+    originalChunks: (
+      chapter.originalDocument?.chunks ?? [
+        { text: "", type: "prose", id: "c1", ordinal: 1 },
+      ]
+    ).map((chunk) => ({
+      text: chunk.text,
+      type: chunk.type,
+    })),
     translationChunks: (
       chapter.translationDocument?.chunks ?? [
-        { text: "", type: "prose", id: "t1", ordinal: 1, sourceChunkIds: ["c1"] },
+        {
+          text: "",
+          type: "prose",
+          id: "t1",
+          ordinal: 1,
+          sourceChunkIds: ["c1"],
+        },
       ]
     ).map((chunk) => ({
       text: chunk.text,
@@ -2028,19 +2188,101 @@ function buildChapterEditorState(
   };
 }
 
-function buildDraftMetadataSnapshot(input: {
-  activeDraft: AdminTranslationDraftDetail;
-  activeSession: AdminTranslationDraftDetail["currentSession"];
+function buildTranslationMetadataSnapshot(input: {
+  activeTranslation: AdminTranslationDetail;
+  activeSession: AdminTranslationDetail["currentSession"];
 }) {
   return {
-    name: input.activeDraft.name.trim(),
-    slug: input.activeDraft.slug.trim(),
-    description: (input.activeDraft.description ?? "").trim(),
+    name: input.activeTranslation.name.trim(),
+    slug: input.activeTranslation.slug.trim(),
+    description: (input.activeTranslation.description ?? "").trim(),
     model: (input.activeSession?.model ?? DEFAULT_MODEL).trim(),
-    prompt: input.activeSession?.prompt ?? input.activeDraft.aiSystemPrompt ?? "",
-    contextBeforeChapterCount: input.activeSession?.contextBeforeChapterCount ?? 1,
-    contextAfterChapterCount: input.activeSession?.contextAfterChapterCount ?? 1,
+    prompt:
+      input.activeSession?.prompt ??
+      input.activeTranslation.aiSystemPrompt ??
+      "",
+    contextBeforeChapterCount:
+      input.activeSession?.contextBeforeChapterCount ?? 1,
+    contextAfterChapterCount:
+      input.activeSession?.contextAfterChapterCount ?? 1,
   };
+}
+
+function buildBreadcrumbs(input: {
+  screen: AdminScreen;
+  selectedBookTitle: string | null;
+  activeTranslationName: string | null;
+  onBooks: () => void;
+  onCreateBook: () => void;
+  onTranslations: (() => void) | null;
+  onWorkspace: (() => void) | null;
+}) {
+  const breadcrumbs: Array<{
+    label: string;
+    isCurrent: boolean;
+    onClick: (() => void) | null;
+  }> = [
+    {
+      label: "Admin",
+      isCurrent: input.screen === "books",
+      onClick: input.onBooks,
+    },
+  ];
+
+  if (input.screen === "books") {
+    breadcrumbs.push({ label: "Books", isCurrent: true, onClick: null });
+    return breadcrumbs;
+  }
+
+  if (input.screen === "create-book") {
+    breadcrumbs.push({
+      label: "Books",
+      isCurrent: false,
+      onClick: input.onBooks,
+    });
+    breadcrumbs.push({
+      label: "Create Book",
+      isCurrent: true,
+      onClick: null,
+    });
+    return breadcrumbs;
+  }
+
+  breadcrumbs.push({
+    label: "Books",
+    isCurrent: false,
+    onClick: input.onBooks,
+  });
+
+  if (input.selectedBookTitle) {
+    breadcrumbs.push({
+      label: input.selectedBookTitle,
+      isCurrent: input.screen === "translations",
+      onClick: input.onTranslations,
+    });
+  }
+
+  if (input.screen === "translations") {
+    return breadcrumbs;
+  }
+
+  if (input.activeTranslationName) {
+    breadcrumbs.push({
+      label: input.activeTranslationName,
+      isCurrent: input.screen === "workspace",
+      onClick: input.onWorkspace,
+    });
+  }
+
+  if (input.screen === "workspace") {
+    breadcrumbs.push({ label: "Workspace", isCurrent: true, onClick: null });
+  }
+
+  if (input.screen === "validate") {
+    breadcrumbs.push({ label: "Validation", isCurrent: true, onClick: null });
+  }
+
+  return breadcrumbs;
 }
 
 function parseEditorStateFromRaw(rawResponse: string): ChapterEditorState {
@@ -2073,7 +2315,9 @@ function parseEditorStateFromRaw(rawResponse: string): ChapterEditorState {
   }));
 
   if (originalChunks.length === 0 || translationChunks.length === 0) {
-    throw new Error("Raw JSON must include originalChunks and translationChunks.");
+    throw new Error(
+      "Raw JSON must include originalChunks and translationChunks.",
+    );
   }
 
   return {

@@ -400,12 +400,12 @@ try {
   }
 
   {
-    const createDraftResult = await api(
+    const createTranslationResult = await api(
       "POST",
-      "/api/admin/books/iliad/translation-drafts",
+      "/api/admin/books/iliad/translations",
       {
-        title: "Smoke Iliad Draft",
-        slug: "smoke-iliad-draft",
+        title: "Smoke Iliad Translation",
+        slug: "smoke-iliad-translation",
         description: "Created during smoke validation.",
         model: "openai/gpt-4o-mini",
         prompt: "Return JSON only.",
@@ -414,32 +414,32 @@ try {
       },
     );
     assert(
-      "POST book translation draft returns 201",
-      createDraftResult.status === 201,
+      "POST book translation returns 201",
+      createTranslationResult.status === 201,
     );
 
-    const linkedDraftId = createDraftResult.json.data?.id;
-    const draftsResult = await api(
+    const linkedTranslationId = createTranslationResult.json.data?.id;
+    const translationsResult = await api(
       "GET",
-      "/api/admin/books/iliad/translation-drafts",
+      "/api/admin/books/iliad/translations",
     );
     assert(
-      "translation drafts list returns 200",
-      draftsResult.status === 200,
+      "translations list returns 200",
+      translationsResult.status === 200,
     );
     assert(
-      "translation drafts include the linked draft",
-      draftsResult.json.data?.drafts?.some(
-        (draft) => draft.id === linkedDraftId,
+      "translations include the linked translation",
+      translationsResult.json.data?.translations?.some(
+        (translation) => translation.id === linkedTranslationId,
       ),
     );
 
     const validationResult = await api(
       "GET",
-      `/api/admin/translation-drafts/${linkedDraftId}/validate`,
+      `/api/admin/translations/${linkedTranslationId}/validate`,
     );
     assert(
-      "validate translation draft returns 200",
+      "validate translation returns 200",
       validationResult.status === 200,
     );
     assert(
