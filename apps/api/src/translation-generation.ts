@@ -1,0 +1,458 @@
+import {
+  buildTranslationChapterKey,
+  type AdminIngestionChapterRecord,
+  type AdminIngestionSessionDetail,
+  type AiProvider,
+  type ChunkType,
+  type OriginalChapterDocument,
+  type ThinkingLevel,
+  type TranslationChapterDocument,
+} from "@ancient-epics/shared";
+import { slugify, writeObjectJson } from "./http";
+
+type ParsedAiChunk = { text: string; type?: ChunkType };
+type ParsedAiTranslationChunk = ParsedAiChunk & { sourceOrdinals?: number[]; sourceOriginalOrdinals?: number[] };
+type ParsedAiChapterPayload = {
+  chapterTitle?: string;
+  notes?: string;
+  originalChunks: ParsedAiChunk[];
+  translationChunks: ParsedAiTranslationChunk[];
+};
+
+export type ProviderCallInput = {
+  model: string;
+  thinkingLevel: ThinkingLevel | null;
+  systemPrompt: string;
+  userPrompt: string;
+};
+
+export type ProviderCallResult = {
+  requestPayload: Record<string, unknown>;
+  responseStatus: number;
+  responsePayload: unknown;
+  extractedContent: string;
+};
+
+export async function generateChapterWithProvider(input: {
+  provider: AiProvider;
+  model: string;
+  thinkingLevel: ThinkingLevel | null;
+  prompt: string;
+  session: AdminIngestionSessionDetail;
+  chapter: AdminIngestionChapterRecord;
+  previousChapters?: AdminIngestionChapterRecord[];
+  nextChapters?: AdminIngestionChapterRecord[];
+  callModel: (input: ProviderCallInput) => Promise<ProviderCallResult>;
+  logEntry?: (entry: Record<string, unknown>) => Promise<void>;
+}): Promise<string> {
+  const initialResult = await input.callModel({
+    model: input.model,
+    thinkingLevel: input.thinkingLevel,
+    systemPrompt: input.prompt,
+    userPrompt: buildGenerationUserPrompt(input),
+  });
+
+  const initialValidation = validateAiChapterPayloadText(initialResult.extractedContent);
+  await input.logEntry?.({
+    timestamp: new Date().toISOString(),
+    provider: input.provider,
+    sessionId: input.session.id,
+    chapterId: input.chapter.id,
+    chapterPosition: input.chapter.position,
+    chapterSlug: input.chapter.slug,
+    translationId: input.session.translationId,
+    model: input.model,
+    attempt: "initial",
+    requestPayload: initialResult.requestPayload,
+    responseStatus: initialResult.responseStatus,
+    responsePayload: initialResult.responsePayload,
+    extractedContent: initialResult.extractedContent,
+    validationError: initialValidation.ok ? undefined : initialValidation.error,
+  });
+
+  if (initialValidation.ok) {
+    return initialResult.extractedContent;
+  }
+
+  const repairedResult = await input.callModel({
+    model: input.model,
+    thinkingLevel: input.thinkingLevel,
+    systemPrompt: "Repair the user's JSON so it matches the required schema exactly. Return JSON only.",
+    userPrompt: buildRepairUserPrompt({
+      originalError: initialValidation.error,
+      rawResponse: initialResult.extractedContent,
+    }),
+  });
+
+  const repairedValidation = validateAiChapterPayloadText(repairedResult.extractedContent);
+  await input.logEntry?.({
+    timestamp: new Date().toISOString(),
+    provider: input.provider,
+    sessionId: input.session.id,
+    chapterId: input.chapter.id,
+    chapterPosition: input.chapter.position,
+    chapterSlug: input.chapter.slug,
+    translationId: input.session.translationId,
+    model: input.model,
+    attempt: "repair",
+    requestPayload: repairedResult.requestPayload,
+    responseStatus: repairedResult.responseStatus,
+    responsePayload: repairedResult.responsePayload,
+    extractedContent: repairedResult.extractedContent,
+    validationError: repairedValidation.ok ? undefined : repairedValidation.error,
+  });
+
+  if (repairedValidation.ok) {
+    return repairedResult.extractedContent;
+  }
+
+  throw new Error(`Model response failed validation after repair: ${repairedValidation.error}`);
+}
+
+export async function persistGeneratedChapter(input: {
+  db: D1Database;
+  bucket: R2Bucket;
+  session: AdminIngestionSessionDetail;
+  chapter: AdminIngestionChapterRecord;
+  rawResponse: string;
+  statusOnSuccess: AdminIngestionChapterRecord["status"];
+}): Promise<AdminIngestionChapterRecord> {
+  const now = new Date().toISOString();
+  let translationSlug: string | undefined;
+
+  if (input.session.translationId) {
+    const translation = await input.db
+      .prepare(`SELECT slug FROM translations WHERE id = ?`)
+      .bind(input.session.translationId)
+      .first<{ slug: string }>();
+    translationSlug = translation?.slug;
+  }
+
+  try {
+    const normalized = normalizeGeneratedChapter({
+      session: input.session,
+      chapter: input.chapter,
+      rawResponse: input.rawResponse,
+      translationSlug,
+    });
+
+    await input.db
+      .prepare(
+        `
+          UPDATE admin_ingestion_chapters
+          SET status = ?, raw_response = ?, original_document_json = ?, translation_document_json = ?, notes = ?, error_message = NULL, updated_at = ?
+          WHERE id = ?
+        `,
+      )
+      .bind(
+        input.statusOnSuccess,
+        input.rawResponse,
+        JSON.stringify(normalized.originalDocument),
+        JSON.stringify(normalized.translationDocument),
+        normalized.notes,
+        now,
+        input.chapter.id,
+      )
+      .run();
+
+    if (
+      input.session.translationId &&
+      input.session.sourceBookSlug &&
+      input.statusOnSuccess === "saved" &&
+      translationSlug
+    ) {
+      await writeObjectJson(
+        input.bucket,
+        buildTranslationChapterKey(input.session.sourceBookSlug, input.chapter.slug, translationSlug),
+        normalized.translationDocument,
+      );
+
+      await input.db
+        .prepare(
+          `
+            UPDATE translations
+            SET ai_system_prompt = ?, status = 'ready', updated_at = ?
+            WHERE id = ?
+          `,
+        )
+        .bind(input.session.prompt, now, input.session.translationId)
+        .run();
+    }
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Failed to parse AI response.";
+    await input.db
+      .prepare(
+        `
+          UPDATE admin_ingestion_chapters
+          SET status = 'error', raw_response = ?, error_message = ?, updated_at = ?
+          WHERE id = ?
+        `,
+      )
+      .bind(input.rawResponse, message, now, input.chapter.id)
+      .run();
+  }
+
+  const refreshed = await input.db
+    .prepare(
+      `
+        SELECT
+          id,
+          position,
+          title,
+          slug,
+          source_text AS sourceText,
+          source_chapter_slug AS sourceChapterSlug,
+          status,
+          raw_response AS rawResponse,
+          original_document_json AS originalDocumentJson,
+          translation_document_json AS translationDocumentJson,
+          notes,
+          error_message AS errorMessage,
+          updated_at AS updatedAt
+        FROM admin_ingestion_chapters
+        WHERE id = ?
+      `,
+    )
+    .bind(input.chapter.id)
+    .first<{
+      id: string;
+      position: number;
+      title: string;
+      slug: string;
+      sourceText: string;
+      sourceChapterSlug: string | null;
+      status: AdminIngestionChapterRecord["status"];
+      rawResponse: string | null;
+      originalDocumentJson: string | null;
+      translationDocumentJson: string | null;
+      notes: string | null;
+      errorMessage: string | null;
+      updatedAt: string;
+    }>();
+
+  if (!refreshed) {
+    throw new Error("Generated chapter could not be reloaded.");
+  }
+
+  return {
+    id: refreshed.id,
+    position: Number(refreshed.position),
+    title: refreshed.title,
+    slug: refreshed.slug,
+    sourceText: refreshed.sourceText,
+    sourceChapterSlug: refreshed.sourceChapterSlug,
+    status: refreshed.status,
+    rawResponse: refreshed.rawResponse,
+    originalDocument: refreshed.originalDocumentJson
+      ? (JSON.parse(refreshed.originalDocumentJson) as OriginalChapterDocument)
+      : null,
+    translationDocument: refreshed.translationDocumentJson
+      ? (JSON.parse(refreshed.translationDocumentJson) as TranslationChapterDocument)
+      : null,
+    notes: refreshed.notes,
+    errorMessage: refreshed.errorMessage,
+    updatedAt: refreshed.updatedAt,
+  };
+}
+
+function formatContextChapters(chapters: AdminIngestionChapterRecord[] | undefined): string {
+  if (!chapters || chapters.length === 0) {
+    return "(none)";
+  }
+
+  return chapters
+    .map((chapter) => {
+      let content = `## ${chapter.title}\nSource Text:\n${chapter.sourceText}`;
+      if (chapter.translationDocument) {
+        const translatedText = chapter.translationDocument.chunks.map((chunk) => chunk.text).join("\n");
+        content += `\n\nTranslated Text:\n${translatedText}`;
+      }
+      return content;
+    })
+    .join("\n\n");
+}
+
+function buildGenerationUserPrompt(input: {
+  session: AdminIngestionSessionDetail;
+  chapter: AdminIngestionChapterRecord;
+  previousChapters?: AdminIngestionChapterRecord[];
+  nextChapters?: AdminIngestionChapterRecord[];
+}): string {
+  return [
+    `Project: ${input.session.title}`,
+    `Source mode: ${input.session.sourceMode}`,
+    `Provider: ${input.session.provider}`,
+    `Chapter title: ${input.chapter.title}`,
+    "",
+    "Return JSON only.",
+    "Schema: { chapterTitle?: string, notes?: string, originalChunks: [{ text: string, type?: 'prose' | 'verse' }], translationChunks: [{ text: string, type?: 'prose' | 'verse', sourceOrdinals: number[] }] }",
+    "Each originalChunks item must contain non-empty text and optional type.",
+    "Each translationChunks item must contain non-empty text, optional type, and non-empty sourceOrdinals referencing the 1-based ordinal positions of originalChunks.",
+    "You may merge multiple original chunks into one translation chunk.",
+    "Do not include ids. The application assigns ids after review.",
+    "",
+    "Previous chapter context:",
+    formatContextChapters(input.previousChapters),
+    "",
+    "Target chapter source text:",
+    input.chapter.sourceText,
+    "",
+    "Next chapter context:",
+    formatContextChapters(input.nextChapters),
+  ].join("\n");
+}
+
+function buildRepairUserPrompt(input: { originalError: string; rawResponse: string }): string {
+  return [
+    "Repair this model output into valid JSON matching the required schema.",
+    `Validation error: ${input.originalError}`,
+    "Required schema:",
+    "{ chapterTitle?: string, notes?: string, originalChunks: [{ text: string, type?: 'prose' | 'verse' }], translationChunks: [{ text: string, type?: 'prose' | 'verse', sourceOrdinals: number[] }] }",
+    "Return JSON only.",
+    "",
+    input.rawResponse,
+  ].join("\n");
+}
+
+function normalizeGeneratedChapter(input: {
+  session: AdminIngestionSessionDetail;
+  chapter: AdminIngestionChapterRecord;
+  rawResponse: string;
+  translationSlug?: string;
+}): {
+  originalDocument: OriginalChapterDocument;
+  translationDocument: TranslationChapterDocument;
+  notes: string | null;
+} {
+  const parsed = parseAiChapterPayload(input.rawResponse);
+
+  const originalDocument: OriginalChapterDocument = {
+    bookSlug: input.session.sourceBookSlug ?? slugify(input.session.title),
+    chapterSlug: input.chapter.slug,
+    chunks: parsed.originalChunks.map((chunk, index) => ({
+      id: `c${index + 1}`,
+      type: chunk.type ?? inferChunkType(chunk.text),
+      text: chunk.text.trim(),
+      ordinal: index + 1,
+    })),
+  };
+
+  const translationDocument: TranslationChapterDocument = {
+    translationSlug: input.translationSlug ?? `${slugify(input.session.title)}-draft`,
+    chunks: parsed.translationChunks.map((chunk, index) => {
+      const ordinals = normalizeSourceOrdinals(
+        chunk.sourceOrdinals ?? chunk.sourceOriginalOrdinals,
+        originalDocument.chunks.length,
+        index,
+      );
+
+      return {
+        id: `t${index + 1}`,
+        type: chunk.type ?? inferChunkType(chunk.text),
+        text: chunk.text.trim(),
+        ordinal: index + 1,
+        sourceChunkIds: ordinals.map((ordinal) => `c${ordinal}`),
+      };
+    }),
+  };
+
+  return {
+    originalDocument,
+    translationDocument,
+    notes: parsed.notes?.trim() || null,
+  };
+}
+
+function parseAiChapterPayload(rawResponse: string): ParsedAiChapterPayload {
+  const parsed = JSON.parse(extractJsonObject(rawResponse)) as Record<string, unknown>;
+  const payload: ParsedAiChapterPayload = {
+    chapterTitle: typeof parsed.chapterTitle === "string" ? parsed.chapterTitle : undefined,
+    notes: typeof parsed.notes === "string" ? parsed.notes : undefined,
+    originalChunks: Array.isArray(parsed.originalChunks)
+      ? parsed.originalChunks.map(normalizeAiChunk).filter((value): value is ParsedAiChunk => Boolean(value))
+      : [],
+    translationChunks: Array.isArray(parsed.translationChunks)
+      ? parsed.translationChunks
+          .map(normalizeAiTranslationChunk)
+          .filter((value): value is ParsedAiTranslationChunk => Boolean(value))
+      : [],
+  };
+
+  if (payload.originalChunks.length === 0) {
+    throw new Error("originalChunks must contain at least one item.");
+  }
+  if (payload.translationChunks.length === 0) {
+    throw new Error("translationChunks must contain at least one item.");
+  }
+
+  return payload;
+}
+
+function validateAiChapterPayloadText(rawResponse: string): { ok: true } | { ok: false; error: string } {
+  try {
+    parseAiChapterPayload(rawResponse);
+    return { ok: true };
+  } catch (error) {
+    return { ok: false, error: error instanceof Error ? error.message : "Unknown schema validation error." };
+  }
+}
+
+function normalizeAiChunk(value: unknown): ParsedAiChunk | null {
+  if (!value || typeof value !== "object") {
+    return null;
+  }
+  const entry = value as Record<string, unknown>;
+  const text = typeof entry.text === "string" ? entry.text.trim() : "";
+  if (!text) {
+    return null;
+  }
+  return { text, type: normalizeChunkType(entry.type) };
+}
+
+function normalizeAiTranslationChunk(value: unknown): ParsedAiTranslationChunk | null {
+  const chunk = normalizeAiChunk(value);
+  if (!chunk || !value || typeof value !== "object") {
+    return null;
+  }
+  const entry = value as Record<string, unknown>;
+  return {
+    ...chunk,
+    sourceOrdinals: normalizeNumberArray(entry.sourceOrdinals),
+    sourceOriginalOrdinals: normalizeNumberArray(entry.sourceOriginalOrdinals),
+  };
+}
+
+function normalizeChunkType(value: unknown): ChunkType | undefined {
+  return value === "verse" || value === "prose" ? value : undefined;
+}
+
+function normalizeNumberArray(value: unknown): number[] | undefined {
+  if (!Array.isArray(value)) {
+    return undefined;
+  }
+  const normalized = value.map(Number).filter((entry) => Number.isInteger(entry) && entry > 0);
+  return normalized.length > 0 ? normalized : undefined;
+}
+
+function normalizeSourceOrdinals(value: number[] | undefined, maxOrdinal: number, translationIndex: number): number[] {
+  const fallback = Math.min(translationIndex + 1, maxOrdinal);
+  const ordinals = Array.from(new Set((value ?? [fallback]).filter((entry) => entry >= 1 && entry <= maxOrdinal)));
+  return ordinals.length > 0 ? ordinals : [fallback];
+}
+
+function inferChunkType(text: string): ChunkType {
+  return text.includes("\n") ? "verse" : "prose";
+}
+
+function extractJsonObject(raw: string): string {
+  const trimmed = raw.trim();
+  if (trimmed.startsWith("{") && trimmed.endsWith("}")) {
+    return trimmed;
+  }
+  const start = trimmed.indexOf("{");
+  const end = trimmed.lastIndexOf("}");
+  if (start === -1 || end === -1 || end < start) {
+    throw new Error("Response did not include a JSON object.");
+  }
+  return trimmed.slice(start, end + 1);
+}

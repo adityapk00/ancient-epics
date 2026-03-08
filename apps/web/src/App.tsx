@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 
 import {
   APP_SETTING_KEYS,
+  type AiProvider,
   type AdminBookChapterInput,
   type AdminBookSourcePayload,
   type AdminIngestionBootstrapPayload,
@@ -27,8 +28,13 @@ type ChapterEditorState = {
   }>;
 };
 
-const DEFAULT_MODEL = "openai/gpt-4o-mini";
+const DEFAULT_PROVIDER: AiProvider = "google";
+const DEFAULT_MODEL = "gemini-3-flash-preview";
 const DEFAULT_HEADING_PATTERN = "^(book|chapter|canto|scroll)\\b.*$";
+const PROVIDER_OPTIONS = [
+  { value: "google", label: "Google Gemini SDK" },
+  { value: "openrouter", label: "OpenRouter" },
+] as const;
 const THINKING_LEVEL_OPTIONS = [
   { value: "", label: "Default" },
   { value: "none", label: "Off" },
@@ -58,7 +64,9 @@ export default function App() {
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
 
-  const [settingsApiKey, setSettingsApiKey] = useState("");
+  const [settingsOpenRouterApiKey, setSettingsOpenRouterApiKey] = useState("");
+  const [settingsGoogleApiKey, setSettingsGoogleApiKey] = useState("");
+  const [settingsProvider, setSettingsProvider] = useState<AiProvider>(DEFAULT_PROVIDER);
   const [settingsModel, setSettingsModel] = useState(DEFAULT_MODEL);
   const [settingsPrompt, setSettingsPrompt] = useState("");
 
@@ -76,6 +84,7 @@ export default function App() {
   const [translationTitle, setTranslationTitle] = useState("");
   const [translationSlug, setTranslationSlug] = useState("");
   const [translationDescription, setTranslationDescription] = useState("");
+  const [translationProvider, setTranslationProvider] = useState<AiProvider>(DEFAULT_PROVIDER);
   const [translationModel, setTranslationModel] = useState(DEFAULT_MODEL);
   const [translationThinkingLevel, setTranslationThinkingLevel] = useState("");
   const [translationPrompt, setTranslationPrompt] = useState("");
@@ -103,6 +112,7 @@ export default function App() {
         name: translationTitle.trim(),
         slug: translationSlug.trim(),
         description: translationDescription.trim(),
+        provider: translationProvider,
         model: translationModel.trim(),
         thinkingLevel: normalizeThinkingLevelValue(translationThinkingLevel),
         prompt: translationPrompt,
@@ -116,6 +126,7 @@ export default function App() {
     contextAfterChapterCount,
     contextBeforeChapterCount,
     translationDescription,
+    translationProvider,
     translationModel,
     translationPrompt,
     translationThinkingLevel,
@@ -149,14 +160,18 @@ export default function App() {
       try {
         const payload = await api.getAdminIngestionBootstrap();
         setBootstrap(payload);
-        setSettingsApiKey(payload.settings[APP_SETTING_KEYS.OPENROUTER_API_KEY] ?? "");
+        setSettingsOpenRouterApiKey(payload.settings[APP_SETTING_KEYS.OPENROUTER_API_KEY] ?? "");
+        setSettingsGoogleApiKey(payload.settings[APP_SETTING_KEYS.GOOGLE_API_KEY] ?? "");
+        const provider = normalizeProviderValue(payload.settings[APP_SETTING_KEYS.ADMIN_INGESTION_PROVIDER]);
         const model =
           payload.settings[APP_SETTING_KEYS.ADMIN_INGESTION_MODEL] ??
           payload.settings[APP_SETTING_KEYS.DEFAULT_TRANSLATION_MODEL] ??
           DEFAULT_MODEL;
         const prompt = payload.settings[APP_SETTING_KEYS.ADMIN_INGESTION_PROMPT] ?? "";
+        setSettingsProvider(provider);
         setSettingsModel(model);
         setSettingsPrompt(prompt);
+        setTranslationProvider(provider);
         setTranslationModel(model);
         setTranslationPrompt(prompt);
       } catch (loadError) {
@@ -178,12 +193,15 @@ export default function App() {
   async function refreshBootstrap() {
     const payload = await api.getAdminIngestionBootstrap();
     setBootstrap(payload);
-    setSettingsApiKey(payload.settings[APP_SETTING_KEYS.OPENROUTER_API_KEY] ?? "");
+    setSettingsOpenRouterApiKey(payload.settings[APP_SETTING_KEYS.OPENROUTER_API_KEY] ?? "");
+    setSettingsGoogleApiKey(payload.settings[APP_SETTING_KEYS.GOOGLE_API_KEY] ?? "");
+    const provider = normalizeProviderValue(payload.settings[APP_SETTING_KEYS.ADMIN_INGESTION_PROVIDER]);
     const model =
       payload.settings[APP_SETTING_KEYS.ADMIN_INGESTION_MODEL] ??
       payload.settings[APP_SETTING_KEYS.DEFAULT_TRANSLATION_MODEL] ??
       DEFAULT_MODEL;
     const prompt = payload.settings[APP_SETTING_KEYS.ADMIN_INGESTION_PROMPT] ?? "";
+    setSettingsProvider(provider);
     setSettingsModel(model);
     setSettingsPrompt(prompt);
   }
@@ -205,6 +223,7 @@ export default function App() {
     setTranslationTitle("");
     setTranslationSlug("");
     setTranslationDescription("");
+    setTranslationProvider(settingsProvider);
     setTranslationModel(settingsModel);
     setTranslationThinkingLevel("");
     setTranslationPrompt(settingsPrompt);
@@ -248,7 +267,9 @@ export default function App() {
 
     try {
       await api.updateAdminSettings({
-        [APP_SETTING_KEYS.OPENROUTER_API_KEY]: settingsApiKey,
+        [APP_SETTING_KEYS.OPENROUTER_API_KEY]: settingsOpenRouterApiKey,
+        [APP_SETTING_KEYS.GOOGLE_API_KEY]: settingsGoogleApiKey,
+        [APP_SETTING_KEYS.ADMIN_INGESTION_PROVIDER]: settingsProvider,
         [APP_SETTING_KEYS.ADMIN_INGESTION_MODEL]: settingsModel,
         [APP_SETTING_KEYS.ADMIN_INGESTION_PROMPT]: settingsPrompt,
       });
@@ -413,6 +434,7 @@ export default function App() {
         title: translationTitle,
         slug: translationSlug || undefined,
         description: translationDescription || undefined,
+        provider: translationProvider,
         model: translationModel,
         thinkingLevel: normalizeThinkingLevelValue(translationThinkingLevel),
         prompt: translationPrompt,
@@ -458,6 +480,7 @@ export default function App() {
     setTranslationTitle(translation.name);
     setTranslationSlug(translation.slug);
     setTranslationDescription(translation.description ?? "");
+    setTranslationProvider(translation.currentSession?.provider ?? DEFAULT_PROVIDER);
     setTranslationModel(translation.currentSession?.model ?? DEFAULT_MODEL);
     setTranslationThinkingLevel(translation.currentSession?.thinkingLevel ?? "");
     setTranslationPrompt(translation.currentSession?.prompt ?? translation.aiSystemPrompt ?? "");
@@ -480,6 +503,7 @@ export default function App() {
       name: translationTitle || activeTranslation.name,
       slug: translationSlug || activeTranslation.slug,
       description: translationDescription,
+      provider: translationProvider,
       model: translationModel,
       thinkingLevel: normalizeThinkingLevelValue(translationThinkingLevel),
       prompt: translationPrompt,
@@ -911,6 +935,7 @@ export default function App() {
                       </p>
                       <div className="mt-4 flex flex-wrap gap-2 text-xs font-semibold uppercase tracking-[0.14em] text-ink/65">
                         <span className="rounded-full border border-border/70 bg-white/75 px-3 py-1">
+                          {formatProviderLabel(translation.latestSession?.provider ?? DEFAULT_PROVIDER)} ·{" "}
                           {translation.latestSession?.model ?? DEFAULT_MODEL}
                         </span>
                         <span className="rounded-full border border-border/70 bg-white/75 px-3 py-1">
@@ -957,6 +982,8 @@ export default function App() {
                     </div>
                     <div className="mt-4">
                       <TranslationAiSettingsRow
+                        provider={translationProvider}
+                        onProviderChange={setTranslationProvider}
                         model={translationModel}
                         onModelChange={setTranslationModel}
                         contextBeforeChapterCount={contextBeforeChapterCount}
@@ -1035,6 +1062,8 @@ export default function App() {
                 </div>
                 <div className="mt-4">
                   <TranslationAiSettingsRow
+                    provider={translationProvider}
+                    onProviderChange={setTranslationProvider}
                     model={translationModel}
                     onModelChange={setTranslationModel}
                     contextBeforeChapterCount={contextBeforeChapterCount}
@@ -1279,13 +1308,28 @@ export default function App() {
                 <p className="text-xs font-semibold uppercase tracking-[0.18em] text-accent">Credentials</p>
                 <InputField
                   label="OpenRouter API Key"
-                  value={settingsApiKey}
-                  onChange={setSettingsApiKey}
+                  value={settingsOpenRouterApiKey}
+                  onChange={setSettingsOpenRouterApiKey}
+                  type="password"
+                />
+                <InputField
+                  label="Google Gemini API Key"
+                  value={settingsGoogleApiKey}
+                  onChange={setSettingsGoogleApiKey}
                   type="password"
                 />
               </section>
               <section className="space-y-4">
                 <p className="text-xs font-semibold uppercase tracking-[0.18em] text-accent">Generation Defaults</p>
+                <SelectField
+                  label="Default Provider"
+                  value={settingsProvider}
+                  onChange={(value) => setSettingsProvider(value as AiProvider)}
+                  options={PROVIDER_OPTIONS.map((option) => ({
+                    value: option.value,
+                    label: option.label,
+                  }))}
+                />
                 <InputField label="Default Model" value={settingsModel} onChange={setSettingsModel} />
                 <TextareaField label="Default Prompt" value={settingsPrompt} onChange={setSettingsPrompt} rows={10} />
               </section>
@@ -1313,6 +1357,8 @@ function Panel({ title, children }: { title: string; children: React.ReactNode }
 }
 
 function TranslationAiSettingsRow({
+  provider,
+  onProviderChange,
   model,
   onModelChange,
   contextBeforeChapterCount,
@@ -1322,6 +1368,8 @@ function TranslationAiSettingsRow({
   thinkingLevel,
   onThinkingLevelChange,
 }: {
+  provider: AiProvider;
+  onProviderChange: (value: AiProvider) => void;
   model: string;
   onModelChange: (value: string) => void;
   contextBeforeChapterCount: string;
@@ -1334,7 +1382,19 @@ function TranslationAiSettingsRow({
   return (
     <div className="rounded-2xl border border-border/70 bg-paper/70 p-4">
       <p className="text-xs font-semibold uppercase tracking-[0.18em] text-accent">AI Settings</p>
-      <div className="mt-3 grid gap-3 md:grid-cols-2 xl:grid-cols-[minmax(0,2fr)_repeat(3,minmax(0,1fr))]">
+      <div className="mt-3 grid gap-3 md:grid-cols-2 xl:grid-cols-[minmax(0,1.2fr)_minmax(0,1.8fr)_repeat(3,minmax(0,1fr))]">
+        <div className="grid gap-2">
+          <span className="text-xs font-semibold uppercase tracking-[0.18em] text-accent">Provider</span>
+          <CompactSelect
+            value={provider}
+            onChange={(value) => onProviderChange(value as AiProvider)}
+            options={PROVIDER_OPTIONS.map((option) => ({
+              value: option.value,
+              label: option.label,
+            }))}
+            ariaLabel="Provider"
+          />
+        </div>
         <CompactInputField label="Model" value={model} onChange={onModelChange} className="xl:col-span-2" />
         <CompactInputField
           label="Context Before"
@@ -1383,6 +1443,35 @@ function InputField({
         onChange={(event) => onChange(event.target.value)}
         className="rounded-2xl border border-border/70 bg-paper/70 px-4 py-3 text-base text-ink outline-none transition focus:border-accent"
       />
+    </label>
+  );
+}
+
+function SelectField({
+  label,
+  value,
+  onChange,
+  options,
+}: {
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+  options: Array<{ value: string; label: string }>;
+}) {
+  return (
+    <label className="grid gap-2">
+      <span className="text-xs font-semibold uppercase tracking-[0.18em] text-accent">{label}</span>
+      <select
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+        className="rounded-2xl border border-border/70 bg-paper/70 px-4 py-3 text-base text-ink outline-none transition focus:border-accent"
+      >
+        {options.map((option) => (
+          <option key={option.value} value={option.value}>
+            {option.label}
+          </option>
+        ))}
+      </select>
     </label>
   );
 }
@@ -1862,9 +1951,7 @@ function buildChapterEditorState(chapter: AdminIngestionChapterRecord): ChapterE
   };
 }
 
-function normalizeThinkingLevelValue(
-  value: string,
-): "none" | "minimal" | "low" | "medium" | "high" | "xhigh" | null {
+function normalizeThinkingLevelValue(value: string): "none" | "minimal" | "low" | "medium" | "high" | "xhigh" | null {
   const trimmed = value.trim();
 
   if (!trimmed) {
@@ -1881,6 +1968,7 @@ function normalizeThinkingLevelValue(
 function formatThinkingSummary(
   session:
     | {
+        provider?: AiProvider | null;
         thinkingLevel: string | null;
       }
     | null
@@ -1897,6 +1985,14 @@ function formatThinkingSummary(
   return `Thinking ${session.thinkingLevel}`;
 }
 
+function normalizeProviderValue(value: string | null | undefined): AiProvider {
+  return value === "openrouter" ? "openrouter" : DEFAULT_PROVIDER;
+}
+
+function formatProviderLabel(provider: AiProvider): string {
+  return provider === "openrouter" ? "OpenRouter" : "Gemini SDK";
+}
+
 function buildTranslationMetadataSnapshot(input: {
   activeTranslation: AdminTranslationDetail;
   activeSession: AdminTranslationDetail["currentSession"];
@@ -1905,6 +2001,7 @@ function buildTranslationMetadataSnapshot(input: {
     name: input.activeTranslation.name.trim(),
     slug: input.activeTranslation.slug.trim(),
     description: (input.activeTranslation.description ?? "").trim(),
+    provider: input.activeSession?.provider ?? DEFAULT_PROVIDER,
     model: (input.activeSession?.model ?? DEFAULT_MODEL).trim(),
     thinkingLevel: input.activeSession?.thinkingLevel ?? null,
     prompt: input.activeSession?.prompt ?? input.activeTranslation.aiSystemPrompt ?? "",

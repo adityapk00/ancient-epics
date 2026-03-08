@@ -18,6 +18,8 @@ export type AdminIngestionChapterStatus = "pending" | "generated" | "saved" | "e
 
 export type ThinkingLevel = "none" | "minimal" | "low" | "medium" | "high" | "xhigh";
 
+export type AiProvider = "google" | "openrouter";
+
 // ── R2 document shapes ──────────────────────────────────────
 
 export interface TextChunk {
@@ -155,7 +157,9 @@ export interface AppSetting {
 /** Well-known setting keys stored in the `app_settings` table. */
 export const APP_SETTING_KEYS = {
   OPENROUTER_API_KEY: "openrouter_api_key",
+  GOOGLE_API_KEY: "google_api_key",
   DEFAULT_TRANSLATION_MODEL: "default_translation_model",
+  ADMIN_INGESTION_PROVIDER: "admin_ingestion_provider",
   ADMIN_INGESTION_MODEL: "admin_ingestion_model",
   ADMIN_INGESTION_PROMPT: "admin_ingestion_prompt",
 } as const;
@@ -176,6 +180,7 @@ export interface AdminIngestionSessionSummary {
   sourceMode: AdminIngestionSourceMode;
   sourceBookSlug: string | null;
   translationId: string | null;
+  provider: AiProvider;
   model: string;
   thinkingLevel: ThinkingLevel | null;
   contextBeforeChapterCount: number;
