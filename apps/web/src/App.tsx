@@ -98,6 +98,49 @@ export default function App() {
     activeSession?.chapters[selectedChapterIndex] ?? null;
   const validationPreviewChapter =
     validation?.session.chapters[validationPreviewIndex] ?? null;
+  const draftMetadataIsDirty = useMemo(() => {
+    if (!activeDraft) {
+      return false;
+    }
+
+    return (
+      JSON.stringify(
+        buildDraftMetadataSnapshot({
+          activeDraft,
+          activeSession,
+        }),
+      ) !==
+      JSON.stringify({
+        name: translationTitle.trim(),
+        slug: translationSlug.trim(),
+        description: translationDescription.trim(),
+        model: translationModel.trim(),
+        prompt: translationPrompt,
+        contextBeforeChapterCount: Number(contextBeforeChapterCount || 0),
+        contextAfterChapterCount: Number(contextAfterChapterCount || 0),
+      })
+    );
+  }, [
+    activeDraft,
+    activeSession,
+    contextAfterChapterCount,
+    contextBeforeChapterCount,
+    translationDescription,
+    translationModel,
+    translationPrompt,
+    translationSlug,
+    translationTitle,
+  ]);
+  const chapterIsDirty = useMemo(() => {
+    if (!currentWorkspaceChapter || !chapterEditor) {
+      return false;
+    }
+
+    return (
+      JSON.stringify(serializeEditorState(buildChapterEditorState(currentWorkspaceChapter))) !==
+      JSON.stringify(serializeEditorState(chapterEditor))
+    );
+  }, [chapterEditor, currentWorkspaceChapter]);
 
   const chapterPreview = useMemo(
     () =>
@@ -695,7 +738,7 @@ export default function App() {
 
   return (
     <main className="min-h-screen bg-paper text-ink">
-      <div className="mx-auto flex min-h-screen max-w-7xl flex-col gap-8 px-6 py-8 lg:px-10">
+      <div className="flex min-h-screen w-full flex-col gap-8 px-6 py-8 lg:px-10">
         <header className="flex flex-wrap items-start justify-between gap-4 rounded-[32px] border border-border/70 bg-white/85 p-8 shadow-panel backdrop-blur">
           <div className="space-y-3">
             <p className="text-sm font-semibold uppercase tracking-[0.24em] text-accent">
@@ -1158,20 +1201,21 @@ export default function App() {
                 </div>
                 <div className="mt-6 flex flex-wrap gap-3">
                   <ActionButton
-                    label={isBusy ? "Saving..." : "Save Draft Metadata"}
+                    label={
+                      isBusy && draftMetadataIsDirty
+                        ? "Saving..."
+                        : draftMetadataIsDirty
+                          ? "Save Draft Metadata"
+                          : "Draft Metadata Saved"
+                    }
                     onClick={() => void saveDraftSettings()}
-                    disabled={isBusy}
+                    disabled={isBusy || !draftMetadataIsDirty}
                   />
                   <ActionButton
                     label={isBusy ? "Generating..." : "Generate Current Chapter"}
                     onClick={generateCurrentChapter}
                     tone="accent"
                     disabled={isBusy || !currentWorkspaceChapter}
-                  />
-                  <ActionButton
-                    label={isBusy ? "Saving..." : "Save Chapter To Draft"}
-                    onClick={saveCurrentChapter}
-                    disabled={isBusy || !chapterEditor}
                   />
                 </div>
               </Panel>
@@ -1248,6 +1292,20 @@ export default function App() {
                         </div>
                       </div>
                     ) : null}
+                    <div className="mt-6 flex justify-end">
+                      <ActionButton
+                        label={
+                          isBusy && chapterIsDirty
+                            ? "Saving..."
+                            : chapterIsDirty
+                              ? "Save Chapter To Draft"
+                              : "Chapter Saved"
+                        }
+                        onClick={saveCurrentChapter}
+                        tone="accent"
+                        disabled={isBusy || !chapterIsDirty}
+                      />
+                    </div>
                   </Panel>
                 </>
               ) : null}
@@ -1761,7 +1819,7 @@ function AlignedTranslationReview({
                       <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-accent/75">
                         {sourceChunk.id} · {sourceChunk.type}
                       </p>
-                      <p className="mt-1 whitespace-pre-wrap font-display text-xl leading-8 text-ink">
+                      <p className="mt-1 whitespace-pre-wrap text-lg leading-8 text-ink/88">
                         {sourceChunk.text || "No source text yet."}
                       </p>
                     </div>
@@ -1967,6 +2025,21 @@ function buildChapterEditorState(
       type: chunk.type,
       sourceChunkIds: chunk.sourceChunkIds,
     })),
+  };
+}
+
+function buildDraftMetadataSnapshot(input: {
+  activeDraft: AdminTranslationDraftDetail;
+  activeSession: AdminTranslationDraftDetail["currentSession"];
+}) {
+  return {
+    name: input.activeDraft.name.trim(),
+    slug: input.activeDraft.slug.trim(),
+    description: (input.activeDraft.description ?? "").trim(),
+    model: (input.activeSession?.model ?? DEFAULT_MODEL).trim(),
+    prompt: input.activeSession?.prompt ?? input.activeDraft.aiSystemPrompt ?? "",
+    contextBeforeChapterCount: input.activeSession?.contextBeforeChapterCount ?? 1,
+    contextAfterChapterCount: input.activeSession?.contextAfterChapterCount ?? 1,
   };
 }
 

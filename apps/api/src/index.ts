@@ -31,6 +31,7 @@ import {
 } from "@ancient-epics/shared";
 import { Hono } from "hono";
 import { cors } from "hono/cors";
+import { config } from "./config";
 
 type AppEnv = {
   Bindings: {
@@ -126,6 +127,23 @@ type ParsedAiChapterPayload = {
   notes?: string;
   originalChunks: ParsedAiChunk[];
   translationChunks: ParsedAiTranslationChunk[];
+};
+
+type OpenRouterLogEntry = {
+  timestamp: string;
+  sessionId: string;
+  chapterId: string;
+  chapterPosition: number;
+  chapterSlug: string;
+  translationId: string | null;
+  model: string;
+  attempt: "initial" | "repair";
+  requestPayload: Record<string, unknown>;
+  responseStatus?: number;
+  responsePayload?: unknown;
+  extractedContent?: string;
+  validationError?: string;
+  requestError?: string;
 };
 
 const app = new Hono<AppEnv>();
@@ -2316,7 +2334,7 @@ async function generateChapterWithOpenRouter(input: {
   nextChapters?: AdminIngestionChapterRecord[];
   publicAppUrl?: string;
 }): Promise<string> {
-  const initialResponse = await callOpenRouterChat({
+  const initialResult = await callOpenRouterChat({
     apiKey: input.apiKey,
     model: input.model,
     publicAppUrl: input.publicAppUrl,
@@ -2324,13 +2342,30 @@ async function generateChapterWithOpenRouter(input: {
     userPrompt: buildGenerationUserPrompt(input),
   });
 
-  const initialValidation = validateAiChapterPayloadText(initialResponse);
+  const initialValidation = validateAiChapterPayloadText(
+    initialResult.extractedContent,
+  );
+  await writeOpenRouterLog({
+    timestamp: new Date().toISOString(),
+    sessionId: input.session.id,
+    chapterId: input.chapter.id,
+    chapterPosition: input.chapter.position,
+    chapterSlug: input.chapter.slug,
+    translationId: input.session.translationId,
+    model: input.model,
+    attempt: "initial",
+    requestPayload: initialResult.requestPayload,
+    responseStatus: initialResult.responseStatus,
+    responsePayload: initialResult.responsePayload,
+    extractedContent: initialResult.extractedContent,
+    validationError: initialValidation.ok ? undefined : initialValidation.error,
+  });
 
   if (initialValidation.ok) {
-    return initialResponse;
+    return initialResult.extractedContent;
   }
 
-  const repairedResponse = await callOpenRouterChat({
+  const repairedResult = await callOpenRouterChat({
     apiKey: input.apiKey,
     model: input.model,
     publicAppUrl: input.publicAppUrl,
@@ -2338,14 +2373,31 @@ async function generateChapterWithOpenRouter(input: {
       "Repair the user's JSON so it matches the required schema exactly. Return JSON only.",
     userPrompt: buildRepairUserPrompt({
       originalError: initialValidation.error,
-      rawResponse: initialResponse,
+      rawResponse: initialResult.extractedContent,
     }),
   });
 
-  const repairedValidation = validateAiChapterPayloadText(repairedResponse);
+  const repairedValidation = validateAiChapterPayloadText(
+    repairedResult.extractedContent,
+  );
+  await writeOpenRouterLog({
+    timestamp: new Date().toISOString(),
+    sessionId: input.session.id,
+    chapterId: input.chapter.id,
+    chapterPosition: input.chapter.position,
+    chapterSlug: input.chapter.slug,
+    translationId: input.session.translationId,
+    model: input.model,
+    attempt: "repair",
+    requestPayload: repairedResult.requestPayload,
+    responseStatus: repairedResult.responseStatus,
+    responsePayload: repairedResult.responsePayload,
+    extractedContent: repairedResult.extractedContent,
+    validationError: repairedValidation.ok ? undefined : repairedValidation.error,
+  });
 
   if (repairedValidation.ok) {
-    return repairedResponse;
+    return repairedResult.extractedContent;
   }
 
   throw new Error(
@@ -2359,7 +2411,27 @@ async function callOpenRouterChat(input: {
   publicAppUrl?: string;
   systemPrompt: string;
   userPrompt: string;
-}): Promise<string> {
+}): Promise<{
+  requestPayload: Record<string, unknown>;
+  responseStatus: number;
+  responsePayload: unknown;
+  extractedContent: string;
+}> {
+  const requestPayload = {
+    model: input.model,
+    temperature: 0.2,
+    messages: [
+      {
+        role: "system",
+        content: input.systemPrompt,
+      },
+      {
+        role: "user",
+        content: input.userPrompt,
+      },
+    ],
+  } satisfies Record<string, unknown>;
+
   const response = await fetch(
     "https://openrouter.ai/api/v1/chat/completions",
     {
@@ -2370,20 +2442,7 @@ async function callOpenRouterChat(input: {
         "HTTP-Referer": input.publicAppUrl ?? "http://127.0.0.1:5173",
         "X-Title": "Ancient Epics Admin",
       },
-      body: JSON.stringify({
-        model: input.model,
-        temperature: 0.2,
-        messages: [
-          {
-            role: "system",
-            content: input.systemPrompt,
-          },
-          {
-            role: "user",
-            content: input.userPrompt,
-          },
-        ],
-      }),
+      body: JSON.stringify(requestPayload),
     },
   );
 
@@ -2399,7 +2458,12 @@ async function callOpenRouterChat(input: {
   const content = payload.choices?.[0]?.message?.content;
 
   if (typeof content === "string" && content.trim()) {
-    return content;
+    return {
+      requestPayload,
+      responseStatus: response.status,
+      responsePayload: payload,
+      extractedContent: content,
+    };
   }
 
   if (Array.isArray(content)) {
@@ -2409,7 +2473,12 @@ async function callOpenRouterChat(input: {
       .trim();
 
     if (merged) {
-      return merged;
+      return {
+        requestPayload,
+        responseStatus: response.status,
+        responsePayload: payload,
+        extractedContent: merged,
+      };
     }
   }
 
@@ -2458,6 +2527,14 @@ function buildRepairUserPrompt(input: {
     "",
     input.rawResponse,
   ].join("\n");
+}
+
+async function writeOpenRouterLog(entry: OpenRouterLogEntry): Promise<void> {
+  if (!config.enableLogging) {
+    return;
+  }
+
+  console.log("[openrouter]", JSON.stringify(entry, null, 2));
 }
 
 async function persistGeneratedChapter(input: {
