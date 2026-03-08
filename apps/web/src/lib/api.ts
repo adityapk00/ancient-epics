@@ -1,4 +1,5 @@
 import type {
+  AiProvider,
   AdminBookChapterInput,
   AdminBookSourcePayload,
   AdminIngestionBootstrapPayload,
@@ -72,6 +73,7 @@ export const api = {
       title: string;
       slug?: string;
       description?: string;
+      provider: AiProvider;
       model: string;
       thinkingLevel?: ThinkingLevel | null;
       prompt: string;
@@ -88,6 +90,7 @@ export const api = {
       slug?: string;
       description?: string;
       status?: "draft" | "generating" | "ready" | "published" | "failed";
+      provider?: AiProvider;
       model?: string;
       thinkingLevel?: ThinkingLevel | null;
       prompt?: string;
@@ -103,6 +106,7 @@ export const api = {
     sourceMode: "paste" | "existing_story";
     sourceBookSlug?: string;
     translationId?: string;
+    provider: AiProvider;
     model: string;
     thinkingLevel?: ThinkingLevel | null;
     prompt: string;
@@ -122,6 +126,7 @@ export const api = {
     sessionId: string,
     body: {
       title?: string;
+      provider?: AiProvider;
       model?: string;
       thinkingLevel?: ThinkingLevel | null;
       prompt?: string;

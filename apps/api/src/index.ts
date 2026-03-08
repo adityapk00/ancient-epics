@@ -1,5 +1,6 @@
 import {
   APP_SETTING_KEYS,
+  type AiProvider,
   type AdminBookChapterInput,
   buildOriginalChapterKey,
   buildTranslationChapterKey,
@@ -33,9 +34,11 @@ import {
   normalizePastedChapterInputs,
   validateTranslation,
 } from "./admin-data";
+import { generateChapterWithGoogle } from "./google";
 import { failure, type AppEnv, readObjectJson, success, slugify, writeObjectJson } from "./http";
-import { generateChapterWithOpenRouter, persistGeneratedChapter } from "./openrouter";
+import { generateChapterWithOpenRouter } from "./openrouter";
 import { normalizeThinkingLevel } from "./reasoning";
+import { persistGeneratedChapter } from "./translation-generation";
 
 const app = new Hono<AppEnv>();
 
@@ -463,6 +466,7 @@ app.post("/api/admin/books/:bookSlug/translations", async (c) => {
       title?: string;
       slug?: string;
       description?: string;
+      provider?: AiProvider;
       model?: string;
       thinkingLevel?: ThinkingLevel | null;
       prompt?: string;
@@ -508,6 +512,7 @@ app.post("/api/admin/books/:bookSlug/translations", async (c) => {
       bucket: c.env.CONTENT_BUCKET,
       bookSlug,
       title: body.title.trim(),
+      provider: normalizeProvider(body.provider),
       model: body.model.trim(),
       thinkingLevel: normalizeThinkingLevel(body.thinkingLevel),
       prompt: body.prompt.trim(),
@@ -545,6 +550,7 @@ app.put("/api/admin/translations/:translationId", async (c) => {
     slug?: string;
     description?: string;
     status?: TranslationSummary["status"];
+    provider?: AiProvider;
     model?: string;
     thinkingLevel?: ThinkingLevel | null;
     prompt?: string;
@@ -567,7 +573,11 @@ app.put("/api/admin/translations/:translationId", async (c) => {
       ? body.status
       : existing.status;
   const nextPrompt = body.prompt?.trim() || existing.aiSystemPrompt || "";
-  const nextModel = body.model?.trim() || existing.latestSession?.model || "openai/gpt-4o-mini";
+  const nextProvider =
+    body.provider !== undefined
+      ? normalizeProvider(body.provider)
+      : (existing.currentSession?.provider ?? existing.latestSession?.provider ?? "google");
+  const nextModel = body.model?.trim() || existing.latestSession?.model || "gemini-3-flash-preview";
   const nextThinkingLevel =
     body.thinkingLevel !== undefined
       ? normalizeThinkingLevel(body.thinkingLevel)
@@ -608,12 +618,13 @@ app.put("/api/admin/translations/:translationId", async (c) => {
     await c.env.DB.prepare(
       `
         UPDATE admin_ingestion_sessions
-        SET title = ?, model = ?, thinking_level = ?, prompt = ?, context_before_chapter_count = ?, context_after_chapter_count = ?, current_chapter_index = ?, updated_at = ?
+        SET title = ?, provider = ?, model = ?, thinking_level = ?, prompt = ?, context_before_chapter_count = ?, context_after_chapter_count = ?, current_chapter_index = ?, updated_at = ?
         WHERE id = ?
       `,
     )
       .bind(
         nextName,
+        nextProvider,
         nextModel,
         nextThinkingLevel,
         nextPrompt,
@@ -659,6 +670,7 @@ app.post("/api/admin/ingestion/sessions", async (c) => {
       sourceMode?: AdminIngestionSourceMode;
       sourceBookSlug?: string;
       translationId?: string;
+      provider?: AiProvider;
       model?: string;
       thinkingLevel?: ThinkingLevel | null;
       prompt?: string;
@@ -690,9 +702,9 @@ app.post("/api/admin/ingestion/sessions", async (c) => {
     await c.env.DB.prepare(
       `
         INSERT INTO admin_ingestion_sessions (
-          id, title, source_mode, source_book_slug, translation_id, model, thinking_level, prompt,
+          id, title, source_mode, source_book_slug, translation_id, provider, model, thinking_level, prompt,
           context_before_chapter_count, context_after_chapter_count, current_chapter_index, created_at, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `,
     )
       .bind(
@@ -701,6 +713,7 @@ app.post("/api/admin/ingestion/sessions", async (c) => {
         body.sourceMode,
         body.sourceBookSlug?.trim() || null,
         body.translationId?.trim() || null,
+        normalizeProvider(body.provider),
         body.model.trim(),
         normalizeThinkingLevel(body.thinkingLevel),
         body.prompt.trim(),
@@ -757,6 +770,7 @@ app.put("/api/admin/ingestion/sessions/:sessionId", async (c) => {
   const sessionId = c.req.param("sessionId");
   const body = await c.req.json<{
     title?: string;
+    provider?: AiProvider;
     model?: string;
     thinkingLevel?: ThinkingLevel | null;
     prompt?: string;
@@ -771,6 +785,7 @@ app.put("/api/admin/ingestion/sessions/:sessionId", async (c) => {
   }
 
   const nextTitle = body.title?.trim() || existing.title;
+  const nextProvider = body.provider !== undefined ? normalizeProvider(body.provider) : existing.provider;
   const nextModel = body.model?.trim() || existing.model;
   const nextThinkingLevel =
     body.thinkingLevel !== undefined ? normalizeThinkingLevel(body.thinkingLevel) : existing.thinkingLevel;
@@ -791,12 +806,13 @@ app.put("/api/admin/ingestion/sessions/:sessionId", async (c) => {
   await c.env.DB.prepare(
     `
       UPDATE admin_ingestion_sessions
-      SET title = ?, model = ?, thinking_level = ?, prompt = ?, context_before_chapter_count = ?, context_after_chapter_count = ?, current_chapter_index = ?, updated_at = ?
+      SET title = ?, provider = ?, model = ?, thinking_level = ?, prompt = ?, context_before_chapter_count = ?, context_after_chapter_count = ?, current_chapter_index = ?, updated_at = ?
       WHERE id = ?
     `,
   )
     .bind(
       nextTitle,
+      nextProvider,
       nextModel,
       nextThinkingLevel,
       nextPrompt,
@@ -836,10 +852,18 @@ app.post("/api/admin/ingestion/sessions/:sessionId/chapters/:position/generate",
     }
 
     const settings = await getSettingsMap(c.env.DB);
-    const apiKey = settings[APP_SETTING_KEYS.OPENROUTER_API_KEY]?.trim();
+    const apiKey =
+      detail.provider === "google"
+        ? settings[APP_SETTING_KEYS.GOOGLE_API_KEY]?.trim()
+        : settings[APP_SETTING_KEYS.OPENROUTER_API_KEY]?.trim();
     if (!apiKey) {
       return c.json(
-        failure("missing_api_key", "Set openrouter_api_key in admin settings before generating chapters."),
+        failure(
+          "missing_api_key",
+          detail.provider === "google"
+            ? "Set google_api_key in admin settings before generating chapters."
+            : "Set openrouter_api_key in admin settings before generating chapters.",
+        ),
         400,
       );
     }
@@ -851,17 +875,29 @@ app.post("/api/admin/ingestion/sessions/:sessionId/chapters/:position/generate",
       .filter((entry) => entry.position > position && entry.position <= position + detail.contextAfterChapterCount)
       .sort((left, right) => left.position - right.position);
 
-    const rawResponse = await generateChapterWithOpenRouter({
-      apiKey,
-      model: detail.model,
-      thinkingLevel: detail.thinkingLevel,
-      prompt: detail.prompt,
-      session: detail,
-      chapter,
-      previousChapters,
-      nextChapters,
-      publicAppUrl: c.env.PUBLIC_APP_URL,
-    });
+    const rawResponse =
+      detail.provider === "google"
+        ? await generateChapterWithGoogle({
+            apiKey,
+            model: detail.model,
+            thinkingLevel: detail.thinkingLevel,
+            prompt: detail.prompt,
+            session: detail,
+            chapter,
+            previousChapters,
+            nextChapters,
+          })
+        : await generateChapterWithOpenRouter({
+            apiKey,
+            model: detail.model,
+            thinkingLevel: detail.thinkingLevel,
+            prompt: detail.prompt,
+            session: detail,
+            chapter,
+            previousChapters,
+            nextChapters,
+            publicAppUrl: c.env.PUBLIC_APP_URL,
+          });
 
     const updatedChapter = await persistGeneratedChapter({
       db: c.env.DB,
@@ -927,3 +963,7 @@ app.put("/api/admin/ingestion/sessions/:sessionId/chapters/:position/save", asyn
 app.notFound((c) => c.json(failure("not_found", "Route not found."), 404));
 
 export default app;
+
+function normalizeProvider(value: AiProvider | null | undefined): AiProvider {
+  return value === "openrouter" ? "openrouter" : "google";
+}

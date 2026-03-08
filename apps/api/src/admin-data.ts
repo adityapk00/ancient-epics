@@ -1,4 +1,5 @@
 import {
+  type AiProvider,
   type AdminBookChapterInput,
   type AdminBookSourcePayload,
   type AdminBookWorkflowSummary,
@@ -30,6 +31,7 @@ type AdminIngestionSessionRow = {
   sourceMode: AdminIngestionSourceMode;
   sourceBookSlug: string | null;
   translationId: string | null;
+  provider: AiProvider;
   model: string;
   thinkingLevel: ThinkingLevel | null;
   prompt: string;
@@ -345,6 +347,7 @@ export async function listAdminIngestionSessions(
         sessions.source_mode AS sourceMode,
         sessions.source_book_slug AS sourceBookSlug,
         sessions.translation_id AS translationId,
+        sessions.provider,
         sessions.model,
         sessions.thinking_level AS thinkingLevel,
         sessions.context_before_chapter_count AS contextBeforeChapterCount,
@@ -380,6 +383,7 @@ async function listAdminIngestionSessionsByTranslationId(
           sessions.source_mode AS sourceMode,
           sessions.source_book_slug AS sourceBookSlug,
           sessions.translation_id AS translationId,
+          sessions.provider,
           sessions.model,
           sessions.thinking_level AS thinkingLevel,
           sessions.prompt,
@@ -416,6 +420,7 @@ async function getAdminIngestionSessionSummaryById(
           sessions.source_mode AS sourceMode,
           sessions.source_book_slug AS sourceBookSlug,
           sessions.translation_id AS translationId,
+          sessions.provider,
           sessions.model,
           sessions.thinking_level AS thinkingLevel,
           sessions.prompt,
@@ -458,6 +463,7 @@ export async function getAdminIngestionSessionDetail(
           source_mode AS sourceMode,
           source_book_slug AS sourceBookSlug,
           translation_id AS translationId,
+          provider,
           model,
           thinking_level AS thinkingLevel,
           prompt,
@@ -522,6 +528,7 @@ function mapAdminIngestionSessionSummary(row: AdminIngestionSessionRow): AdminIn
     sourceMode: row.sourceMode,
     sourceBookSlug: row.sourceBookSlug,
     translationId: row.translationId,
+    provider: row.provider,
     model: row.model,
     thinkingLevel: row.thinkingLevel,
     contextBeforeChapterCount: Number(row.contextBeforeChapterCount ?? 1),
@@ -753,6 +760,7 @@ export async function createAdminIngestionSessionForBook(input: {
   bucket: R2Bucket;
   bookSlug: string;
   title: string;
+  provider: AiProvider;
   model: string;
   thinkingLevel: ThinkingLevel | null;
   prompt: string;
@@ -773,6 +781,7 @@ export async function createAdminIngestionSessionForBook(input: {
         source_mode,
         source_book_slug,
         translation_id,
+        provider,
         model,
         thinking_level,
         prompt,
@@ -781,7 +790,7 @@ export async function createAdminIngestionSessionForBook(input: {
         current_chapter_index,
         created_at,
         updated_at
-      ) VALUES (?, ?, 'existing_story', ?, ?, ?, ?, ?, ?, ?, 0, ?, ?)
+      ) VALUES (?, ?, 'existing_story', ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?)
     `,
     )
     .bind(
@@ -789,6 +798,7 @@ export async function createAdminIngestionSessionForBook(input: {
       input.title,
       input.bookSlug,
       input.translationId,
+      input.provider,
       input.model,
       input.thinkingLevel,
       input.prompt,

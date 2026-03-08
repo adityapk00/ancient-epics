@@ -96,6 +96,7 @@ CREATE TABLE admin_ingestion_sessions (
     source_mode TEXT NOT NULL CHECK (source_mode IN ('paste', 'existing_story')),
     source_book_slug TEXT,
     translation_id TEXT REFERENCES translations(id),
+    provider TEXT NOT NULL DEFAULT 'google' CHECK (provider IN ('google', 'openrouter')),
     model TEXT NOT NULL,
     thinking_level TEXT CHECK (thinking_level IN ('none', 'minimal', 'low', 'medium', 'high', 'xhigh')),
     prompt TEXT NOT NULL,
