@@ -10,13 +10,11 @@ import {
 } from "@ancient-epics/shared";
 import { slugify, writeObjectJson } from "./http";
 
-type ParsedAiChunk = { text: string; type?: ChunkType };
-type ParsedAiTranslationChunk = ParsedAiChunk & { sourceOrdinals?: number[]; sourceOriginalOrdinals?: number[] };
+type ParsedAiChunk = { originalText: string; translatedText: string; type?: ChunkType };
 type ParsedAiChapterPayload = {
   chapterTitle?: string;
   notes?: string;
-  originalChunks: ParsedAiChunk[];
-  translationChunks: ParsedAiTranslationChunk[];
+  chunks: ParsedAiChunk[];
 };
 
 export type ProviderCallInput = {
@@ -264,7 +262,7 @@ function formatContextChapters(chapters: AdminIngestionChapterRecord[] | undefin
     .map((chapter) => {
       let content = `## ${chapter.title}\nSource Text:\n${chapter.sourceText}`;
       if (chapter.translationDocument) {
-        const translatedText = chapter.translationDocument.chunks.map((chunk) => chunk.text).join("\n");
+        const translatedText = chapter.translationDocument.chunks.map((chunk) => chunk.translatedText).join("\n");
         content += `\n\nTranslated Text:\n${translatedText}`;
       }
       return content;
@@ -285,10 +283,9 @@ function buildGenerationUserPrompt(input: {
     `Chapter title: ${input.chapter.title}`,
     "",
     "Return JSON only.",
-    "Schema: { chapterTitle?: string, notes?: string, originalChunks: [{ text: string, type?: 'prose' | 'verse' }], translationChunks: [{ text: string, type?: 'prose' | 'verse', sourceOrdinals: number[] }] }",
-    "Each originalChunks item must contain non-empty text and optional type.",
-    "Each translationChunks item must contain non-empty text, optional type, and non-empty sourceOrdinals referencing the 1-based ordinal positions of originalChunks.",
-    "You may merge multiple original chunks into one translation chunk.",
+    "Schema: { chapterTitle?: string, notes?: string, chunks: [{ originalText: string, translatedText: string, type?: 'prose' | 'verse' }] }",
+    "Each chunk must contain non-empty originalText, non-empty translatedText, and optional type.",
+    "Split the chapter into paired chunks. The concatenation of all originalText values must reproduce the full source chapter without dropping or duplicating content.",
     "Do not include ids. The application assigns ids after review.",
     "",
     "Previous chapter context:",
@@ -307,7 +304,7 @@ function buildRepairUserPrompt(input: { originalError: string; rawResponse: stri
     "Repair this model output into valid JSON matching the required schema.",
     `Validation error: ${input.originalError}`,
     "Required schema:",
-    "{ chapterTitle?: string, notes?: string, originalChunks: [{ text: string, type?: 'prose' | 'verse' }], translationChunks: [{ text: string, type?: 'prose' | 'verse', sourceOrdinals: number[] }] }",
+    "{ chapterTitle?: string, notes?: string, chunks: [{ originalText: string, translatedText: string, type?: 'prose' | 'verse' }] }",
     "Return JSON only.",
     "",
     input.rawResponse,
@@ -329,32 +326,26 @@ function normalizeGeneratedChapter(input: {
   const originalDocument: OriginalChapterDocument = {
     bookSlug: input.session.sourceBookSlug ?? slugify(input.session.title),
     chapterSlug: input.chapter.slug,
-    chunks: parsed.originalChunks.map((chunk, index) => ({
-      id: `c${index + 1}`,
-      type: chunk.type ?? inferChunkType(chunk.text),
-      text: chunk.text.trim(),
-      ordinal: index + 1,
-    })),
+    fullText: input.chapter.sourceText.trim(),
   };
 
   const translationDocument: TranslationChapterDocument = {
     translationSlug: input.translationSlug ?? `${slugify(input.session.title)}-draft`,
-    chunks: parsed.translationChunks.map((chunk, index) => {
-      const ordinals = normalizeSourceOrdinals(
-        chunk.sourceOrdinals ?? chunk.sourceOriginalOrdinals,
-        originalDocument.chunks.length,
-        index,
-      );
-
-      return {
-        id: `t${index + 1}`,
-        type: chunk.type ?? inferChunkType(chunk.text),
-        text: chunk.text.trim(),
-        ordinal: index + 1,
-        sourceChunkIds: ordinals.map((ordinal) => `c${ordinal}`),
-      };
-    }),
+    chunks: parsed.chunks.map((chunk, index) => ({
+      id: `t${index + 1}`,
+      type: chunk.type ?? inferChunkType(chunk.originalText),
+      originalText: chunk.originalText.trim(),
+      translatedText: chunk.translatedText.trim(),
+      ordinal: index + 1,
+    })),
   };
+
+  if (
+    normalizeChapterText(originalDocument.fullText) !==
+    normalizeChapterText(translationDocument.chunks.map((chunk) => chunk.originalText).join("\n\n"))
+  ) {
+    throw new Error("Chunked originalText must exactly reconstruct the chapter source text.");
+  }
 
   return {
     originalDocument,
@@ -368,21 +359,13 @@ function parseAiChapterPayload(rawResponse: string): ParsedAiChapterPayload {
   const payload: ParsedAiChapterPayload = {
     chapterTitle: typeof parsed.chapterTitle === "string" ? parsed.chapterTitle : undefined,
     notes: typeof parsed.notes === "string" ? parsed.notes : undefined,
-    originalChunks: Array.isArray(parsed.originalChunks)
-      ? parsed.originalChunks.map(normalizeAiChunk).filter((value): value is ParsedAiChunk => Boolean(value))
-      : [],
-    translationChunks: Array.isArray(parsed.translationChunks)
-      ? parsed.translationChunks
-          .map(normalizeAiTranslationChunk)
-          .filter((value): value is ParsedAiTranslationChunk => Boolean(value))
+    chunks: Array.isArray(parsed.chunks)
+      ? parsed.chunks.map(normalizeAiChunk).filter((value): value is ParsedAiChunk => Boolean(value))
       : [],
   };
 
-  if (payload.originalChunks.length === 0) {
-    throw new Error("originalChunks must contain at least one item.");
-  }
-  if (payload.translationChunks.length === 0) {
-    throw new Error("translationChunks must contain at least one item.");
+  if (payload.chunks.length === 0) {
+    throw new Error("chunks must contain at least one item.");
   }
 
   return payload;
@@ -402,42 +385,20 @@ function normalizeAiChunk(value: unknown): ParsedAiChunk | null {
     return null;
   }
   const entry = value as Record<string, unknown>;
-  const text = typeof entry.text === "string" ? entry.text.trim() : "";
-  if (!text) {
+  const originalText = typeof entry.originalText === "string" ? entry.originalText.trim() : "";
+  const translatedText = typeof entry.translatedText === "string" ? entry.translatedText.trim() : "";
+  if (!originalText || !translatedText) {
     return null;
   }
-  return { text, type: normalizeChunkType(entry.type) };
-}
-
-function normalizeAiTranslationChunk(value: unknown): ParsedAiTranslationChunk | null {
-  const chunk = normalizeAiChunk(value);
-  if (!chunk || !value || typeof value !== "object") {
-    return null;
-  }
-  const entry = value as Record<string, unknown>;
   return {
-    ...chunk,
-    sourceOrdinals: normalizeNumberArray(entry.sourceOrdinals),
-    sourceOriginalOrdinals: normalizeNumberArray(entry.sourceOriginalOrdinals),
+    originalText,
+    translatedText,
+    type: normalizeChunkType(entry.type),
   };
 }
 
 function normalizeChunkType(value: unknown): ChunkType | undefined {
   return value === "verse" || value === "prose" ? value : undefined;
-}
-
-function normalizeNumberArray(value: unknown): number[] | undefined {
-  if (!Array.isArray(value)) {
-    return undefined;
-  }
-  const normalized = value.map(Number).filter((entry) => Number.isInteger(entry) && entry > 0);
-  return normalized.length > 0 ? normalized : undefined;
-}
-
-function normalizeSourceOrdinals(value: number[] | undefined, maxOrdinal: number, translationIndex: number): number[] {
-  const fallback = Math.min(translationIndex + 1, maxOrdinal);
-  const ordinals = Array.from(new Set((value ?? [fallback]).filter((entry) => entry >= 1 && entry <= maxOrdinal)));
-  return ordinals.length > 0 ? ordinals : [fallback];
 }
 
 function inferChunkType(text: string): ChunkType {
@@ -455,4 +416,8 @@ function extractJsonObject(raw: string): string {
     throw new Error("Response did not include a JSON object.");
   }
   return trimmed.slice(start, end + 1);
+}
+
+function normalizeChapterText(value: string): string {
+  return value.replace(/\r\n/g, "\n").trim();
 }

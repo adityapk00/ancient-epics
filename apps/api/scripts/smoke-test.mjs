@@ -161,12 +161,8 @@ try {
   {
     const { status, json } = await api("GET", "/api/books/iliad/chapters/book-1-the-rage");
     assert("GET chapter returns 200", status === 200);
-    assert("original has chunks array", Array.isArray(json.data?.original?.chunks));
-
-    const chunks = json.data.original.chunks;
-    assert("chunks are non-empty", chunks.length > 0);
-    assert("first chunk has id", typeof chunks[0]?.id === "string");
-    assert("first chunk has ordinal", typeof chunks[0]?.ordinal === "number");
+    assert("original has fullText", typeof json.data?.original?.fullText === "string");
+    assert("original fullText is non-empty", json.data?.original?.fullText?.length > 0);
     assert("availableTranslations present", json.data?.availableTranslations?.length > 0);
   }
 
@@ -177,11 +173,11 @@ try {
     assert("GET translation returns 200", status === 200);
     assert("translation has chunks array", Array.isArray(json.data?.content?.chunks));
     assert("first translation chunk has id", typeof json.data?.content?.chunks?.[0]?.id === "string");
+    assert("first translation chunk has original text", typeof json.data?.content?.chunks?.[0]?.originalText === "string");
     assert(
-      "first translation chunk has source anchors",
-      Array.isArray(json.data?.content?.chunks?.[0]?.sourceChunkIds),
+      "first translation chunk has translated text",
+      typeof json.data?.content?.chunks?.[0]?.translatedText === "string",
     );
-    assert("first translation chunk has text", typeof json.data?.content?.chunks?.[0]?.text === "string");
   }
 
   // ── 404 for non-existent book ──
@@ -299,15 +295,11 @@ try {
     const reviewedResponse = JSON.stringify({
       chapterTitle: "Chapter One",
       notes: "Reviewed in smoke test.",
-      originalChunks: [
-        { text: "Sing, goddess, the rage of Achilles.", type: "verse" },
-        { text: "And the grief it set loose.", type: "verse" },
-      ],
-      translationChunks: [
+      chunks: [
         {
-          text: "Sing, goddess, of Achilles' anger and the sorrow it unleashed.",
+          originalText: "Sing, goddess, the rage of Achilles.\nAnd the grief it set loose.",
+          translatedText: "Sing, goddess, of Achilles' anger and the sorrow it unleashed.",
           type: "verse",
-          sourceOrdinals: [1, 2],
         },
       ],
     });
@@ -318,8 +310,9 @@ try {
     assert("saving reviewed chapter returns 200", saveResult.status === 200);
     assert("saved chapter is marked saved", saveResult.json.data?.chapter?.status === "saved");
     assert(
-      "saved chapter has normalized original chunks",
-      saveResult.json.data?.chapter?.originalDocument?.chunks?.length === 2,
+      "saved chapter has normalized original full text",
+      saveResult.json.data?.chapter?.originalDocument?.fullText ===
+        "Sing, goddess, the rage of Achilles.\nAnd the grief it set loose.",
     );
     assert(
       "saved chapter has normalized translation chunks",
