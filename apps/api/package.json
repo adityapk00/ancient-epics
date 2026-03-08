@@ -10,15 +10,17 @@
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "seed:local": "node ./scripts/seed-local.mjs",
     "seed:nuke": "node ./scripts/seed-nuke.mjs",
+    "export:local": "node ./scripts/export-local.mjs",
     "smoke": "node ./scripts/smoke-test.mjs"
   },
   "dependencies": {
-    "@google/genai": "^1.24.0",
     "@ancient-epics/shared": "workspace:*",
+    "@google/genai": "^1.24.0",
     "hono": "^4.7.4"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^4.20250303.0",
+    "better-sqlite3": "^12.6.2",
     "wrangler": "^4.4.0"
   }
 }
