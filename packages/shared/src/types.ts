@@ -136,7 +136,6 @@ export interface NoteRecord {
   bookId: string;
   chapterId: string;
   translationId: string;
-  anchorDocument: "translation";
   anchorId: string;
   content: string;
   createdAt: string;

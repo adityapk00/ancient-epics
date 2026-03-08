@@ -53,7 +53,6 @@ Translated text is not stored in D1.
 Notes are translation-specific.
 
 - `translation_id` is required
-- `anchor_document` is always `"translation"`
 - `anchor_id` points to a translation chunk id
 
 ## Storage Layout
