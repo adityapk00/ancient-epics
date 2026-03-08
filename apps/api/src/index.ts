@@ -1,150 +1,41 @@
 import {
   APP_SETTING_KEYS,
-  type AdminBookWorkflowSummary,
   type AdminBookChapterInput,
-  type AdminBookSourcePayload,
   buildOriginalChapterKey,
   buildTranslationChapterKey,
   type AdminIngestionBootstrapPayload,
   type AdminIngestionChapterInput,
-  type AdminIngestionChapterRecord,
-  type AdminIngestionChapterStatus,
-  type AdminIngestionSessionDetail,
-  type AdminIngestionSessionSummary,
   type AdminIngestionSourceMode,
-  type AdminTranslationDetail,
-  type AdminTranslationSummary,
-  type AdminTranslationValidationPayload,
-  type ApiFailure,
-  type ApiSuccess,
-  type AppSetting,
   type BookDetail,
   type BookSummary,
   type ChapterPayload,
   type ChapterSummary,
-  type ChunkType,
   type OriginalChapterDocument,
-  type TextChunk,
+  type ThinkingLevel,
   type TranslationChapterDocument,
   type TranslationPayload,
   type TranslationSummary,
 } from "@ancient-epics/shared";
 import { Hono } from "hono";
 import { cors } from "hono/cors";
-import { config } from "./config";
-
-type AppEnv = {
-  Bindings: {
-    APP_ENV?: string;
-    CONTENT_BUCKET: R2Bucket;
-    DB: D1Database;
-    PUBLIC_APP_URL?: string;
-    SESSION_SECRET?: string;
-    STRIPE_SECRET_KEY?: string;
-    STRIPE_WEBHOOK_SECRET?: string;
-  };
-};
-
-type AdminBookChapterRow = ChapterSummary & { bookId: string };
-
-type AdminIngestionSessionRow = {
-  id: string;
-  title: string;
-  sourceMode: AdminIngestionSourceMode;
-  sourceBookSlug: string | null;
-  translationId: string | null;
-  model: string;
-  prompt: string;
-  contextBeforeChapterCount: number;
-  contextAfterChapterCount: number;
-  currentChapterIndex: number;
-  createdAt: string;
-  updatedAt: string;
-  chapterCount?: number;
-};
-
-type AdminIngestionChapterRow = {
-  id: string;
-  sessionId: string;
-  position: number;
-  title: string;
-  slug: string;
-  sourceText: string;
-  sourceChapterSlug: string | null;
-  status: AdminIngestionChapterStatus;
-  rawResponse: string | null;
-  originalDocumentJson: string | null;
-  translationDocumentJson: string | null;
-  notes: string | null;
-  errorMessage: string | null;
-  updatedAt: string;
-};
-
-type AdminTranslationRow = {
-  id: string;
-  bookId: string;
-  bookSlug: string;
-  slug: string;
-  name: string;
-  description: string | null;
-  aiSystemPrompt: string | null;
-  outputR2Prefix: string;
-  status: TranslationSummary["status"];
-  createdAt: string;
-  updatedAt: string;
-  latestActivityAt: string | null;
-  sessionCount?: number;
-  chapterCount?: number;
-  savedChapterCount?: number;
-  generatedChapterCount?: number;
-  pendingChapterCount?: number;
-  latestSessionId?: string | null;
-};
-
-type OpenRouterChatResponse = {
-  choices?: Array<{
-    message?: {
-      content?: string | Array<{ type?: string; text?: string }>;
-    };
-  }>;
-  error?: {
-    message?: string;
-  };
-};
-
-type ParsedAiChunk = {
-  text: string;
-  type?: ChunkType;
-};
-
-type ParsedAiTranslationChunk = ParsedAiChunk & {
-  sourceOrdinals?: number[];
-  sourceOriginalOrdinals?: number[];
-};
-
-type ParsedAiChapterPayload = {
-  chapterTitle?: string;
-  notes?: string;
-  originalChunks: ParsedAiChunk[];
-  translationChunks: ParsedAiTranslationChunk[];
-};
-
-type OpenRouterLogEntry = {
-  timestamp: string;
-  sessionId: string;
-  chapterId: string;
-  chapterPosition: number;
-  chapterSlug: string;
-  translationId: string | null;
-  model: string;
-  attempt: "initial" | "repair";
-  requestPayload: Record<string, unknown>;
-  responseStatus?: number;
-  responsePayload?: unknown;
-  extractedContent?: string;
-  validationError?: string;
-  requestError?: string;
-};
+import {
+  buildChapterInputsFromExistingStory,
+  buildInitialOriginalDocument,
+  createAdminIngestionSessionForBook,
+  getAdminBookSourcePayload,
+  getAdminIngestionSessionDetail,
+  getAdminIngestionSessionRow,
+  getAdminTranslationDetail,
+  getSettingsMap,
+  listAdminBookWorkflowSummaries,
+  listAdminIngestionSessions,
+  listAdminTranslations,
+  normalizePastedChapterInputs,
+  validateTranslation,
+} from "./admin-data";
+import { failure, type AppEnv, readObjectJson, success, slugify, writeObjectJson } from "./http";
+import { generateChapterWithOpenRouter, persistGeneratedChapter } from "./openrouter";
+import { normalizeThinkingLevel } from "./reasoning";
 
 const app = new Hono<AppEnv>();
 
@@ -157,14 +48,14 @@ app.use("/api/*", async (c, next) => {
   })(c, next);
 });
 
-app.get("/api/health", (c) => {
-  return c.json(
+app.get("/api/health", (c) =>
+  c.json(
     success({
       environment: c.env.APP_ENV ?? "development",
       now: new Date().toISOString(),
     }),
-  );
-});
+  ),
+);
 
 app.get("/api/books", async (c) => {
   const results = await c.env.DB.prepare(
@@ -260,8 +151,7 @@ app.get("/api/books/:bookSlug", async (c) => {
 });
 
 app.get("/api/books/:bookSlug/chapters/:chapterSlug", async (c) => {
-  const bookSlug = c.req.param("bookSlug");
-  const chapterSlug = c.req.param("chapterSlug");
+  const { bookSlug, chapterSlug } = c.req.param();
   const chapter = await c.env.DB.prepare(
     `
       SELECT
@@ -275,14 +165,12 @@ app.get("/api/books/:bookSlug/chapters/:chapterSlug", async (c) => {
         chapters.published_at AS publishedAt,
         books.id AS bookId
       FROM chapters
-      INNER JOIN books ON books.id = chapters.book_id
-      WHERE books.slug = ?
-        AND chapters.slug = ?
-        AND books.status = 'published'
+      JOIN books ON books.id = chapters.book_id
+      WHERE books.slug = ? AND chapters.slug = ? AND books.status = 'published'
     `,
   )
     .bind(bookSlug, chapterSlug)
-    .first<AdminBookChapterRow>();
+    .first<(ChapterSummary & { bookId: string }) | null>();
 
   if (!chapter) {
     return c.json(failure("not_found", `Chapter '${chapterSlug}' was not found.`), 404);
@@ -309,10 +197,7 @@ app.get("/api/books/:bookSlug/chapters/:chapterSlug", async (c) => {
   ]);
 
   if (!original) {
-    return c.json(
-      failure("missing_content", `Original chapter asset '${chapter.sourceR2Key}' is missing from R2.`),
-      500,
-    );
+    return c.json(failure("not_found", "Original chapter content was not found."), 404);
   }
 
   const payload: ChapterPayload = {
@@ -325,10 +210,7 @@ app.get("/api/books/:bookSlug/chapters/:chapterSlug", async (c) => {
 });
 
 app.get("/api/books/:bookSlug/chapters/:chapterSlug/translations/:translationSlug", async (c) => {
-  const bookSlug = c.req.param("bookSlug");
-  const chapterSlug = c.req.param("chapterSlug");
-  const translationSlug = c.req.param("translationSlug");
-
+  const { bookSlug, chapterSlug, translationSlug } = c.req.param();
   const translation = await c.env.DB.prepare(
     `
       SELECT
@@ -339,10 +221,8 @@ app.get("/api/books/:bookSlug/chapters/:chapterSlug/translations/:translationSlu
         translations.output_r2_prefix AS outputR2Prefix,
         translations.status
       FROM translations
-      INNER JOIN books ON books.id = translations.book_id
-      WHERE books.slug = ?
-        AND translations.slug = ?
-        AND books.status = 'published'
+      JOIN books ON books.id = translations.book_id
+      WHERE books.slug = ? AND translations.slug = ? AND translations.status = 'published'
     `,
   )
     .bind(bookSlug, translationSlug)
@@ -352,11 +232,13 @@ app.get("/api/books/:bookSlug/chapters/:chapterSlug/translations/:translationSlu
     return c.json(failure("not_found", `Translation '${translationSlug}' was not found.`), 404);
   }
 
-  const translationKey = buildTranslationChapterKey(bookSlug, chapterSlug, translationSlug);
-  const content = await readObjectJson<TranslationChapterDocument>(c.env.CONTENT_BUCKET, translationKey);
+  const content = await readObjectJson<TranslationChapterDocument>(
+    c.env.CONTENT_BUCKET,
+    buildTranslationChapterKey(bookSlug, chapterSlug, translationSlug),
+  );
 
   if (!content) {
-    return c.json(failure("missing_content", `Translation asset '${translationKey}' is missing from R2.`), 500);
+    return c.json(failure("not_found", "Translated chapter content was not found."), 404);
   }
 
   const payload: TranslationPayload = {
@@ -367,20 +249,15 @@ app.get("/api/books/:bookSlug/chapters/:chapterSlug/translations/:translationSlu
   return c.json(success(payload));
 });
 
-app.get("/api/admin/settings", async (c) => {
-  const settings = await getSettingsMap(c.env.DB);
-  return c.json(success({ settings }));
-});
+app.get("/api/admin/settings", async (c) => c.json(success({ settings: await getSettingsMap(c.env.DB) })));
 
 app.put("/api/admin/settings", async (c) => {
   const body = await c.req.json<{ settings: Record<string, string> }>();
-
   if (!body.settings || typeof body.settings !== "object") {
     return c.json(failure("bad_request", "Body must contain a `settings` object."), 400);
   }
 
   const now = new Date().toISOString();
-
   for (const [key, value] of Object.entries(body.settings)) {
     await c.env.DB.prepare(
       `
@@ -523,17 +400,8 @@ app.post("/api/admin/books", async (c) => {
     await c.env.DB.prepare(
       `
         INSERT INTO books (
-          id,
-          slug,
-          title,
-          author,
-          original_language,
-          description,
-          cover_image_url,
-          status,
-          created_at,
-          updated_at,
-          published_at
+          id, slug, title, author, original_language, description, cover_image_url,
+          status, created_at, updated_at, published_at
         ) VALUES (?, ?, ?, ?, ?, ?, NULL, 'draft', ?, ?, NULL)
       `,
     )
@@ -552,23 +420,12 @@ app.post("/api/admin/books", async (c) => {
     for (const chapter of normalizedChapters) {
       const sourceR2Key = buildOriginalChapterKey(bookSlug, chapter.slug);
       const originalDocument = buildInitialOriginalDocument(bookSlug, chapter.slug, chapter.sourceText);
-
       await writeObjectJson(c.env.CONTENT_BUCKET, sourceR2Key, originalDocument);
 
       await c.env.DB.prepare(
         `
           INSERT INTO chapters (
-            id,
-            book_id,
-            slug,
-            position,
-            title,
-            is_preview,
-            source_r2_key,
-            status,
-            created_at,
-            updated_at,
-            published_at
+            id, book_id, slug, position, title, is_preview, source_r2_key, status, created_at, updated_at, published_at
           ) VALUES (?, ?, ?, ?, ?, 0, ?, 'draft', ?, ?, NULL)
         `,
       )
@@ -577,7 +434,6 @@ app.post("/api/admin/books", async (c) => {
     }
 
     const payload = await getAdminBookSourcePayload(c.env.DB, c.env.CONTENT_BUCKET, bookSlug);
-
     if (!payload) {
       return c.json(failure("internal_error", "Book was created but could not be reloaded."), 500);
     }
@@ -590,18 +446,15 @@ app.post("/api/admin/books", async (c) => {
 
 app.get("/api/admin/books/:bookSlug/source", async (c) => {
   const payload = await getAdminBookSourcePayload(c.env.DB, c.env.CONTENT_BUCKET, c.req.param("bookSlug"));
-
   if (!payload) {
     return c.json(failure("not_found", "Book was not found."), 404);
   }
-
   return c.json(success(payload));
 });
 
-app.get("/api/admin/books/:bookSlug/translations", async (c) => {
-  const translations = await listAdminTranslations(c.env.DB, c.req.param("bookSlug"));
-  return c.json(success({ translations }));
-});
+app.get("/api/admin/books/:bookSlug/translations", async (c) =>
+  c.json(success({ translations: await listAdminTranslations(c.env.DB, c.req.param("bookSlug")) })),
+);
 
 app.post("/api/admin/books/:bookSlug/translations", async (c) => {
   try {
@@ -611,27 +464,17 @@ app.post("/api/admin/books/:bookSlug/translations", async (c) => {
       slug?: string;
       description?: string;
       model?: string;
+      thinkingLevel?: ThinkingLevel | null;
       prompt?: string;
       contextBeforeChapterCount?: number;
       contextAfterChapterCount?: number;
     }>();
 
-    if (!body.title?.trim()) {
-      return c.json(failure("bad_request", "A translation name is required."), 400);
+    if (!body.title?.trim() || !body.model?.trim() || !body.prompt?.trim()) {
+      return c.json(failure("bad_request", "Title, model, and prompt are required."), 400);
     }
 
-    if (!body.model?.trim()) {
-      return c.json(failure("bad_request", "A model is required."), 400);
-    }
-
-    if (!body.prompt?.trim()) {
-      return c.json(failure("bad_request", "A prompt is required."), 400);
-    }
-
-    const book = await c.env.DB.prepare(`SELECT id, slug FROM books WHERE slug = ?`)
-      .bind(bookSlug)
-      .first<{ id: string; slug: string }>();
-
+    const book = await c.env.DB.prepare(`SELECT id FROM books WHERE slug = ?`).bind(bookSlug).first<{ id: string }>();
     if (!book) {
       return c.json(failure("not_found", "Book was not found."), 404);
     }
@@ -643,17 +486,7 @@ app.post("/api/admin/books/:bookSlug/translations", async (c) => {
     await c.env.DB.prepare(
       `
         INSERT INTO translations (
-          id,
-          book_id,
-          slug,
-          name,
-          description,
-          ai_system_prompt,
-          output_r2_prefix,
-          status,
-          created_at,
-          updated_at,
-          published_at
+          id, book_id, slug, name, description, ai_system_prompt, output_r2_prefix, status, created_at, updated_at, published_at
         ) VALUES (?, ?, ?, ?, ?, ?, ?, 'draft', ?, ?, NULL)
       `,
     )
@@ -670,24 +503,20 @@ app.post("/api/admin/books/:bookSlug/translations", async (c) => {
       )
       .run();
 
-    const session = await createAdminIngestionSessionForBook({
+    await createAdminIngestionSessionForBook({
       db: c.env.DB,
       bucket: c.env.CONTENT_BUCKET,
       bookSlug,
       title: body.title.trim(),
       model: body.model.trim(),
+      thinkingLevel: normalizeThinkingLevel(body.thinkingLevel),
       prompt: body.prompt.trim(),
       translationId,
       contextBeforeChapterCount: body.contextBeforeChapterCount ?? 1,
       contextAfterChapterCount: body.contextAfterChapterCount ?? 1,
     });
 
-    if (!session) {
-      return c.json(failure("internal_error", "Translation was created but could not be reloaded."), 500);
-    }
-
     const translation = await getAdminTranslationDetail(c.env.DB, translationId);
-
     if (!translation) {
       return c.json(failure("internal_error", "Translation was created but could not be reloaded."), 500);
     }
@@ -703,11 +532,9 @@ app.post("/api/admin/books/:bookSlug/translations", async (c) => {
 
 app.get("/api/admin/translations/:translationId", async (c) => {
   const translation = await getAdminTranslationDetail(c.env.DB, c.req.param("translationId"));
-
   if (!translation) {
     return c.json(failure("not_found", "Translation was not found."), 404);
   }
-
   return c.json(success(translation));
 });
 
@@ -719,6 +546,7 @@ app.put("/api/admin/translations/:translationId", async (c) => {
     description?: string;
     status?: TranslationSummary["status"];
     model?: string;
+    thinkingLevel?: ThinkingLevel | null;
     prompt?: string;
     contextBeforeChapterCount?: number;
     contextAfterChapterCount?: number;
@@ -726,14 +554,13 @@ app.put("/api/admin/translations/:translationId", async (c) => {
   }>();
 
   const existing = await getAdminTranslationDetail(c.env.DB, translationId);
-
   if (!existing) {
     return c.json(failure("not_found", "Translation was not found."), 404);
   }
 
   const now = new Date().toISOString();
-  const nextName = body.name?.trim() || existing.name;
   const nextSlug = slugify(body.slug || existing.slug);
+  const nextName = body.name?.trim() || existing.name;
   const nextDescription = typeof body.description === "string" ? body.description.trim() || null : existing.description;
   const nextStatus =
     body.status && ["draft", "generating", "ready", "published", "failed"].includes(body.status)
@@ -741,6 +568,10 @@ app.put("/api/admin/translations/:translationId", async (c) => {
       : existing.status;
   const nextPrompt = body.prompt?.trim() || existing.aiSystemPrompt || "";
   const nextModel = body.model?.trim() || existing.latestSession?.model || "openai/gpt-4o-mini";
+  const nextThinkingLevel =
+    body.thinkingLevel !== undefined
+      ? normalizeThinkingLevel(body.thinkingLevel)
+      : (existing.currentSession?.thinkingLevel ?? existing.latestSession?.thinkingLevel ?? null);
   const nextContextBeforeChapterCount =
     typeof body.contextBeforeChapterCount === "number" && body.contextBeforeChapterCount >= 0
       ? body.contextBeforeChapterCount
@@ -756,16 +587,10 @@ app.put("/api/admin/translations/:translationId", async (c) => {
 
   await c.env.DB.prepare(
     `
-        UPDATE translations
-        SET slug = ?,
-            name = ?,
-            description = ?,
-            ai_system_prompt = ?,
-            output_r2_prefix = ?,
-            status = ?,
-            updated_at = ?
-        WHERE id = ?
-      `,
+      UPDATE translations
+      SET slug = ?, name = ?, description = ?, ai_system_prompt = ?, output_r2_prefix = ?, status = ?, updated_at = ?
+      WHERE id = ?
+    `,
   )
     .bind(
       nextSlug,
@@ -782,20 +607,15 @@ app.put("/api/admin/translations/:translationId", async (c) => {
   if (existing.currentSession) {
     await c.env.DB.prepare(
       `
-          UPDATE admin_ingestion_sessions
-          SET title = ?,
-              model = ?,
-              prompt = ?,
-              context_before_chapter_count = ?,
-              context_after_chapter_count = ?,
-              current_chapter_index = ?,
-              updated_at = ?
-          WHERE id = ?
-        `,
+        UPDATE admin_ingestion_sessions
+        SET title = ?, model = ?, thinking_level = ?, prompt = ?, context_before_chapter_count = ?, context_after_chapter_count = ?, current_chapter_index = ?, updated_at = ?
+        WHERE id = ?
+      `,
     )
       .bind(
         nextName,
         nextModel,
+        nextThinkingLevel,
         nextPrompt,
         nextContextBeforeChapterCount,
         nextContextAfterChapterCount,
@@ -807,21 +627,17 @@ app.put("/api/admin/translations/:translationId", async (c) => {
   }
 
   const updated = await getAdminTranslationDetail(c.env.DB, translationId);
-
   if (!updated) {
     return c.json(failure("internal_error", "Translation was updated but could not be reloaded."), 500);
   }
-
   return c.json(success(updated));
 });
 
 app.get("/api/admin/translations/:translationId/validate", async (c) => {
   const payload = await validateTranslation(c.env.DB, c.req.param("translationId"));
-
   if (!payload) {
     return c.json(failure("not_found", "Translation was not found."), 404);
   }
-
   return c.json(success(payload));
 });
 
@@ -832,12 +648,7 @@ app.get("/api/admin/ingestion/bootstrap", async (c) => {
     listAdminIngestionSessions(c.env.DB),
   ]);
 
-  const payload: AdminIngestionBootstrapPayload = {
-    books,
-    settings,
-    sessions,
-  };
-
+  const payload: AdminIngestionBootstrapPayload = { books, settings, sessions };
   return c.json(success(payload));
 });
 
@@ -849,22 +660,15 @@ app.post("/api/admin/ingestion/sessions", async (c) => {
       sourceBookSlug?: string;
       translationId?: string;
       model?: string;
+      thinkingLevel?: ThinkingLevel | null;
       prompt?: string;
       contextBeforeChapterCount?: number;
       contextAfterChapterCount?: number;
       chapters?: AdminIngestionChapterInput[];
     }>();
 
-    if (!body.title?.trim()) {
-      return c.json(failure("bad_request", "A session title is required."), 400);
-    }
-
-    if (!body.model?.trim()) {
-      return c.json(failure("bad_request", "A model is required."), 400);
-    }
-
-    if (!body.prompt?.trim()) {
-      return c.json(failure("bad_request", "A prompt is required."), 400);
+    if (!body.title?.trim() || !body.model?.trim() || !body.prompt?.trim()) {
+      return c.json(failure("bad_request", "Title, model, and prompt are required."), 400);
     }
 
     if (body.sourceMode !== "paste" && body.sourceMode !== "existing_story") {
@@ -886,19 +690,9 @@ app.post("/api/admin/ingestion/sessions", async (c) => {
     await c.env.DB.prepare(
       `
         INSERT INTO admin_ingestion_sessions (
-          id,
-          title,
-          source_mode,
-          source_book_slug,
-          translation_id,
-          model,
-          prompt,
-          context_before_chapter_count,
-          context_after_chapter_count,
-          current_chapter_index,
-          created_at,
-          updated_at
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          id, title, source_mode, source_book_slug, translation_id, model, thinking_level, prompt,
+          context_before_chapter_count, context_after_chapter_count, current_chapter_index, created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `,
     )
       .bind(
@@ -908,6 +702,7 @@ app.post("/api/admin/ingestion/sessions", async (c) => {
         body.sourceBookSlug?.trim() || null,
         body.translationId?.trim() || null,
         body.model.trim(),
+        normalizeThinkingLevel(body.thinkingLevel),
         body.prompt.trim(),
         Math.max(0, body.contextBeforeChapterCount ?? 1),
         Math.max(0, body.contextAfterChapterCount ?? 1),
@@ -921,16 +716,7 @@ app.post("/api/admin/ingestion/sessions", async (c) => {
       await c.env.DB.prepare(
         `
           INSERT INTO admin_ingestion_chapters (
-            id,
-            session_id,
-            position,
-            title,
-            slug,
-            source_text,
-            source_chapter_slug,
-            status,
-            created_at,
-            updated_at
+            id, session_id, position, title, slug, source_text, source_chapter_slug, status, created_at, updated_at
           ) VALUES (?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?)
         `,
       )
@@ -949,7 +735,6 @@ app.post("/api/admin/ingestion/sessions", async (c) => {
     }
 
     const detail = await getAdminIngestionSessionDetail(c.env.DB, sessionId);
-
     if (!detail) {
       return c.json(failure("internal_error", "Session was created but could not be reloaded."), 500);
     }
@@ -962,11 +747,9 @@ app.post("/api/admin/ingestion/sessions", async (c) => {
 
 app.get("/api/admin/ingestion/sessions/:sessionId", async (c) => {
   const detail = await getAdminIngestionSessionDetail(c.env.DB, c.req.param("sessionId"));
-
   if (!detail) {
     return c.json(failure("not_found", "Session was not found."), 404);
   }
-
   return c.json(success(detail));
 });
 
@@ -975,6 +758,7 @@ app.put("/api/admin/ingestion/sessions/:sessionId", async (c) => {
   const body = await c.req.json<{
     title?: string;
     model?: string;
+    thinkingLevel?: ThinkingLevel | null;
     prompt?: string;
     contextBeforeChapterCount?: number;
     contextAfterChapterCount?: number;
@@ -982,13 +766,14 @@ app.put("/api/admin/ingestion/sessions/:sessionId", async (c) => {
   }>();
 
   const existing = await getAdminIngestionSessionRow(c.env.DB, sessionId);
-
   if (!existing) {
     return c.json(failure("not_found", "Session was not found."), 404);
   }
 
   const nextTitle = body.title?.trim() || existing.title;
   const nextModel = body.model?.trim() || existing.model;
+  const nextThinkingLevel =
+    body.thinkingLevel !== undefined ? normalizeThinkingLevel(body.thinkingLevel) : existing.thinkingLevel;
   const nextPrompt = body.prompt?.trim() || existing.prompt;
   const nextContextBeforeChapterCount =
     typeof body.contextBeforeChapterCount === "number" && body.contextBeforeChapterCount >= 0
@@ -1006,13 +791,14 @@ app.put("/api/admin/ingestion/sessions/:sessionId", async (c) => {
   await c.env.DB.prepare(
     `
       UPDATE admin_ingestion_sessions
-      SET title = ?, model = ?, prompt = ?, context_before_chapter_count = ?, context_after_chapter_count = ?, current_chapter_index = ?, updated_at = ?
+      SET title = ?, model = ?, thinking_level = ?, prompt = ?, context_before_chapter_count = ?, context_after_chapter_count = ?, current_chapter_index = ?, updated_at = ?
       WHERE id = ?
     `,
   )
     .bind(
       nextTitle,
       nextModel,
+      nextThinkingLevel,
       nextPrompt,
       nextContextBeforeChapterCount,
       nextContextAfterChapterCount,
@@ -1023,7 +809,6 @@ app.put("/api/admin/ingestion/sessions/:sessionId", async (c) => {
     .run();
 
   const detail = await getAdminIngestionSessionDetail(c.env.DB, sessionId);
-
   if (!detail) {
     return c.json(failure("internal_error", "Session was updated but could not be reloaded."), 500);
   }
@@ -1041,20 +826,17 @@ app.post("/api/admin/ingestion/sessions/:sessionId/chapters/:position/generate",
     }
 
     const detail = await getAdminIngestionSessionDetail(c.env.DB, sessionId);
-
     if (!detail) {
       return c.json(failure("not_found", "Session was not found."), 404);
     }
 
     const chapter = detail.chapters.find((entry) => entry.position === position);
-
     if (!chapter) {
       return c.json(failure("not_found", "Chapter was not found."), 404);
     }
 
     const settings = await getSettingsMap(c.env.DB);
     const apiKey = settings[APP_SETTING_KEYS.OPENROUTER_API_KEY]?.trim();
-
     if (!apiKey) {
       return c.json(
         failure("missing_api_key", "Set openrouter_api_key in admin settings before generating chapters."),
@@ -1072,6 +854,7 @@ app.post("/api/admin/ingestion/sessions/:sessionId/chapters/:position/generate",
     const rawResponse = await generateChapterWithOpenRouter({
       apiKey,
       model: detail.model,
+      thinkingLevel: detail.thinkingLevel,
       prompt: detail.prompt,
       session: detail,
       chapter,
@@ -1082,6 +865,7 @@ app.post("/api/admin/ingestion/sessions/:sessionId/chapters/:position/generate",
 
     const updatedChapter = await persistGeneratedChapter({
       db: c.env.DB,
+      bucket: c.env.CONTENT_BUCKET,
       session: detail,
       chapter,
       rawResponse,
@@ -1105,19 +889,16 @@ app.put("/api/admin/ingestion/sessions/:sessionId/chapters/:position/save", asyn
   if (!Number.isInteger(position) || position < 0) {
     return c.json(failure("bad_request", "Chapter position is invalid."), 400);
   }
-
   if (!body.rawResponse?.trim()) {
     return c.json(failure("bad_request", "rawResponse is required when saving a chapter."), 400);
   }
 
   const detail = await getAdminIngestionSessionDetail(c.env.DB, sessionId);
-
   if (!detail) {
     return c.json(failure("not_found", "Session was not found."), 404);
   }
 
   const chapter = detail.chapters.find((entry) => entry.position === position);
-
   if (!chapter) {
     return c.json(failure("not_found", "Chapter was not found."), 404);
   }
@@ -1131,1491 +912,18 @@ app.put("/api/admin/ingestion/sessions/:sessionId/chapters/:position/save", asyn
     statusOnSuccess: "saved",
   });
 
-  await c.env.DB.prepare(
-    `
-        UPDATE admin_ingestion_sessions
-        SET current_chapter_index = ?, updated_at = ?
-        WHERE id = ?
-      `,
-  )
+  await c.env.DB.prepare(`UPDATE admin_ingestion_sessions SET current_chapter_index = ?, updated_at = ? WHERE id = ?`)
     .bind(position + 1, new Date().toISOString(), sessionId)
     .run();
-
-  const updatedSession = await getAdminIngestionSessionDetail(c.env.DB, sessionId);
 
   return c.json(
     success({
       chapter: updatedChapter,
-      session: updatedSession,
+      session: await getAdminIngestionSessionDetail(c.env.DB, sessionId),
     }),
   );
 });
 
-app.notFound((c) => {
-  return c.json(failure("not_found", "Route not found."), 404);
-});
+app.notFound((c) => c.json(failure("not_found", "Route not found."), 404));
 
 export default app;
-
-function success<T>(data: T): ApiSuccess<T> {
-  return {
-    ok: true,
-    data,
-  };
-}
-
-function failure(code: string, message: string): ApiFailure {
-  return {
-    ok: false,
-    error: {
-      code,
-      message,
-    },
-  };
-}
-
-async function readObjectJson<T>(bucket: R2Bucket, key: string): Promise<T | null> {
-  const object = await bucket.get(key);
-
-  if (!object) {
-    return null;
-  }
-
-  return object.json<T>();
-}
-
-async function getSettingsMap(db: D1Database): Promise<Record<string, string>> {
-  const results = await db.prepare(`SELECT key, value, updated_at AS updatedAt FROM app_settings`).all<AppSetting>();
-
-  const settings: Record<string, string> = {};
-  for (const row of results.results ?? []) {
-    settings[row.key] = row.value;
-  }
-
-  return settings;
-}
-
-async function listAdminBookWorkflowSummaries(db: D1Database): Promise<AdminBookWorkflowSummary[]> {
-  const results = await db
-    .prepare(
-      `
-        SELECT
-          books.id,
-          books.slug,
-          books.title,
-          books.author,
-          books.original_language AS originalLanguage,
-          books.description,
-          books.cover_image_url AS coverImageUrl,
-          books.status,
-          books.published_at AS publishedAt,
-          COUNT(DISTINCT chapters.id) AS chapterCount,
-          COUNT(DISTINCT translations.id) AS translationCount,
-          COUNT(DISTINCT CASE WHEN translations.status IN ('ready', 'published') THEN translations.id END) AS readyTranslationCount,
-          COUNT(DISTINCT CASE WHEN ingestion_chapters.status = 'saved' THEN ingestion_chapters.id END) AS savedChapterCount,
-          MAX(
-            COALESCE(
-              sessions.updated_at,
-              translations.updated_at,
-              chapters.updated_at,
-              books.updated_at
-            )
-          ) AS latestActivityAt
-        FROM books
-        LEFT JOIN chapters ON chapters.book_id = books.id
-        LEFT JOIN translations ON translations.book_id = books.id
-        LEFT JOIN admin_ingestion_sessions AS sessions
-          ON sessions.translation_id = translations.id
-        LEFT JOIN admin_ingestion_chapters AS ingestion_chapters
-          ON ingestion_chapters.session_id = sessions.id
-        GROUP BY books.id
-        ORDER BY latestActivityAt DESC, books.title ASC
-      `,
-    )
-    .all<
-      AdminBookWorkflowSummary & {
-        chapterCount: number;
-        translationCount: number;
-        readyTranslationCount: number;
-        savedChapterCount: number;
-      }
-    >();
-
-  return (results.results ?? []).map((row) => ({
-    ...row,
-    chapterCount: Number(row.chapterCount ?? 0),
-    translationCount: Number(row.translationCount ?? 0),
-    readyTranslationCount: Number(row.readyTranslationCount ?? 0),
-    savedChapterCount: Number(row.savedChapterCount ?? 0),
-    latestActivityAt: row.latestActivityAt ?? null,
-  }));
-}
-
-async function listAdminTranslations(db: D1Database, bookSlug: string): Promise<AdminTranslationSummary[]> {
-  const translationRows = await db
-    .prepare(
-      `
-        SELECT
-          translations.id,
-          translations.book_id AS bookId,
-          books.slug AS bookSlug,
-          translations.slug,
-          translations.name,
-          translations.description,
-          translations.ai_system_prompt AS aiSystemPrompt,
-          translations.output_r2_prefix AS outputR2Prefix,
-          translations.status,
-          translations.created_at AS createdAt,
-          translations.updated_at AS updatedAt,
-          MAX(COALESCE(sessions.updated_at, translations.updated_at)) AS latestActivityAt,
-          COUNT(DISTINCT sessions.id) AS sessionCount,
-          latest.id AS latestSessionId
-        FROM translations
-        INNER JOIN books ON books.id = translations.book_id
-        LEFT JOIN admin_ingestion_sessions AS sessions
-          ON sessions.translation_id = translations.id
-        LEFT JOIN admin_ingestion_sessions AS latest
-          ON latest.id = (
-            SELECT inner_sessions.id
-            FROM admin_ingestion_sessions AS inner_sessions
-            WHERE inner_sessions.translation_id = translations.id
-            ORDER BY inner_sessions.updated_at DESC
-            LIMIT 1
-          )
-        WHERE books.slug = ?
-        GROUP BY translations.id
-        ORDER BY latestActivityAt DESC, translations.name ASC
-      `,
-    )
-    .bind(bookSlug)
-    .all<AdminTranslationRow>();
-
-  return hydrateTranslationSummaries(db, translationRows.results ?? []);
-}
-
-async function getAdminTranslationDetail(
-  db: D1Database,
-  translationId: string,
-): Promise<AdminTranslationDetail | null> {
-  const row = await db
-    .prepare(
-      `
-        SELECT
-          translations.id,
-          translations.book_id AS bookId,
-          books.slug AS bookSlug,
-          translations.slug,
-          translations.name,
-          translations.description,
-          translations.ai_system_prompt AS aiSystemPrompt,
-          translations.output_r2_prefix AS outputR2Prefix,
-          translations.status,
-          translations.created_at AS createdAt,
-          translations.updated_at AS updatedAt,
-          MAX(COALESCE(sessions.updated_at, translations.updated_at)) AS latestActivityAt,
-          COUNT(DISTINCT sessions.id) AS sessionCount,
-          latest.id AS latestSessionId
-        FROM translations
-        INNER JOIN books ON books.id = translations.book_id
-        LEFT JOIN admin_ingestion_sessions AS sessions
-          ON sessions.translation_id = translations.id
-        LEFT JOIN admin_ingestion_sessions AS latest
-          ON latest.id = (
-            SELECT inner_sessions.id
-            FROM admin_ingestion_sessions AS inner_sessions
-            WHERE inner_sessions.translation_id = translations.id
-            ORDER BY inner_sessions.updated_at DESC
-            LIMIT 1
-          )
-        WHERE translations.id = ?
-        GROUP BY translations.id
-      `,
-    )
-    .bind(translationId)
-    .first<AdminTranslationRow>();
-
-  if (!row) {
-    return null;
-  }
-
-  const [summary] = await hydrateTranslationSummaries(db, [row]);
-
-  if (!summary) {
-    return null;
-  }
-
-  const sessions = await listAdminIngestionSessionsByTranslationId(db, translationId);
-  const currentSession = summary.latestSession
-    ? await getAdminIngestionSessionDetail(db, summary.latestSession.id)
-    : null;
-
-  return {
-    ...summary,
-    currentSession,
-    sessions,
-  };
-}
-
-async function hydrateTranslationSummaries(
-  db: D1Database,
-  rows: AdminTranslationRow[],
-): Promise<AdminTranslationSummary[]> {
-  if (rows.length === 0) {
-    return [];
-  }
-
-  const latestSessions = await Promise.all(
-    rows.map((row) =>
-      row.latestSessionId ? getAdminIngestionSessionSummaryById(db, row.latestSessionId) : Promise.resolve(null),
-    ),
-  );
-
-  const counts = await Promise.all(rows.map((row) => countTranslationProgress(db, row.id)));
-
-  return rows.map((row, index) => {
-    const count = counts[index] ?? {
-      chapterCount: 0,
-      savedChapterCount: 0,
-      generatedChapterCount: 0,
-      pendingChapterCount: 0,
-    };
-
-    return {
-      id: row.id,
-      slug: row.slug,
-      name: row.name,
-      description: row.description,
-      outputR2Prefix: row.outputR2Prefix,
-      status: row.status,
-      bookSlug: row.bookSlug,
-      aiSystemPrompt: row.aiSystemPrompt,
-      latestSession: latestSessions[index] ?? null,
-      sessionCount: Number(row.sessionCount ?? 0),
-      chapterCount: count.chapterCount,
-      savedChapterCount: count.savedChapterCount,
-      generatedChapterCount: count.generatedChapterCount,
-      pendingChapterCount: count.pendingChapterCount,
-      latestActivityAt: row.latestActivityAt ?? row.updatedAt,
-    };
-  });
-}
-
-async function countTranslationProgress(
-  db: D1Database,
-  translationId: string,
-): Promise<{
-  chapterCount: number;
-  savedChapterCount: number;
-  generatedChapterCount: number;
-  pendingChapterCount: number;
-}> {
-  const result = await db
-    .prepare(
-      `
-        SELECT
-          COUNT(chapters.id) AS chapterCount,
-          COUNT(CASE WHEN chapters.status = 'saved' THEN 1 END) AS savedChapterCount,
-          COUNT(CASE WHEN chapters.status = 'generated' THEN 1 END) AS generatedChapterCount,
-          COUNT(CASE WHEN chapters.status = 'pending' THEN 1 END) AS pendingChapterCount
-        FROM admin_ingestion_sessions AS sessions
-        LEFT JOIN admin_ingestion_chapters AS chapters
-          ON chapters.session_id = sessions.id
-        WHERE sessions.translation_id = ?
-          AND sessions.id = (
-            SELECT latest.id
-            FROM admin_ingestion_sessions AS latest
-            WHERE latest.translation_id = sessions.translation_id
-            ORDER BY latest.updated_at DESC
-            LIMIT 1
-          )
-      `,
-    )
-    .bind(translationId)
-    .first<{
-      chapterCount: number;
-      savedChapterCount: number;
-      generatedChapterCount: number;
-      pendingChapterCount: number;
-    }>();
-
-  return {
-    chapterCount: Number(result?.chapterCount ?? 0),
-    savedChapterCount: Number(result?.savedChapterCount ?? 0),
-    generatedChapterCount: Number(result?.generatedChapterCount ?? 0),
-    pendingChapterCount: Number(result?.pendingChapterCount ?? 0),
-  };
-}
-
-async function listAdminIngestionSessions(
-  db: D1Database,
-  sourceBookSlug?: string,
-): Promise<AdminIngestionSessionSummary[]> {
-  const results = await db
-    .prepare(
-      `
-      SELECT
-        sessions.id,
-        sessions.title,
-        sessions.source_mode AS sourceMode,
-        sessions.source_book_slug AS sourceBookSlug,
-        sessions.translation_id AS translationId,
-        sessions.model,
-        sessions.context_before_chapter_count AS contextBeforeChapterCount,
-        sessions.context_after_chapter_count AS contextAfterChapterCount,
-        sessions.current_chapter_index AS currentChapterIndex,
-        sessions.created_at AS createdAt,
-        sessions.updated_at AS updatedAt,
-        COUNT(chapters.id) AS chapterCount
-      FROM admin_ingestion_sessions AS sessions
-      LEFT JOIN admin_ingestion_chapters AS chapters
-        ON chapters.session_id = sessions.id
-      WHERE (?1 IS NULL OR sessions.source_book_slug = ?1)
-      GROUP BY sessions.id
-      ORDER BY sessions.updated_at DESC
-    `,
-    )
-    .bind(sourceBookSlug ?? null)
-    .all<AdminIngestionSessionRow>();
-
-  return (results.results ?? []).map(mapAdminIngestionSessionSummary);
-}
-
-async function listAdminIngestionSessionsByTranslationId(
-  db: D1Database,
-  translationId: string,
-): Promise<AdminIngestionSessionSummary[]> {
-  const results = await db
-    .prepare(
-      `
-        SELECT
-          sessions.id,
-          sessions.title,
-          sessions.source_mode AS sourceMode,
-          sessions.source_book_slug AS sourceBookSlug,
-          sessions.translation_id AS translationId,
-          sessions.model,
-          sessions.prompt,
-          sessions.context_before_chapter_count AS contextBeforeChapterCount,
-          sessions.context_after_chapter_count AS contextAfterChapterCount,
-          sessions.current_chapter_index AS currentChapterIndex,
-          sessions.created_at AS createdAt,
-          sessions.updated_at AS updatedAt,
-          COUNT(chapters.id) AS chapterCount
-        FROM admin_ingestion_sessions AS sessions
-        LEFT JOIN admin_ingestion_chapters AS chapters
-          ON chapters.session_id = sessions.id
-        WHERE sessions.translation_id = ?
-        GROUP BY sessions.id
-        ORDER BY sessions.updated_at DESC
-      `,
-    )
-    .bind(translationId)
-    .all<AdminIngestionSessionRow>();
-
-  return (results.results ?? []).map(mapAdminIngestionSessionSummary);
-}
-
-async function getAdminIngestionSessionSummaryById(
-  db: D1Database,
-  sessionId: string,
-): Promise<AdminIngestionSessionSummary | null> {
-  const result = await db
-    .prepare(
-      `
-        SELECT
-          sessions.id,
-          sessions.title,
-          sessions.source_mode AS sourceMode,
-          sessions.source_book_slug AS sourceBookSlug,
-          sessions.translation_id AS translationId,
-          sessions.model,
-          sessions.prompt,
-          sessions.context_before_chapter_count AS contextBeforeChapterCount,
-          sessions.context_after_chapter_count AS contextAfterChapterCount,
-          sessions.current_chapter_index AS currentChapterIndex,
-          sessions.created_at AS createdAt,
-          sessions.updated_at AS updatedAt,
-          COUNT(chapters.id) AS chapterCount
-        FROM admin_ingestion_sessions AS sessions
-        LEFT JOIN admin_ingestion_chapters AS chapters
-          ON chapters.session_id = sessions.id
-        WHERE sessions.id = ?
-        GROUP BY sessions.id
-      `,
-    )
-    .bind(sessionId)
-    .first<AdminIngestionSessionRow>();
-
-  return result ? mapAdminIngestionSessionSummary(result) : null;
-}
-
-async function getAdminIngestionSessionRow(
-  db: D1Database,
-  sessionId: string,
-): Promise<AdminIngestionSessionRow | null> {
-  return db
-    .prepare(
-      `
-        SELECT
-          id,
-          title,
-          source_mode AS sourceMode,
-          source_book_slug AS sourceBookSlug,
-          translation_id AS translationId,
-          model,
-          prompt,
-          context_before_chapter_count AS contextBeforeChapterCount,
-          context_after_chapter_count AS contextAfterChapterCount,
-          current_chapter_index AS currentChapterIndex,
-          created_at AS createdAt,
-          updated_at AS updatedAt
-        FROM admin_ingestion_sessions
-        WHERE id = ?
-      `,
-    )
-    .bind(sessionId)
-    .first<AdminIngestionSessionRow>();
-}
-
-async function getAdminIngestionSessionDetail(
-  db: D1Database,
-  sessionId: string,
-): Promise<AdminIngestionSessionDetail | null> {
-  const session = await getAdminIngestionSessionRow(db, sessionId);
-
-  if (!session) {
-    return null;
-  }
-
-  const chapterResults = await db
-    .prepare(
-      `
-      SELECT
-        id,
-        session_id AS sessionId,
-        position,
-        title,
-        slug,
-        source_text AS sourceText,
-        source_chapter_slug AS sourceChapterSlug,
-        status,
-        raw_response AS rawResponse,
-        original_document_json AS originalDocumentJson,
-        translation_document_json AS translationDocumentJson,
-        notes,
-        error_message AS errorMessage,
-        updated_at AS updatedAt
-      FROM admin_ingestion_chapters
-      WHERE session_id = ?
-      ORDER BY position ASC
-    `,
-    )
-    .bind(sessionId)
-    .all<AdminIngestionChapterRow>();
-
-  const chapters = (chapterResults.results ?? []).map(mapAdminIngestionChapterRecord);
-
-  return {
-    ...mapAdminIngestionSessionSummary({
-      ...session,
-      chapterCount: chapters.length,
-    }),
-    prompt: session.prompt,
-    chapters,
-  };
-}
-
-function mapAdminIngestionSessionSummary(row: AdminIngestionSessionRow): AdminIngestionSessionSummary {
-  return {
-    id: row.id,
-    title: row.title,
-    sourceMode: row.sourceMode,
-    sourceBookSlug: row.sourceBookSlug,
-    translationId: row.translationId,
-    model: row.model,
-    contextBeforeChapterCount: Number(row.contextBeforeChapterCount ?? 1),
-    contextAfterChapterCount: Number(row.contextAfterChapterCount ?? 1),
-    currentChapterIndex: Number(row.currentChapterIndex ?? 0),
-    chapterCount: Number(row.chapterCount ?? 0),
-    createdAt: row.createdAt,
-    updatedAt: row.updatedAt,
-  };
-}
-
-function mapAdminIngestionChapterRecord(row: AdminIngestionChapterRow): AdminIngestionChapterRecord {
-  return {
-    id: row.id,
-    position: Number(row.position),
-    title: row.title,
-    slug: row.slug,
-    sourceText: row.sourceText,
-    sourceChapterSlug: row.sourceChapterSlug,
-    status: row.status,
-    rawResponse: row.rawResponse,
-    originalDocument: parseJsonOrNull<OriginalChapterDocument>(row.originalDocumentJson),
-    translationDocument: parseJsonOrNull<TranslationChapterDocument>(row.translationDocumentJson),
-    notes: row.notes,
-    errorMessage: row.errorMessage,
-    updatedAt: row.updatedAt,
-  };
-}
-
-function parseJsonOrNull<T>(value: string | null): T | null {
-  if (!value) {
-    return null;
-  }
-
-  return JSON.parse(value) as T;
-}
-
-function normalizePastedChapterInputs(chapters: AdminIngestionChapterInput[]): AdminIngestionChapterInput[] {
-  return chapters
-    .filter((chapter) => chapter.sourceText.trim().length > 0)
-    .map((chapter, index) => ({
-      position: index,
-      title: chapter.title.trim() || `Chapter ${index + 1}`,
-      slug: slugify(chapter.slug || chapter.title || `chapter-${index + 1}`),
-      sourceText: chapter.sourceText.trim(),
-      sourceChapterSlug: chapter.sourceChapterSlug ?? null,
-    }));
-}
-
-async function buildChapterInputsFromExistingStory(
-  db: D1Database,
-  bucket: R2Bucket,
-  sourceBookSlug: string | undefined,
-): Promise<AdminIngestionChapterInput[]> {
-  if (!sourceBookSlug?.trim()) {
-    throw new Error("sourceBookSlug is required when using existing_story mode.");
-  }
-
-  const book = await db
-    .prepare(`SELECT id, slug FROM books WHERE slug = ?`)
-    .bind(sourceBookSlug.trim())
-    .first<{ id: string; slug: string }>();
-
-  if (!book) {
-    throw new Error(`Book '${sourceBookSlug}' was not found.`);
-  }
-
-  const chaptersResult = await db
-    .prepare(
-      `
-      SELECT
-        id,
-        slug,
-        position,
-        title,
-        is_preview AS isPreview,
-        source_r2_key AS sourceR2Key,
-        status,
-        published_at AS publishedAt
-      FROM chapters
-      WHERE book_id = ?
-      ORDER BY position ASC
-    `,
-    )
-    .bind(book.id)
-    .all<ChapterSummary>();
-
-  const chapters = chaptersResult.results ?? [];
-  const inputs: AdminIngestionChapterInput[] = [];
-
-  for (const [index, chapter] of chapters.entries()) {
-    const original = await readObjectJson<OriginalChapterDocument>(bucket, chapter.sourceR2Key);
-
-    if (!original) {
-      throw new Error(`Original chapter asset '${chapter.sourceR2Key}' is missing from R2.`);
-    }
-
-    inputs.push({
-      position: index,
-      title: chapter.title,
-      slug: chapter.slug,
-      sourceText: sourceDocumentToText(original),
-      sourceChapterSlug: chapter.slug,
-    });
-  }
-
-  return inputs;
-}
-
-function sourceDocumentToText(document: OriginalChapterDocument): string {
-  const hasVerse = document.chunks.some((chunk) => chunk.type === "verse");
-  const separator = hasVerse ? "\n" : "\n\n";
-  return document.chunks
-    .map((chunk) => chunk.text)
-    .join(separator)
-    .trim();
-}
-
-async function getAdminBookSourcePayload(
-  db: D1Database,
-  bucket: R2Bucket,
-  bookSlug: string,
-): Promise<AdminBookSourcePayload | null> {
-  const book = await db
-    .prepare(
-      `
-        SELECT
-          id,
-          slug,
-          title,
-          author,
-          original_language AS originalLanguage,
-          description,
-          cover_image_url AS coverImageUrl,
-          status,
-          published_at AS publishedAt
-        FROM books
-        WHERE slug = ?
-      `,
-    )
-    .bind(bookSlug)
-    .first<BookSummary>();
-
-  if (!book) {
-    return null;
-  }
-
-  const [chaptersResult, translationsResult] = await Promise.all([
-    db
-      .prepare(
-        `
-        SELECT
-          id,
-          slug,
-          position,
-          title,
-          is_preview AS isPreview,
-          source_r2_key AS sourceR2Key,
-          status,
-          published_at AS publishedAt
-        FROM chapters
-        WHERE book_id = ?
-        ORDER BY position ASC
-      `,
-      )
-      .bind(book.id)
-      .all<ChapterSummary>(),
-    db
-      .prepare(
-        `
-        SELECT
-          id,
-          slug,
-          name,
-          description,
-          output_r2_prefix AS outputR2Prefix,
-          status
-        FROM translations
-        WHERE book_id = ?
-        ORDER BY name ASC
-      `,
-      )
-      .bind(book.id)
-      .all<TranslationSummary>(),
-  ]);
-
-  const chapters = chaptersResult.results ?? [];
-  const sourceChapterInputs: AdminBookChapterInput[] = [];
-
-  for (const chapter of chapters) {
-    const original = await readObjectJson<OriginalChapterDocument>(bucket, chapter.sourceR2Key);
-
-    sourceChapterInputs.push({
-      position: chapter.position,
-      title: chapter.title,
-      slug: chapter.slug,
-      sourceText: original ? sourceDocumentToText(original) : "",
-    });
-  }
-
-  return {
-    book: {
-      ...book,
-      chapters,
-      translations: translationsResult.results ?? [],
-    },
-    chapters: sourceChapterInputs,
-  };
-}
-
-function buildInitialOriginalDocument(
-  bookSlug: string,
-  chapterSlug: string,
-  sourceText: string,
-): OriginalChapterDocument {
-  const normalized = sourceText.trim();
-  const lines = normalized
-    .split(/\r?\n/)
-    .map((line) => line.trim())
-    .filter(Boolean);
-  const paragraphs = normalized
-    .split(/\n\s*\n/)
-    .map((chunk) => chunk.trim())
-    .filter(Boolean);
-  const useVerse = lines.length > 1 && lines.length >= paragraphs.length * 2;
-  const rawChunks = useVerse ? lines : paragraphs.length > 0 ? paragraphs : [normalized];
-
-  return {
-    bookSlug,
-    chapterSlug,
-    chunks: rawChunks.map((text, index) => ({
-      id: `c${index + 1}`,
-      type: useVerse ? "verse" : "prose",
-      text,
-      ordinal: index + 1,
-    })),
-  };
-}
-
-async function writeObjectJson(bucket: R2Bucket, key: string, value: unknown): Promise<void> {
-  await bucket.put(key, JSON.stringify(value, null, 2), {
-    httpMetadata: {
-      contentType: "application/json; charset=utf-8",
-    },
-  });
-}
-
-async function createAdminIngestionSessionForBook(input: {
-  db: D1Database;
-  bucket: R2Bucket;
-  bookSlug: string;
-  title: string;
-  model: string;
-  prompt: string;
-  translationId: string | null;
-  contextBeforeChapterCount: number;
-  contextAfterChapterCount: number;
-}): Promise<AdminIngestionSessionDetail | null> {
-  const chapters = await buildChapterInputsFromExistingStory(input.db, input.bucket, input.bookSlug);
-  const now = new Date().toISOString();
-  const sessionId = crypto.randomUUID();
-
-  await input.db
-    .prepare(
-      `
-      INSERT INTO admin_ingestion_sessions (
-        id,
-        title,
-        source_mode,
-        source_book_slug,
-        translation_id,
-        model,
-        prompt,
-        context_before_chapter_count,
-        context_after_chapter_count,
-        current_chapter_index,
-        created_at,
-        updated_at
-      ) VALUES (?, ?, 'existing_story', ?, ?, ?, ?, ?, ?, 0, ?, ?)
-    `,
-    )
-    .bind(
-      sessionId,
-      input.title,
-      input.bookSlug,
-      input.translationId,
-      input.model,
-      input.prompt,
-      Math.max(0, input.contextBeforeChapterCount),
-      Math.max(0, input.contextAfterChapterCount),
-      now,
-      now,
-    )
-    .run();
-
-  for (const chapter of chapters) {
-    await input.db
-      .prepare(
-        `
-        INSERT INTO admin_ingestion_chapters (
-          id,
-          session_id,
-          position,
-          title,
-          slug,
-          source_text,
-          source_chapter_slug,
-          status,
-          created_at,
-          updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?)
-      `,
-      )
-      .bind(
-        crypto.randomUUID(),
-        sessionId,
-        chapter.position,
-        chapter.title,
-        chapter.slug,
-        chapter.sourceText,
-        chapter.sourceChapterSlug,
-        now,
-        now,
-      )
-      .run();
-  }
-
-  return getAdminIngestionSessionDetail(input.db, sessionId);
-}
-
-async function validateTranslation(
-  db: D1Database,
-  translationId: string,
-): Promise<AdminTranslationValidationPayload | null> {
-  const translation = await getAdminTranslationDetail(db, translationId);
-  const session = translation?.currentSession;
-
-  if (!translation || !session) {
-    return null;
-  }
-
-  const chapterChecks = session.chapters.map((chapter) => {
-    const issues: AdminTranslationValidationPayload["chapters"][number]["issues"] = [];
-    const originalChunkIds = new Set(chapter.originalDocument?.chunks.map((chunk) => chunk.id) ?? []);
-
-    if (!chapter.originalDocument || chapter.originalDocument.chunks.length === 0) {
-      issues.push({
-        level: "error",
-        message: "Original chunks are missing.",
-        chapterPosition: chapter.position,
-        chapterSlug: chapter.slug,
-      });
-    }
-
-    if (!chapter.translationDocument || chapter.translationDocument.chunks.length === 0) {
-      issues.push({
-        level: "error",
-        message: "Translation chunks are missing.",
-        chapterPosition: chapter.position,
-        chapterSlug: chapter.slug,
-      });
-    }
-
-    for (const translationChunk of chapter.translationDocument?.chunks ?? []) {
-      if (translationChunk.sourceChunkIds.length === 0) {
-        issues.push({
-          level: "error",
-          message: `Translation chunk ${translationChunk.id} has no source anchors.`,
-          chapterPosition: chapter.position,
-          chapterSlug: chapter.slug,
-          translationChunkId: translationChunk.id,
-        });
-      }
-
-      for (const sourceChunkId of translationChunk.sourceChunkIds) {
-        if (!originalChunkIds.has(sourceChunkId)) {
-          issues.push({
-            level: "error",
-            message: `Translation chunk ${translationChunk.id} points to missing source chunk ${sourceChunkId}.`,
-            chapterPosition: chapter.position,
-            chapterSlug: chapter.slug,
-            translationChunkId: translationChunk.id,
-            sourceChunkId,
-          });
-        }
-      }
-    }
-
-    if (chapter.status !== "saved") {
-      issues.push({
-        level: "warning",
-        message: `Chapter is currently marked ${chapter.status}.`,
-        chapterPosition: chapter.position,
-        chapterSlug: chapter.slug,
-      });
-    }
-
-    return {
-      position: chapter.position,
-      title: chapter.title,
-      slug: chapter.slug,
-      status: chapter.status,
-      issues,
-    };
-  });
-
-  const issues = chapterChecks.flatMap((chapter) => chapter.issues);
-
-  return {
-    session,
-    isValid: issues.every((issue) => issue.level !== "error"),
-    issues,
-    chapters: chapterChecks,
-  };
-}
-
-function formatContextChapters(chapters: AdminIngestionChapterRecord[] | undefined): string {
-  if (!chapters || chapters.length === 0) {
-    return "(none)";
-  }
-
-  return chapters
-    .map((chapter) => {
-      let content = `## ${chapter.title}\nSource Text:\n${chapter.sourceText}`;
-
-      if (chapter.translationDocument) {
-        const translatedText = chapter.translationDocument.chunks.map((chunk) => chunk.text).join("\n");
-        content += `\n\nTranslated Text:\n${translatedText}`;
-      }
-
-      return content;
-    })
-    .join("\n\n");
-}
-
-async function generateChapterWithOpenRouter(input: {
-  apiKey: string;
-  model: string;
-  prompt: string;
-  session: AdminIngestionSessionDetail;
-  chapter: AdminIngestionChapterRecord;
-  previousChapters?: AdminIngestionChapterRecord[];
-  nextChapters?: AdminIngestionChapterRecord[];
-  publicAppUrl?: string;
-}): Promise<string> {
-  const initialResult = await callOpenRouterChat({
-    apiKey: input.apiKey,
-    model: input.model,
-    publicAppUrl: input.publicAppUrl,
-    systemPrompt: input.prompt,
-    userPrompt: buildGenerationUserPrompt(input),
-  });
-
-  const initialValidation = validateAiChapterPayloadText(initialResult.extractedContent);
-  await writeOpenRouterLog({
-    timestamp: new Date().toISOString(),
-    sessionId: input.session.id,
-    chapterId: input.chapter.id,
-    chapterPosition: input.chapter.position,
-    chapterSlug: input.chapter.slug,
-    translationId: input.session.translationId,
-    model: input.model,
-    attempt: "initial",
-    requestPayload: initialResult.requestPayload,
-    responseStatus: initialResult.responseStatus,
-    responsePayload: initialResult.responsePayload,
-    extractedContent: initialResult.extractedContent,
-    validationError: initialValidation.ok ? undefined : initialValidation.error,
-  });
-
-  if (initialValidation.ok) {
-    return initialResult.extractedContent;
-  }
-
-  const repairedResult = await callOpenRouterChat({
-    apiKey: input.apiKey,
-    model: input.model,
-    publicAppUrl: input.publicAppUrl,
-    systemPrompt: "Repair the user's JSON so it matches the required schema exactly. Return JSON only.",
-    userPrompt: buildRepairUserPrompt({
-      originalError: initialValidation.error,
-      rawResponse: initialResult.extractedContent,
-    }),
-  });
-
-  const repairedValidation = validateAiChapterPayloadText(repairedResult.extractedContent);
-  await writeOpenRouterLog({
-    timestamp: new Date().toISOString(),
-    sessionId: input.session.id,
-    chapterId: input.chapter.id,
-    chapterPosition: input.chapter.position,
-    chapterSlug: input.chapter.slug,
-    translationId: input.session.translationId,
-    model: input.model,
-    attempt: "repair",
-    requestPayload: repairedResult.requestPayload,
-    responseStatus: repairedResult.responseStatus,
-    responsePayload: repairedResult.responsePayload,
-    extractedContent: repairedResult.extractedContent,
-    validationError: repairedValidation.ok ? undefined : repairedValidation.error,
-  });
-
-  if (repairedValidation.ok) {
-    return repairedResult.extractedContent;
-  }
-
-  throw new Error(`Model response failed validation after repair: ${repairedValidation.error}`);
-}
-
-async function callOpenRouterChat(input: {
-  apiKey: string;
-  model: string;
-  publicAppUrl?: string;
-  systemPrompt: string;
-  userPrompt: string;
-}): Promise<{
-  requestPayload: Record<string, unknown>;
-  responseStatus: number;
-  responsePayload: unknown;
-  extractedContent: string;
-}> {
-  const requestPayload = {
-    model: input.model,
-    temperature: 0.2,
-    messages: [
-      {
-        role: "system",
-        content: input.systemPrompt,
-      },
-      {
-        role: "user",
-        content: input.userPrompt,
-      },
-    ],
-  } satisfies Record<string, unknown>;
-
-  const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${input.apiKey}`,
-      "Content-Type": "application/json",
-      "HTTP-Referer": input.publicAppUrl ?? "http://127.0.0.1:5173",
-      "X-Title": "Ancient Epics Admin",
-    },
-    body: JSON.stringify(requestPayload),
-  });
-
-  const payload = (await response.json()) as OpenRouterChatResponse;
-
-  if (!response.ok) {
-    throw new Error(payload.error?.message || `OpenRouter request failed with status ${response.status}.`);
-  }
-
-  const content = payload.choices?.[0]?.message?.content;
-
-  if (typeof content === "string" && content.trim()) {
-    return {
-      requestPayload,
-      responseStatus: response.status,
-      responsePayload: payload,
-      extractedContent: content,
-    };
-  }
-
-  if (Array.isArray(content)) {
-    const merged = content
-      .map((part) => (typeof part.text === "string" ? part.text : ""))
-      .join("\n")
-      .trim();
-
-    if (merged) {
-      return {
-        requestPayload,
-        responseStatus: response.status,
-        responsePayload: payload,
-        extractedContent: merged,
-      };
-    }
-  }
-
-  throw new Error("OpenRouter returned an empty message payload.");
-}
-
-function buildGenerationUserPrompt(input: {
-  session: AdminIngestionSessionDetail;
-  chapter: AdminIngestionChapterRecord;
-  previousChapters?: AdminIngestionChapterRecord[];
-  nextChapters?: AdminIngestionChapterRecord[];
-}): string {
-  return [
-    `Project: ${input.session.title}`,
-    `Source mode: ${input.session.sourceMode}`,
-    `Chapter title: ${input.chapter.title}`,
-    "",
-    "Return JSON only.",
-    "Schema: { chapterTitle?: string, notes?: string, originalChunks: [{ text: string, type?: 'prose' | 'verse' }], translationChunks: [{ text: string, type?: 'prose' | 'verse', sourceOrdinals: number[] }] }",
-    "Each originalChunks item must contain non-empty text and optional type.",
-    "Each translationChunks item must contain non-empty text, optional type, and non-empty sourceOrdinals referencing the 1-based ordinal positions of originalChunks.",
-    "You may merge multiple original chunks into one translation chunk.",
-    "Do not include ids. The application assigns ids after review.",
-    "",
-    "Previous chapter context:",
-    formatContextChapters(input.previousChapters),
-    "",
-    "Target chapter source text:",
-    input.chapter.sourceText,
-    "",
-    "Next chapter context:",
-    formatContextChapters(input.nextChapters),
-  ].join("\n");
-}
-
-function buildRepairUserPrompt(input: { originalError: string; rawResponse: string }): string {
-  return [
-    "Repair this model output into valid JSON matching the required schema.",
-    `Validation error: ${input.originalError}`,
-    "Required schema:",
-    "{ chapterTitle?: string, notes?: string, originalChunks: [{ text: string, type?: 'prose' | 'verse' }], translationChunks: [{ text: string, type?: 'prose' | 'verse', sourceOrdinals: number[] }] }",
-    "Return JSON only.",
-    "",
-    input.rawResponse,
-  ].join("\n");
-}
-
-async function writeOpenRouterLog(entry: OpenRouterLogEntry): Promise<void> {
-  if (!config.enableLogging) {
-    return;
-  }
-
-  console.log("[openrouter]", JSON.stringify(entry, null, 2));
-}
-
-async function persistGeneratedChapter(input: {
-  db: D1Database;
-  bucket?: R2Bucket;
-  session: AdminIngestionSessionDetail;
-  chapter: AdminIngestionChapterRecord;
-  rawResponse: string;
-  statusOnSuccess: Extract<AdminIngestionChapterStatus, "generated" | "saved">;
-}): Promise<AdminIngestionChapterRecord> {
-  const now = new Date().toISOString();
-  let translationSlug: string | undefined;
-
-  if (input.session.translationId) {
-    const translation = await input.db
-      .prepare(`SELECT slug FROM translations WHERE id = ?`)
-      .bind(input.session.translationId)
-      .first<{ slug: string }>();
-    translationSlug = translation?.slug;
-  }
-
-  try {
-    const normalized = normalizeGeneratedChapter({
-      session: input.session,
-      chapter: input.chapter,
-      rawResponse: input.rawResponse,
-      translationSlug,
-    });
-
-    await input.db
-      .prepare(
-        `
-        UPDATE admin_ingestion_chapters
-        SET status = ?,
-            raw_response = ?,
-            original_document_json = ?,
-            translation_document_json = ?,
-            notes = ?,
-            error_message = NULL,
-            updated_at = ?
-        WHERE id = ?
-      `,
-      )
-      .bind(
-        input.statusOnSuccess,
-        input.rawResponse,
-        JSON.stringify(normalized.originalDocument),
-        JSON.stringify(normalized.translationDocument),
-        normalized.notes,
-        now,
-        input.chapter.id,
-      )
-      .run();
-
-    if (
-      input.bucket &&
-      input.session.translationId &&
-      input.session.sourceBookSlug &&
-      input.statusOnSuccess === "saved"
-    ) {
-      if (translationSlug) {
-        const translationKey = buildTranslationChapterKey(
-          input.session.sourceBookSlug,
-          input.chapter.slug,
-          translationSlug,
-        );
-        await writeObjectJson(input.bucket, translationKey, normalized.translationDocument);
-
-        await input.db
-          .prepare(
-            `
-              UPDATE translations
-              SET ai_system_prompt = ?,
-                  status = 'ready',
-                  updated_at = ?
-              WHERE id = ?
-            `,
-          )
-          .bind(input.session.prompt, now, input.session.translationId)
-          .run();
-      }
-    }
-  } catch (error) {
-    const message = error instanceof Error ? error.message : "Failed to parse AI response.";
-
-    await input.db
-      .prepare(
-        `
-        UPDATE admin_ingestion_chapters
-        SET status = 'error',
-            raw_response = ?,
-            error_message = ?,
-            updated_at = ?
-        WHERE id = ?
-      `,
-      )
-      .bind(input.rawResponse, message, now, input.chapter.id)
-      .run();
-  }
-
-  const refreshed = await input.db
-    .prepare(
-      `
-        SELECT
-          id,
-          session_id AS sessionId,
-          position,
-          title,
-          slug,
-          source_text AS sourceText,
-          source_chapter_slug AS sourceChapterSlug,
-          status,
-          raw_response AS rawResponse,
-          original_document_json AS originalDocumentJson,
-          translation_document_json AS translationDocumentJson,
-          notes,
-          error_message AS errorMessage,
-          updated_at AS updatedAt
-        FROM admin_ingestion_chapters
-        WHERE id = ?
-      `,
-    )
-    .bind(input.chapter.id)
-    .first<AdminIngestionChapterRow>();
-
-  if (!refreshed) {
-    throw new Error("Generated chapter could not be reloaded.");
-  }
-
-  return mapAdminIngestionChapterRecord(refreshed);
-}
-
-function normalizeGeneratedChapter(input: {
-  session: AdminIngestionSessionDetail;
-  chapter: AdminIngestionChapterRecord;
-  rawResponse: string;
-  translationSlug?: string;
-}): {
-  originalDocument: OriginalChapterDocument;
-  translationDocument: TranslationChapterDocument;
-  notes: string | null;
-} {
-  const parsed = parseAiChapterPayload(input.rawResponse);
-
-  if (parsed.originalChunks.length === 0) {
-    throw new Error("AI response did not include any original chunks.");
-  }
-
-  if (parsed.translationChunks.length === 0) {
-    throw new Error("AI response did not include any translation chunks.");
-  }
-
-  const originalChunks: TextChunk[] = parsed.originalChunks.map((chunk, index) => ({
-    id: `c${index + 1}`,
-    type: chunk.type ?? inferChunkType(chunk.text),
-    text: chunk.text.trim(),
-    ordinal: index + 1,
-  }));
-
-  const translationChunks = parsed.translationChunks.map((chunk, index) => {
-    const ordinals = normalizeSourceOrdinals(
-      chunk.sourceOrdinals ?? chunk.sourceOriginalOrdinals,
-      originalChunks.length,
-      index,
-    );
-
-    return {
-      id: `t${index + 1}`,
-      type: chunk.type ?? inferChunkType(chunk.text),
-      text: chunk.text.trim(),
-      ordinal: index + 1,
-      sourceChunkIds: ordinals.map((ordinal) => `c${ordinal}`),
-    };
-  });
-
-  return {
-    originalDocument: {
-      bookSlug: input.session.sourceBookSlug ?? slugify(input.session.title),
-      chapterSlug: input.chapter.slug,
-      chunks: originalChunks,
-    },
-    translationDocument: {
-      translationSlug: input.translationSlug ?? `${slugify(input.session.title)}-draft`,
-      chunks: translationChunks,
-    },
-    notes: parsed.notes?.trim() || null,
-  };
-}
-
-function parseAiChapterPayload(rawResponse: string): ParsedAiChapterPayload {
-  const jsonText = extractJsonObject(rawResponse);
-  const parsed = JSON.parse(jsonText) as Record<string, unknown>;
-  const original = Array.isArray(parsed.originalChunks)
-    ? parsed.originalChunks.map(normalizeAiChunk).filter(isPresent)
-    : [];
-  const translation = Array.isArray(parsed.translationChunks)
-    ? parsed.translationChunks.map(normalizeAiTranslationChunk).filter(isPresent)
-    : [];
-
-  const payload = {
-    chapterTitle: typeof parsed.chapterTitle === "string" ? parsed.chapterTitle : undefined,
-    notes: typeof parsed.notes === "string" ? parsed.notes : undefined,
-    originalChunks: original,
-    translationChunks: translation,
-  };
-
-  validateParsedAiChapterPayload(payload);
-
-  return payload;
-}
-
-function validateAiChapterPayloadText(rawResponse: string): { ok: true } | { ok: false; error: string } {
-  try {
-    parseAiChapterPayload(rawResponse);
-    return { ok: true };
-  } catch (error) {
-    return {
-      ok: false,
-      error: error instanceof Error ? error.message : "Unknown schema validation error.",
-    };
-  }
-}
-
-function validateParsedAiChapterPayload(payload: ParsedAiChapterPayload): void {
-  if (payload.originalChunks.length === 0) {
-    throw new Error("originalChunks must contain at least one item.");
-  }
-
-  if (payload.translationChunks.length === 0) {
-    throw new Error("translationChunks must contain at least one item.");
-  }
-
-  payload.originalChunks.forEach((chunk, index) => {
-    if (!chunk.text.trim()) {
-      throw new Error(`originalChunks[${index}].text must be non-empty.`);
-    }
-  });
-
-  payload.translationChunks.forEach((chunk, index) => {
-    if (!chunk.text.trim()) {
-      throw new Error(`translationChunks[${index}].text must be non-empty.`);
-    }
-
-    if (!chunk.sourceOrdinals?.length && !chunk.sourceOriginalOrdinals?.length) {
-      throw new Error(`translationChunks[${index}] must include at least one source ordinal.`);
-    }
-  });
-}
-
-function normalizeAiChunk(value: unknown): ParsedAiChunk | null {
-  if (typeof value === "string" && value.trim()) {
-    return { text: value.trim() };
-  }
-
-  if (!value || typeof value !== "object") {
-    return null;
-  }
-
-  const record = value as Record<string, unknown>;
-  const text = typeof record.text === "string" ? record.text.trim() : "";
-
-  if (!text) {
-    return null;
-  }
-
-  return {
-    text,
-    type: normalizeChunkType(record.type),
-  };
-}
-
-function normalizeAiTranslationChunk(value: unknown): ParsedAiTranslationChunk | null {
-  if (!value || typeof value !== "object") {
-    if (typeof value === "string" && value.trim()) {
-      return { text: value.trim() };
-    }
-
-    return null;
-  }
-
-  const record = value as Record<string, unknown>;
-  const text = typeof record.text === "string" ? record.text.trim() : "";
-
-  if (!text) {
-    return null;
-  }
-
-  return {
-    text,
-    type: normalizeChunkType(record.type),
-    sourceOrdinals: normalizeNumberArray(record.sourceOrdinals),
-    sourceOriginalOrdinals: normalizeNumberArray(record.sourceOriginalOrdinals),
-  };
-}
-
-function normalizeChunkType(value: unknown): ChunkType | undefined {
-  return value === "verse" || value === "prose" ? value : undefined;
-}
-
-function normalizeNumberArray(value: unknown): number[] | undefined {
-  if (!Array.isArray(value)) {
-    return undefined;
-  }
-
-  const normalized = value.map((entry) => Number(entry)).filter((entry) => Number.isInteger(entry) && entry > 0);
-
-  return normalized.length > 0 ? normalized : undefined;
-}
-
-function normalizeSourceOrdinals(value: number[] | undefined, maxOrdinal: number, translationIndex: number): number[] {
-  const normalized = [...new Set((value ?? []).filter((entry) => entry <= maxOrdinal))].sort(
-    (left, right) => left - right,
-  );
-
-  if (normalized.length > 0) {
-    return normalized;
-  }
-
-  return [Math.min(translationIndex + 1, maxOrdinal)];
-}
-
-function inferChunkType(text: string): ChunkType {
-  return text.includes("\n") ? "verse" : "prose";
-}
-
-function extractJsonObject(raw: string): string {
-  const codeBlockMatch = raw.match(/```(?:json)?\s*([\s\S]*?)```/i);
-
-  if (codeBlockMatch?.[1]) {
-    return codeBlockMatch[1].trim();
-  }
-
-  const firstBrace = raw.indexOf("{");
-  const lastBrace = raw.lastIndexOf("}");
-
-  if (firstBrace === -1 || lastBrace === -1 || lastBrace <= firstBrace) {
-    throw new Error("AI response does not contain a JSON object.");
-  }
-
-  return raw.slice(firstBrace, lastBrace + 1).trim();
-}
-
-function slugify(value: string): string {
-  return (
-    value
-      .toLowerCase()
-      .trim()
-      .replace(/[^a-z0-9]+/g, "-")
-      .replace(/^-+|-+$/g, "")
-      .slice(0, 80) || "untitled"
-  );
-}
-
-function isPresent<T>(value: T | null | undefined): value is T {
-  return value != null;
-}
-
-export { buildOriginalChapterKey, buildTranslationChapterKey };

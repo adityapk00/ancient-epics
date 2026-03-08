@@ -6,6 +6,7 @@ import type {
   AdminTranslationDetail,
   AdminTranslationSummary,
   AdminTranslationValidationPayload,
+  ThinkingLevel,
   ApiResponse,
   BookDetail,
   BookSummary,
@@ -72,6 +73,7 @@ export const api = {
       slug?: string;
       description?: string;
       model: string;
+      thinkingLevel?: ThinkingLevel | null;
       prompt: string;
       contextBeforeChapterCount?: number;
       contextAfterChapterCount?: number;
@@ -87,6 +89,7 @@ export const api = {
       description?: string;
       status?: "draft" | "generating" | "ready" | "published" | "failed";
       model?: string;
+      thinkingLevel?: ThinkingLevel | null;
       prompt?: string;
       contextBeforeChapterCount?: number;
       contextAfterChapterCount?: number;
@@ -101,6 +104,7 @@ export const api = {
     sourceBookSlug?: string;
     translationId?: string;
     model: string;
+    thinkingLevel?: ThinkingLevel | null;
     prompt: string;
     contextBeforeChapterCount?: number;
     contextAfterChapterCount?: number;
@@ -119,6 +123,7 @@ export const api = {
     body: {
       title?: string;
       model?: string;
+      thinkingLevel?: ThinkingLevel | null;
       prompt?: string;
       contextBeforeChapterCount?: number;
       contextAfterChapterCount?: number;

@@ -97,6 +97,7 @@ CREATE TABLE admin_ingestion_sessions (
     source_book_slug TEXT,
     translation_id TEXT REFERENCES translations(id),
     model TEXT NOT NULL,
+    thinking_level TEXT CHECK (thinking_level IN ('none', 'minimal', 'low', 'medium', 'high', 'xhigh')),
     prompt TEXT NOT NULL,
     context_before_chapter_count INTEGER NOT NULL DEFAULT 1,
     context_after_chapter_count INTEGER NOT NULL DEFAULT 1,

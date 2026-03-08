@@ -29,6 +29,15 @@ type ChapterEditorState = {
 
 const DEFAULT_MODEL = "openai/gpt-4o-mini";
 const DEFAULT_HEADING_PATTERN = "^(book|chapter|canto|scroll)\\b.*$";
+const THINKING_LEVEL_OPTIONS = [
+  { value: "", label: "Default" },
+  { value: "none", label: "Off" },
+  { value: "minimal", label: "Minimal" },
+  { value: "low", label: "Low" },
+  { value: "medium", label: "Medium" },
+  { value: "high", label: "High" },
+  { value: "xhigh", label: "X-High" },
+] as const;
 
 export default function App() {
   const [screen, setScreen] = useState<AdminScreen>("books");
@@ -68,6 +77,7 @@ export default function App() {
   const [translationSlug, setTranslationSlug] = useState("");
   const [translationDescription, setTranslationDescription] = useState("");
   const [translationModel, setTranslationModel] = useState(DEFAULT_MODEL);
+  const [translationThinkingLevel, setTranslationThinkingLevel] = useState("");
   const [translationPrompt, setTranslationPrompt] = useState("");
   const [contextBeforeChapterCount, setContextBeforeChapterCount] = useState("1");
   const [contextAfterChapterCount, setContextAfterChapterCount] = useState("1");
@@ -94,6 +104,7 @@ export default function App() {
         slug: translationSlug.trim(),
         description: translationDescription.trim(),
         model: translationModel.trim(),
+        thinkingLevel: normalizeThinkingLevelValue(translationThinkingLevel),
         prompt: translationPrompt,
         contextBeforeChapterCount: Number(contextBeforeChapterCount || 0),
         contextAfterChapterCount: Number(contextAfterChapterCount || 0),
@@ -107,6 +118,7 @@ export default function App() {
     translationDescription,
     translationModel,
     translationPrompt,
+    translationThinkingLevel,
     translationSlug,
     translationTitle,
   ]);
@@ -194,6 +206,7 @@ export default function App() {
     setTranslationSlug("");
     setTranslationDescription("");
     setTranslationModel(settingsModel);
+    setTranslationThinkingLevel("");
     setTranslationPrompt(settingsPrompt);
     setContextBeforeChapterCount("1");
     setContextAfterChapterCount("1");
@@ -401,6 +414,7 @@ export default function App() {
         slug: translationSlug || undefined,
         description: translationDescription || undefined,
         model: translationModel,
+        thinkingLevel: normalizeThinkingLevelValue(translationThinkingLevel),
         prompt: translationPrompt,
         contextBeforeChapterCount: Number(contextBeforeChapterCount || 0),
         contextAfterChapterCount: Number(contextAfterChapterCount || 0),
@@ -445,6 +459,7 @@ export default function App() {
     setTranslationSlug(translation.slug);
     setTranslationDescription(translation.description ?? "");
     setTranslationModel(translation.currentSession?.model ?? DEFAULT_MODEL);
+    setTranslationThinkingLevel(translation.currentSession?.thinkingLevel ?? "");
     setTranslationPrompt(translation.currentSession?.prompt ?? translation.aiSystemPrompt ?? "");
     setContextBeforeChapterCount(String(translation.currentSession?.contextBeforeChapterCount ?? 1));
     setContextAfterChapterCount(String(translation.currentSession?.contextAfterChapterCount ?? 1));
@@ -466,6 +481,7 @@ export default function App() {
       slug: translationSlug || activeTranslation.slug,
       description: translationDescription,
       model: translationModel,
+      thinkingLevel: normalizeThinkingLevelValue(translationThinkingLevel),
       prompt: translationPrompt,
       status: extra?.status,
       contextBeforeChapterCount: Number(contextBeforeChapterCount || 0),
@@ -893,6 +909,14 @@ export default function App() {
                       <p className="mt-2 text-sm leading-7 text-ink/70">
                         {translation.description || "No description yet."}
                       </p>
+                      <div className="mt-4 flex flex-wrap gap-2 text-xs font-semibold uppercase tracking-[0.14em] text-ink/65">
+                        <span className="rounded-full border border-border/70 bg-white/75 px-3 py-1">
+                          {translation.latestSession?.model ?? DEFAULT_MODEL}
+                        </span>
+                        <span className="rounded-full border border-border/70 bg-white/75 px-3 py-1">
+                          {formatThinkingSummary(translation.latestSession)}
+                        </span>
+                      </div>
                       <div className="mt-4 grid grid-cols-2 gap-3 text-sm text-ink/70">
                         <Metric label="Saved" value={`${translation.savedChapterCount}/${translation.chapterCount}`} />
                         <Metric label="Generated" value={String(translation.generatedChapterCount)} />
@@ -930,16 +954,17 @@ export default function App() {
                         value={translationDescription}
                         onChange={setTranslationDescription}
                       />
-                      <InputField label="Model" value={translationModel} onChange={setTranslationModel} />
-                      <InputField
-                        label="Context Before Chapters"
-                        value={contextBeforeChapterCount}
-                        onChange={setContextBeforeChapterCount}
-                      />
-                      <InputField
-                        label="Context After Chapters"
-                        value={contextAfterChapterCount}
-                        onChange={setContextAfterChapterCount}
+                    </div>
+                    <div className="mt-4">
+                      <TranslationAiSettingsRow
+                        model={translationModel}
+                        onModelChange={setTranslationModel}
+                        contextBeforeChapterCount={contextBeforeChapterCount}
+                        onContextBeforeChapterCountChange={setContextBeforeChapterCount}
+                        contextAfterChapterCount={contextAfterChapterCount}
+                        onContextAfterChapterCountChange={setContextAfterChapterCount}
+                        thinkingLevel={translationThinkingLevel}
+                        onThinkingLevelChange={setTranslationThinkingLevel}
                       />
                     </div>
                     <div className="mt-4">
@@ -1007,16 +1032,17 @@ export default function App() {
                   <InputField label="Translation Name" value={translationTitle} onChange={setTranslationTitle} />
                   <InputField label="Slug" value={translationSlug} onChange={setTranslationSlug} />
                   <InputField label="Description" value={translationDescription} onChange={setTranslationDescription} />
-                  <InputField label="Model" value={translationModel} onChange={setTranslationModel} />
-                  <InputField
-                    label="Context Before Chapters"
-                    value={contextBeforeChapterCount}
-                    onChange={setContextBeforeChapterCount}
-                  />
-                  <InputField
-                    label="Context After Chapters"
-                    value={contextAfterChapterCount}
-                    onChange={setContextAfterChapterCount}
+                </div>
+                <div className="mt-4">
+                  <TranslationAiSettingsRow
+                    model={translationModel}
+                    onModelChange={setTranslationModel}
+                    contextBeforeChapterCount={contextBeforeChapterCount}
+                    onContextBeforeChapterCountChange={setContextBeforeChapterCount}
+                    contextAfterChapterCount={contextAfterChapterCount}
+                    onContextAfterChapterCountChange={setContextAfterChapterCount}
+                    thinkingLevel={translationThinkingLevel}
+                    onThinkingLevelChange={setTranslationThinkingLevel}
                   />
                 </div>
                 <div className="mt-4">
@@ -1286,6 +1312,57 @@ function Panel({ title, children }: { title: string; children: React.ReactNode }
   );
 }
 
+function TranslationAiSettingsRow({
+  model,
+  onModelChange,
+  contextBeforeChapterCount,
+  onContextBeforeChapterCountChange,
+  contextAfterChapterCount,
+  onContextAfterChapterCountChange,
+  thinkingLevel,
+  onThinkingLevelChange,
+}: {
+  model: string;
+  onModelChange: (value: string) => void;
+  contextBeforeChapterCount: string;
+  onContextBeforeChapterCountChange: (value: string) => void;
+  contextAfterChapterCount: string;
+  onContextAfterChapterCountChange: (value: string) => void;
+  thinkingLevel: string;
+  onThinkingLevelChange: (value: string) => void;
+}) {
+  return (
+    <div className="rounded-2xl border border-border/70 bg-paper/70 p-4">
+      <p className="text-xs font-semibold uppercase tracking-[0.18em] text-accent">AI Settings</p>
+      <div className="mt-3 grid gap-3 md:grid-cols-2 xl:grid-cols-[minmax(0,2fr)_repeat(3,minmax(0,1fr))]">
+        <CompactInputField label="Model" value={model} onChange={onModelChange} className="xl:col-span-2" />
+        <CompactInputField
+          label="Context Before"
+          value={contextBeforeChapterCount}
+          onChange={onContextBeforeChapterCountChange}
+        />
+        <CompactInputField
+          label="Context After"
+          value={contextAfterChapterCount}
+          onChange={onContextAfterChapterCountChange}
+        />
+        <div className="grid gap-2">
+          <span className="text-xs font-semibold uppercase tracking-[0.18em] text-accent">Thinking Level</span>
+          <CompactSelect
+            value={thinkingLevel}
+            onChange={onThinkingLevelChange}
+            options={THINKING_LEVEL_OPTIONS.map((option) => ({
+              value: option.value,
+              label: option.label,
+            }))}
+            ariaLabel="Thinking level"
+          />
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function InputField({
   label,
   value,
@@ -1305,6 +1382,32 @@ function InputField({
         value={value}
         onChange={(event) => onChange(event.target.value)}
         className="rounded-2xl border border-border/70 bg-paper/70 px-4 py-3 text-base text-ink outline-none transition focus:border-accent"
+      />
+    </label>
+  );
+}
+
+function CompactInputField({
+  label,
+  value,
+  onChange,
+  placeholder,
+  className,
+}: {
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+  placeholder?: string;
+  className?: string;
+}) {
+  return (
+    <label className={`grid gap-2 ${className ?? ""}`.trim()}>
+      <span className="text-xs font-semibold uppercase tracking-[0.18em] text-accent">{label}</span>
+      <input
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+        placeholder={placeholder}
+        className="rounded-xl border border-border/70 bg-white/85 px-3 py-2 text-sm text-ink outline-none transition focus:border-accent"
       />
     </label>
   );
@@ -1759,6 +1862,41 @@ function buildChapterEditorState(chapter: AdminIngestionChapterRecord): ChapterE
   };
 }
 
+function normalizeThinkingLevelValue(
+  value: string,
+): "none" | "minimal" | "low" | "medium" | "high" | "xhigh" | null {
+  const trimmed = value.trim();
+
+  if (!trimmed) {
+    return null;
+  }
+
+  if (THINKING_LEVEL_OPTIONS.some((option) => option.value === trimmed)) {
+    return trimmed as "none" | "minimal" | "low" | "medium" | "high" | "xhigh";
+  }
+
+  return null;
+}
+
+function formatThinkingSummary(
+  session:
+    | {
+        thinkingLevel: string | null;
+      }
+    | null
+    | undefined,
+): string {
+  if (!session?.thinkingLevel) {
+    return "Thinking default";
+  }
+
+  if (session.thinkingLevel === "none") {
+    return "Thinking off";
+  }
+
+  return `Thinking ${session.thinkingLevel}`;
+}
+
 function buildTranslationMetadataSnapshot(input: {
   activeTranslation: AdminTranslationDetail;
   activeSession: AdminTranslationDetail["currentSession"];
@@ -1768,6 +1906,7 @@ function buildTranslationMetadataSnapshot(input: {
     slug: input.activeTranslation.slug.trim(),
     description: (input.activeTranslation.description ?? "").trim(),
     model: (input.activeSession?.model ?? DEFAULT_MODEL).trim(),
+    thinkingLevel: input.activeSession?.thinkingLevel ?? null,
     prompt: input.activeSession?.prompt ?? input.activeTranslation.aiSystemPrompt ?? "",
     contextBeforeChapterCount: input.activeSession?.contextBeforeChapterCount ?? 1,
     contextAfterChapterCount: input.activeSession?.contextAfterChapterCount ?? 1,

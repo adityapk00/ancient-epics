@@ -16,6 +16,8 @@ export type AdminIngestionSourceMode = "paste" | "existing_story";
 
 export type AdminIngestionChapterStatus = "pending" | "generated" | "saved" | "error";
 
+export type ThinkingLevel = "none" | "minimal" | "low" | "medium" | "high" | "xhigh";
+
 // ── R2 document shapes ──────────────────────────────────────
 
 export interface TextChunk {
@@ -175,6 +177,7 @@ export interface AdminIngestionSessionSummary {
   sourceBookSlug: string | null;
   translationId: string | null;
   model: string;
+  thinkingLevel: ThinkingLevel | null;
   contextBeforeChapterCount: number;
   contextAfterChapterCount: number;
   currentChapterIndex: number;
