@@ -1185,7 +1185,7 @@ export default function App() {
                   </Panel>
 
                   <Panel title="Structured Chapter Review">
-                    <div className="grid gap-4 lg:grid-cols-2">
+                    <div className="grid gap-3 lg:grid-cols-2">
                       <InputField
                         label="Chapter Title"
                         value={chapterEditor.chapterTitle}
@@ -1208,9 +1208,8 @@ export default function App() {
                         rows={3}
                       />
                     </div>
-                    <section className="mt-6 grid gap-6 xl:grid-cols-2">
-                      <ChunkEditor
-                        title="Original Chunks"
+                    <section className="mt-4 space-y-4">
+                      <CompactOriginalChunkList
                         chunks={chapterEditor.originalChunks}
                         onChange={(chunks) =>
                           updateChapterEditor((current) => ({
@@ -1219,10 +1218,9 @@ export default function App() {
                           }))
                         }
                       />
-                      <TranslationChunkEditor
-                        title="Translation Chunks"
+                      <AlignedTranslationReview
+                        originalChunks={chapterEditor.originalChunks}
                         chunks={chapterEditor.translationChunks}
-                        sourceChunkCount={chapterEditor.originalChunks.length}
                         onChange={(chunks) =>
                           updateChapterEditor((current) => ({
                             ...current,
@@ -1234,7 +1232,7 @@ export default function App() {
                     <button
                       type="button"
                       onClick={() => setShowRawJsonEditor((current) => !current)}
-                      className="mt-6 text-sm font-semibold text-accent"
+                      className="mt-4 text-sm font-semibold text-accent"
                     >
                       {showRawJsonEditor ? "Hide raw JSON" : "Show raw JSON"}
                     </button>
@@ -1606,34 +1604,36 @@ function StatusPill({ status }: { status: string }) {
   );
 }
 
-function ChunkEditor({
-  title,
+function CompactOriginalChunkList({
   chunks,
   onChange,
 }: {
-  title: string;
   chunks: Array<{ text: string; type: "prose" | "verse" }>;
   onChange: (chunks: Array<{ text: string; type: "prose" | "verse" }>) => void;
 }) {
   return (
-    <div className="rounded-2xl border border-border/70 bg-paper/75 p-4">
-      <p className="text-xs font-semibold uppercase tracking-[0.18em] text-accent">
-        {title}
-      </p>
-      <div className="mt-4 space-y-4">
+    <div className="rounded-2xl border border-border/70 bg-paper/70 p-4">
+      <div className="flex items-center justify-between gap-3">
+        <p className="text-xs font-semibold uppercase tracking-[0.18em] text-accent">
+          Original Chunk Bank
+        </p>
+        <MiniButton
+          label="Add Original Chunk"
+          onClick={() => onChange([...chunks, { text: "", type: "prose" }])}
+        />
+      </div>
+      <div className="mt-3 space-y-2">
         {chunks.map((chunk, index) => (
           <div
-            key={`${title}-${index}`}
-            className="rounded-2xl border border-border/50 bg-white/80 p-3"
+            key={`original-${index}`}
+            className="grid gap-3 rounded-xl border border-border/50 bg-white/65 p-3 lg:grid-cols-[96px_1fr_auto]"
           >
-            <div className="grid gap-3 lg:grid-cols-[1fr_auto_auto]">
-              <SegmentedControl
-                label={`Chunk ${index + 1} Type`}
+            <div className="space-y-2">
+              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-accent/80">
+                c{index + 1}
+              </p>
+              <CompactSelect
                 value={chunk.type}
-                options={[
-                  { value: "prose", label: "Prose" },
-                  { value: "verse", label: "Verse" },
-                ]}
                 onChange={(value) =>
                   onChange(
                     chunks.map((entry, chunkIndex) =>
@@ -1643,7 +1643,28 @@ function ChunkEditor({
                     ),
                   )
                 }
+                options={[
+                  { value: "prose", label: "Prose" },
+                  { value: "verse", label: "Verse" },
+                ]}
+                ariaLabel={`Original chunk ${index + 1} type`}
               />
+            </div>
+            <textarea
+              rows={3}
+              value={chunk.text}
+              onChange={(event) =>
+                onChange(
+                  chunks.map((entry, chunkIndex) =>
+                    chunkIndex === index
+                      ? { ...entry, text: event.target.value }
+                      : entry,
+                  ),
+                )
+              }
+              className="rounded-xl border border-border/60 bg-paper/65 px-3 py-2 text-sm leading-6 text-ink outline-none transition focus:border-accent"
+            />
+            <div className="flex flex-wrap items-start gap-2 lg:justify-end">
               <MiniButton
                 label="Add Below"
                 onClick={() =>
@@ -1656,22 +1677,10 @@ function ChunkEditor({
               />
               <MiniButton
                 label="Delete"
-                onClick={() => onChange(chunks.filter((_, chunkIndex) => chunkIndex !== index))}
-                disabled={chunks.length === 1}
-              />
-            </div>
-            <div className="mt-3">
-              <TextareaField
-                label="Text"
-                value={chunk.text}
-                onChange={(value) =>
-                  onChange(
-                    chunks.map((entry, chunkIndex) =>
-                      chunkIndex === index ? { ...entry, text: value } : entry,
-                    ),
-                  )
+                onClick={() =>
+                  onChange(chunks.filter((_, chunkIndex) => chunkIndex !== index))
                 }
-                rows={5}
+                disabled={chunks.length === 1}
               />
             </div>
           </div>
@@ -1681,19 +1690,17 @@ function ChunkEditor({
   );
 }
 
-function TranslationChunkEditor({
-  title,
+function AlignedTranslationReview({
+  originalChunks,
   chunks,
-  sourceChunkCount,
   onChange,
 }: {
-  title: string;
+  originalChunks: Array<{ text: string; type: "prose" | "verse" }>;
   chunks: Array<{
     text: string;
     type: "prose" | "verse";
     sourceChunkIds: string[];
   }>;
-  sourceChunkCount: number;
   onChange: (
     chunks: Array<{
       text: string;
@@ -1702,105 +1709,178 @@ function TranslationChunkEditor({
     }>,
   ) => void;
 }) {
-  const sourceOptions = Array.from({ length: sourceChunkCount }, (_, index) => `c${index + 1}`);
+  const sourceOptions = Array.from(
+    { length: originalChunks.length },
+    (_, index) => `c${index + 1}`,
+  );
 
   return (
-    <div className="rounded-2xl border border-border/70 bg-paper/75 p-4">
-      <p className="text-xs font-semibold uppercase tracking-[0.18em] text-accent">
-        {title}
-      </p>
-      <div className="mt-4 space-y-4">
-        {chunks.map((chunk, index) => (
-          <div
-            key={`${title}-${index}`}
-            className="rounded-2xl border border-border/50 bg-white/80 p-3"
-          >
-            <div className="grid gap-3 lg:grid-cols-[1fr_auto_auto]">
-              <SegmentedControl
-                label={`Chunk ${index + 1} Type`}
-                value={chunk.type}
-                options={[
-                  { value: "prose", label: "Prose" },
-                  { value: "verse", label: "Verse" },
-                ]}
-                onChange={(value) =>
-                  onChange(
-                    chunks.map((entry, chunkIndex) =>
-                      chunkIndex === index
-                        ? { ...entry, type: value as "prose" | "verse" }
-                        : entry,
-                    ),
-                  )
-                }
-              />
-              <MiniButton
-                label="Add Below"
-                onClick={() =>
-                  onChange([
-                    ...chunks.slice(0, index + 1),
-                    {
-                      text: "",
-                      type: chunk.type,
-                      sourceChunkIds: chunk.sourceChunkIds,
-                    },
-                    ...chunks.slice(index + 1),
-                  ])
-                }
-              />
-              <MiniButton
-                label="Delete"
-                onClick={() => onChange(chunks.filter((_, chunkIndex) => chunkIndex !== index))}
-                disabled={chunks.length === 1}
-              />
-            </div>
-            <div className="mt-3 flex flex-wrap gap-2">
-              {sourceOptions.map((sourceChunkId) => {
-                const active = chunk.sourceChunkIds.includes(sourceChunkId);
-                return (
-                  <button
-                    key={`${index}-${sourceChunkId}`}
-                    type="button"
-                    onClick={() =>
+    <div className="rounded-2xl border border-border/70 bg-paper/70 p-4">
+      <div className="flex items-center justify-between gap-3">
+        <p className="text-xs font-semibold uppercase tracking-[0.18em] text-accent">
+          Aligned Translation Review
+        </p>
+        <MiniButton
+          label="Add Translation Chunk"
+          onClick={() =>
+            onChange([
+              ...chunks,
+              {
+                text: "",
+                type: "prose",
+                sourceChunkIds: [sourceOptions[0] ?? "c1"],
+              },
+            ])
+          }
+        />
+      </div>
+      <div className="mt-3 space-y-3">
+        {chunks.map((chunk, index) => {
+          const sourceChunks = chunk.sourceChunkIds
+            .map((chunkId) => {
+              const sourceIndex = Number(chunkId.replace(/^c/, "")) - 1;
+              const sourceChunk = originalChunks[sourceIndex];
+              return sourceChunk ? { id: chunkId, ...sourceChunk } : null;
+            })
+            .filter(isPresent);
+
+          return (
+            <div
+              key={`translation-${index}`}
+              className="grid gap-4 rounded-xl border border-border/50 bg-white/45 p-4 xl:grid-cols-[minmax(0,0.95fr)_minmax(0,1.05fr)]"
+            >
+              <div className="min-w-0 border-r border-border/35 pr-4 xl:pr-5">
+                <div className="flex items-center justify-between gap-3">
+                  <p className="text-xs font-semibold uppercase tracking-[0.18em] text-accent/80">
+                    Source
+                  </p>
+                </div>
+                <div className="mt-3 space-y-3">
+                  {sourceChunks.map((sourceChunk) => (
+                    <div key={`${index}-${sourceChunk.id}`}>
+                      <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-accent/75">
+                        {sourceChunk.id} · {sourceChunk.type}
+                      </p>
+                      <p className="mt-1 whitespace-pre-wrap font-display text-xl leading-8 text-ink">
+                        {sourceChunk.text || "No source text yet."}
+                      </p>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              <div className="min-w-0">
+                <div className="flex flex-wrap items-center gap-2">
+                  <p className="mr-1 text-xs font-semibold uppercase tracking-[0.18em] text-accent/80">
+                    T{index + 1}
+                  </p>
+                  <CompactSelect
+                    value={chunk.sourceChunkIds[0] ?? ""}
+                    onChange={(value) =>
                       onChange(
                         chunks.map((entry, chunkIndex) =>
                           chunkIndex === index
                             ? {
                                 ...entry,
-                                sourceChunkIds: active
-                                  ? entry.sourceChunkIds.filter((id) => id !== sourceChunkId)
-                                  : [...entry.sourceChunkIds, sourceChunkId],
+                                sourceChunkIds: value ? [value] : [],
                               }
                             : entry,
                         ),
                       )
                     }
-                    className={`rounded-full px-3 py-2 text-xs font-semibold ${
-                      active ? "bg-accent text-paper" : "border border-border/70 text-ink"
-                    }`}
-                  >
-                    {sourceChunkId}
-                  </button>
-                );
-              })}
+                    options={sourceOptions.map((option) => ({
+                      value: option,
+                      label: option,
+                    }))}
+                    ariaLabel={`Source chunk for translation ${index + 1}`}
+                  />
+                  <CompactSelect
+                    value={chunk.type}
+                    onChange={(value) =>
+                      onChange(
+                        chunks.map((entry, chunkIndex) =>
+                          chunkIndex === index
+                            ? { ...entry, type: value as "prose" | "verse" }
+                            : entry,
+                        ),
+                      )
+                    }
+                    options={[
+                      { value: "prose", label: "Prose" },
+                      { value: "verse", label: "Verse" },
+                    ]}
+                    ariaLabel={`Chunk type for translation ${index + 1}`}
+                  />
+                  <MiniButton
+                    label="Add Below"
+                    onClick={() =>
+                      onChange([
+                        ...chunks.slice(0, index + 1),
+                        {
+                          text: "",
+                          type: chunk.type,
+                          sourceChunkIds: chunk.sourceChunkIds,
+                        },
+                        ...chunks.slice(index + 1),
+                      ])
+                    }
+                  />
+                  <MiniButton
+                    label="Delete"
+                    onClick={() =>
+                      onChange(chunks.filter((_, chunkIndex) => chunkIndex !== index))
+                    }
+                    disabled={chunks.length === 1}
+                  />
+                </div>
+
+                <textarea
+                  rows={5}
+                  value={chunk.text}
+                  onChange={(event) =>
+                    onChange(
+                      chunks.map((entry, chunkIndex) =>
+                        chunkIndex === index
+                          ? { ...entry, text: event.target.value }
+                          : entry,
+                      ),
+                    )
+                  }
+                  className="mt-3 w-full rounded-xl border border-border/60 bg-paper/65 px-3 py-2 text-base leading-7 text-ink outline-none transition focus:border-accent"
+                />
+              </div>
             </div>
-            <div className="mt-3">
-              <TextareaField
-                label="Translation Text"
-                value={chunk.text}
-                onChange={(value) =>
-                  onChange(
-                    chunks.map((entry, chunkIndex) =>
-                      chunkIndex === index ? { ...entry, text: value } : entry,
-                    ),
-                  )
-                }
-                rows={5}
-              />
-            </div>
-          </div>
-        ))}
+          );
+        })}
       </div>
     </div>
+  );
+}
+
+function CompactSelect({
+  value,
+  onChange,
+  options,
+  ariaLabel,
+}: {
+  value: string;
+  onChange: (value: string) => void;
+  options: Array<{ value: string; label: string }>;
+  ariaLabel: string;
+}) {
+  return (
+    <select
+      value={value}
+      aria-label={ariaLabel}
+      onChange={(event) => onChange(event.target.value)}
+      className="rounded-full border border-border/70 bg-paper/60 px-3 py-1.5 text-sm font-semibold text-ink outline-none transition focus:border-accent"
+    >
+      {options.map((option) => (
+        <option key={option.value} value={option.value}>
+          {option.label}
+        </option>
+      ))}
+    </select>
   );
 }
 
