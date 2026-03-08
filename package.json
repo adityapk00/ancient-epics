@@ -12,6 +12,7 @@
     "format:check": "prettier . --check",
     "seed:local": "pnpm --filter @ancient-epics/api seed:local",
     "seed:nuke": "pnpm --filter @ancient-epics/api seed:nuke",
+    "export:local": "pnpm --filter @ancient-epics/api export:local",
     "smoke": "pnpm --filter @ancient-epics/api smoke"
   },
   "devDependencies": {
