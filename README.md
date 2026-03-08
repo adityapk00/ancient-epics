@@ -87,6 +87,7 @@ packages/
 
 ## Environment Configuration
 
+- Local seed keys: `pnpm seed:local` reads `OPENROUTER_API_KEY` and `GEMINI_API_KEY` from the repo root `.env` and seeds them into local `app_settings`.
 - Frontend: copy apps/web/.env.example to apps/web/.env if you want to override the API origin.
 - API: copy apps/api/.dev.vars.example to apps/api/.dev.vars and add local secrets.
 

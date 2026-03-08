@@ -1,5 +1,7 @@
 DELETE FROM translation_jobs;
 DELETE FROM notes;
+DELETE FROM admin_ingestion_chapters;
+DELETE FROM admin_ingestion_sessions;
 DELETE FROM users;
 DELETE FROM translations;
 DELETE FROM chapters;
