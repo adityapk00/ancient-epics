@@ -8,6 +8,8 @@
     "build": "pnpm -r build",
     "lint": "pnpm -r lint",
     "typecheck": "pnpm -r typecheck",
+    "format": "prettier . --write",
+    "format:check": "prettier . --check",
     "seed:local": "pnpm --filter @ancient-epics/api seed:local",
     "seed:nuke": "pnpm --filter @ancient-epics/api seed:nuke",
     "smoke": "pnpm --filter @ancient-epics/api smoke"
@@ -20,6 +22,7 @@
     "eslint-plugin-react-hooks": "^5.2.0",
     "eslint-plugin-react-refresh": "^0.4.19",
     "globals": "^15.15.0",
+    "prettier": "^3.5.3",
     "typescript": "^5.8.2",
     "typescript-eslint": "^8.26.0"
   }

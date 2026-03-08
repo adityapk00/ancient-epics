@@ -83,11 +83,7 @@ spawnSync("node", [path.join(apiRoot, "scripts", "seed-local.mjs")], {
 });
 
 console.log(`🚀  Starting Wrangler dev server on port ${PORT}…`);
-const server = spawn(
-  "pnpm",
-  ["exec", "wrangler", "dev", "--port", String(PORT)],
-  { cwd: apiRoot, stdio: "pipe" },
-);
+const server = spawn("pnpm", ["exec", "wrangler", "dev", "--port", String(PORT)], { cwd: apiRoot, stdio: "pipe" });
 
 // Wait for "Ready" message before running tests
 let ready = false;
@@ -135,16 +131,8 @@ try {
 
     const iliad = json.data.books.find((b) => b.slug === "iliad");
     assert("iliad exists in list", !!iliad);
-    assert(
-      'iliad has status "published"',
-      iliad?.status === "published",
-      `got "${iliad?.status}"`,
-    );
-    assert(
-      "iliad has NO isPublished field",
-      iliad?.isPublished === undefined,
-      "legacy field still present",
-    );
+    assert('iliad has status "published"', iliad?.status === "published", `got "${iliad?.status}"`);
+    assert("iliad has NO isPublished field", iliad?.isPublished === undefined, "legacy field still present");
   }
 
   // ── Public Book Detail ──
@@ -157,11 +145,7 @@ try {
 
     const ch = json.data.chapters?.[0];
     assert("chapter has status field", typeof ch?.status === "string");
-    assert(
-      "chapter has NO isPublished field",
-      ch?.isPublished === undefined,
-      "legacy field still present on chapter",
-    );
+    assert("chapter has NO isPublished field", ch?.isPublished === undefined, "legacy field still present on chapter");
 
     const tr = json.data.translations?.[0];
     assert("translation has status field", typeof tr?.status === "string");
@@ -175,10 +159,7 @@ try {
   // ── Chapter + R2 original ──
   console.log("\n─── Chapter Content ───");
   {
-    const { status, json } = await api(
-      "GET",
-      "/api/books/iliad/chapters/book-1-the-rage",
-    );
+    const { status, json } = await api("GET", "/api/books/iliad/chapters/book-1-the-rage");
     assert("GET chapter returns 200", status === 200);
     assert("original has chunks array", Array.isArray(json.data?.original?.chunks));
 
@@ -192,27 +173,15 @@ try {
   // ── Translation content ──
   console.log("\n─── Translation Content ───");
   {
-    const { status, json } = await api(
-      "GET",
-      "/api/books/iliad/chapters/book-1-the-rage/translations/verse-meaning",
-    );
+    const { status, json } = await api("GET", "/api/books/iliad/chapters/book-1-the-rage/translations/verse-meaning");
     assert("GET translation returns 200", status === 200);
-    assert(
-      "translation has chunks array",
-      Array.isArray(json.data?.content?.chunks),
-    );
-    assert(
-      "first translation chunk has id",
-      typeof json.data?.content?.chunks?.[0]?.id === "string",
-    );
+    assert("translation has chunks array", Array.isArray(json.data?.content?.chunks));
+    assert("first translation chunk has id", typeof json.data?.content?.chunks?.[0]?.id === "string");
     assert(
       "first translation chunk has source anchors",
       Array.isArray(json.data?.content?.chunks?.[0]?.sourceChunkIds),
     );
-    assert(
-      "first translation chunk has text",
-      typeof json.data?.content?.chunks?.[0]?.text === "string",
-    );
+    assert("first translation chunk has text", typeof json.data?.content?.chunks?.[0]?.text === "string");
   }
 
   // ── 404 for non-existent book ──
@@ -228,22 +197,10 @@ try {
   {
     const { status, json } = await api("GET", "/api/admin/settings");
     assert("GET /api/admin/settings returns 200", status === 200);
-    assert(
-      "settings has openrouter_api_key",
-      json.data?.settings?.openrouter_api_key !== undefined,
-    );
-    assert(
-      "settings has default_translation_model",
-      json.data?.settings?.default_translation_model !== undefined,
-    );
-    assert(
-      "settings has admin_ingestion_model",
-      json.data?.settings?.admin_ingestion_model !== undefined,
-    );
-    assert(
-      "settings has admin_ingestion_prompt",
-      json.data?.settings?.admin_ingestion_prompt !== undefined,
-    );
+    assert("settings has openrouter_api_key", json.data?.settings?.openrouter_api_key !== undefined);
+    assert("settings has default_translation_model", json.data?.settings?.default_translation_model !== undefined);
+    assert("settings has admin_ingestion_model", json.data?.settings?.admin_ingestion_model !== undefined);
+    assert("settings has admin_ingestion_prompt", json.data?.settings?.admin_ingestion_prompt !== undefined);
   }
 
   // ── Admin Settings PUT ──
@@ -260,19 +217,9 @@ try {
 
     // Read back
     const { json: after } = await api("GET", "/api/admin/settings");
-    assert(
-      "API key persisted",
-      after.data?.settings?.openrouter_api_key === "sk-or-smoke-test",
-    );
-    assert(
-      "model persisted",
-      after.data?.settings?.default_translation_model ===
-        "anthropic/claude-3.5-sonnet",
-    );
-    assert(
-      "admin ingestion model persisted",
-      after.data?.settings?.admin_ingestion_model === "openai/gpt-4o-mini",
-    );
+    assert("API key persisted", after.data?.settings?.openrouter_api_key === "sk-or-smoke-test");
+    assert("model persisted", after.data?.settings?.default_translation_model === "anthropic/claude-3.5-sonnet");
+    assert("admin ingestion model persisted", after.data?.settings?.admin_ingestion_model === "openai/gpt-4o-mini");
   }
 
   // ── Admin Books (includes drafts) ──
@@ -288,10 +235,7 @@ try {
     const { status, json } = await api("GET", "/api/admin/books/iliad");
     assert("GET /api/admin/books/iliad returns 200", status === 200);
     assert("admin book detail has chapters", json.data?.chapters?.length > 0);
-    assert(
-      "admin book detail has translations",
-      json.data?.translations?.length > 0,
-    );
+    assert("admin book detail has translations", json.data?.translations?.length > 0);
   }
 
   {
@@ -321,10 +265,7 @@ try {
     const { status, json } = await api("GET", "/api/admin/ingestion/bootstrap");
     assert("GET /api/admin/ingestion/bootstrap returns 200", status === 200);
     assert("ingestion bootstrap has books", json.data?.books?.length > 0);
-    assert(
-      "ingestion bootstrap has prompt setting",
-      typeof json.data?.settings?.admin_ingestion_prompt === "string",
-    );
+    assert("ingestion bootstrap has prompt setting", typeof json.data?.settings?.admin_ingestion_prompt === "string");
   }
 
   {
@@ -371,19 +312,11 @@ try {
       ],
     });
 
-    const saveResult = await api(
-      "PUT",
-      `/api/admin/ingestion/sessions/${sessionId}/chapters/0/save`,
-      { rawResponse: reviewedResponse },
-    );
-    assert(
-      "saving reviewed chapter returns 200",
-      saveResult.status === 200,
-    );
-    assert(
-      "saved chapter is marked saved",
-      saveResult.json.data?.chapter?.status === "saved",
-    );
+    const saveResult = await api("PUT", `/api/admin/ingestion/sessions/${sessionId}/chapters/0/save`, {
+      rawResponse: reviewedResponse,
+    });
+    assert("saving reviewed chapter returns 200", saveResult.status === 200);
+    assert("saved chapter is marked saved", saveResult.json.data?.chapter?.status === "saved");
     assert(
       "saved chapter has normalized original chunks",
       saveResult.json.data?.chapter?.originalDocument?.chunks?.length === 2,
@@ -392,60 +325,32 @@ try {
       "saved chapter has normalized translation chunks",
       saveResult.json.data?.chapter?.translationDocument?.chunks?.length === 1,
     );
-    assert(
-      "session advances to the next chapter",
-      saveResult.json.data?.session?.currentChapterIndex === 1,
-    );
-
+    assert("session advances to the next chapter", saveResult.json.data?.session?.currentChapterIndex === 1);
   }
 
   {
-    const createTranslationResult = await api(
-      "POST",
-      "/api/admin/books/iliad/translations",
-      {
-        title: "Smoke Iliad Translation",
-        slug: "smoke-iliad-translation",
-        description: "Created during smoke validation.",
-        model: "openai/gpt-4o-mini",
-        prompt: "Return JSON only.",
-        contextBeforeChapterCount: 1,
-        contextAfterChapterCount: 0,
-      },
-    );
-    assert(
-      "POST book translation returns 201",
-      createTranslationResult.status === 201,
-    );
+    const createTranslationResult = await api("POST", "/api/admin/books/iliad/translations", {
+      title: "Smoke Iliad Translation",
+      slug: "smoke-iliad-translation",
+      description: "Created during smoke validation.",
+      model: "openai/gpt-4o-mini",
+      prompt: "Return JSON only.",
+      contextBeforeChapterCount: 1,
+      contextAfterChapterCount: 0,
+    });
+    assert("POST book translation returns 201", createTranslationResult.status === 201);
 
     const linkedTranslationId = createTranslationResult.json.data?.id;
-    const translationsResult = await api(
-      "GET",
-      "/api/admin/books/iliad/translations",
-    );
-    assert(
-      "translations list returns 200",
-      translationsResult.status === 200,
-    );
+    const translationsResult = await api("GET", "/api/admin/books/iliad/translations");
+    assert("translations list returns 200", translationsResult.status === 200);
     assert(
       "translations include the linked translation",
-      translationsResult.json.data?.translations?.some(
-        (translation) => translation.id === linkedTranslationId,
-      ),
+      translationsResult.json.data?.translations?.some((translation) => translation.id === linkedTranslationId),
     );
 
-    const validationResult = await api(
-      "GET",
-      `/api/admin/translations/${linkedTranslationId}/validate`,
-    );
-    assert(
-      "validate translation returns 200",
-      validationResult.status === 200,
-    );
-    assert(
-      "validation payload has chapters",
-      validationResult.json.data?.chapters?.length > 0,
-    );
+    const validationResult = await api("GET", `/api/admin/translations/${linkedTranslationId}/validate`);
+    assert("validate translation returns 200", validationResult.status === 200);
+    assert("validation payload has chapters", validationResult.json.data?.chapters?.length > 0);
   }
 } finally {
   // ── Teardown ─────────────────────────────────────────────────

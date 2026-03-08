@@ -31,13 +31,10 @@ export function splitSourceTextIntoChapters(input: {
       .split(delimiter)
       .map((section) => section.trim())
       .filter(Boolean)
-      .map((section, index) =>
-        createChapterInput(index, `Chapter ${index + 1}`, section),
-      );
+      .map((section, index) => createChapterInput(index, `Chapter ${index + 1}`, section));
   }
 
-  const pattern =
-    input.headingPattern.trim() || "^(book|chapter|canto|scroll)\\b.*$";
+  const pattern = input.headingPattern.trim() || "^(book|chapter|canto|scroll)\\b.*$";
   const matcher = new RegExp(pattern, "i");
   const lines = rawText.split(/\r?\n/);
   const chapters: Array<{ title: string; lines: string[] }> = [];
@@ -64,17 +61,11 @@ export function splitSourceTextIntoChapters(input: {
   }
 
   return chapters
-    .map((chapter, index) =>
-      createChapterInput(index, chapter.title, chapter.lines.join("\n").trim()),
-    )
+    .map((chapter, index) => createChapterInput(index, chapter.title, chapter.lines.join("\n").trim()))
     .filter((chapter) => chapter.sourceText.length > 0);
 }
 
-function createChapterInput(
-  position: number,
-  title: string,
-  sourceText: string,
-): SplitChapterInput {
+function createChapterInput(position: number, title: string, sourceText: string): SplitChapterInput {
   return {
     position,
     title,

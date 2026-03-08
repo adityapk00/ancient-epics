@@ -210,10 +210,7 @@ app.get("/api/books/:bookSlug", async (c) => {
     .first<BookSummary>();
 
   if (!book) {
-    return c.json(
-      failure("not_found", `Book '${bookSlug}' was not found.`),
-      404,
-    );
+    return c.json(failure("not_found", `Book '${bookSlug}' was not found.`), 404);
   }
 
   const [chaptersResult, translationsResult] = await Promise.all([
@@ -288,17 +285,11 @@ app.get("/api/books/:bookSlug/chapters/:chapterSlug", async (c) => {
     .first<AdminBookChapterRow>();
 
   if (!chapter) {
-    return c.json(
-      failure("not_found", `Chapter '${chapterSlug}' was not found.`),
-      404,
-    );
+    return c.json(failure("not_found", `Chapter '${chapterSlug}' was not found.`), 404);
   }
 
   const [original, translationsResult] = await Promise.all([
-    readObjectJson<OriginalChapterDocument>(
-      c.env.CONTENT_BUCKET,
-      chapter.sourceR2Key,
-    ),
+    readObjectJson<OriginalChapterDocument>(c.env.CONTENT_BUCKET, chapter.sourceR2Key),
     c.env.DB.prepare(
       `
         SELECT
@@ -319,10 +310,7 @@ app.get("/api/books/:bookSlug/chapters/:chapterSlug", async (c) => {
 
   if (!original) {
     return c.json(
-      failure(
-        "missing_content",
-        `Original chapter asset '${chapter.sourceR2Key}' is missing from R2.`,
-      ),
+      failure("missing_content", `Original chapter asset '${chapter.sourceR2Key}' is missing from R2.`),
       500,
     );
   }
@@ -336,15 +324,13 @@ app.get("/api/books/:bookSlug/chapters/:chapterSlug", async (c) => {
   return c.json(success(payload));
 });
 
-app.get(
-  "/api/books/:bookSlug/chapters/:chapterSlug/translations/:translationSlug",
-  async (c) => {
-    const bookSlug = c.req.param("bookSlug");
-    const chapterSlug = c.req.param("chapterSlug");
-    const translationSlug = c.req.param("translationSlug");
+app.get("/api/books/:bookSlug/chapters/:chapterSlug/translations/:translationSlug", async (c) => {
+  const bookSlug = c.req.param("bookSlug");
+  const chapterSlug = c.req.param("chapterSlug");
+  const translationSlug = c.req.param("translationSlug");
 
-    const translation = await c.env.DB.prepare(
-      `
+  const translation = await c.env.DB.prepare(
+    `
       SELECT
         translations.id,
         translations.slug,
@@ -358,45 +344,28 @@ app.get(
         AND translations.slug = ?
         AND books.status = 'published'
     `,
-    )
-      .bind(bookSlug, translationSlug)
-      .first<TranslationSummary>();
+  )
+    .bind(bookSlug, translationSlug)
+    .first<TranslationSummary>();
 
-    if (!translation) {
-      return c.json(
-        failure("not_found", `Translation '${translationSlug}' was not found.`),
-        404,
-      );
-    }
+  if (!translation) {
+    return c.json(failure("not_found", `Translation '${translationSlug}' was not found.`), 404);
+  }
 
-    const translationKey = buildTranslationChapterKey(
-      bookSlug,
-      chapterSlug,
-      translationSlug,
-    );
-    const content = await readObjectJson<TranslationChapterDocument>(
-      c.env.CONTENT_BUCKET,
-      translationKey,
-    );
+  const translationKey = buildTranslationChapterKey(bookSlug, chapterSlug, translationSlug);
+  const content = await readObjectJson<TranslationChapterDocument>(c.env.CONTENT_BUCKET, translationKey);
 
-    if (!content) {
-      return c.json(
-        failure(
-          "missing_content",
-          `Translation asset '${translationKey}' is missing from R2.`,
-        ),
-        500,
-      );
-    }
+  if (!content) {
+    return c.json(failure("missing_content", `Translation asset '${translationKey}' is missing from R2.`), 500);
+  }
 
-    const payload: TranslationPayload = {
-      translation,
-      content,
-    };
+  const payload: TranslationPayload = {
+    translation,
+    content,
+  };
 
-    return c.json(success(payload));
-  },
-);
+  return c.json(success(payload));
+});
 
 app.get("/api/admin/settings", async (c) => {
   const settings = await getSettingsMap(c.env.DB);
@@ -407,10 +376,7 @@ app.put("/api/admin/settings", async (c) => {
   const body = await c.req.json<{ settings: Record<string, string> }>();
 
   if (!body.settings || typeof body.settings !== "object") {
-    return c.json(
-      failure("bad_request", "Body must contain a `settings` object."),
-      400,
-    );
+    return c.json(failure("bad_request", "Body must contain a `settings` object."), 400);
   }
 
   const now = new Date().toISOString();
@@ -473,10 +439,7 @@ app.get("/api/admin/books/:bookSlug", async (c) => {
     .first<BookSummary>();
 
   if (!book) {
-    return c.json(
-      failure("not_found", `Book '${bookSlug}' was not found.`),
-      404,
-    );
+    return c.json(failure("not_found", `Book '${bookSlug}' was not found.`), 404);
   }
 
   const [chaptersResult, translationsResult] = await Promise.all([
@@ -550,10 +513,7 @@ app.post("/api/admin/books", async (c) => {
       }));
 
     if (normalizedChapters.length === 0) {
-      return c.json(
-        failure("bad_request", "At least one chapter is required."),
-        400,
-      );
+      return c.json(failure("bad_request", "At least one chapter is required."), 400);
     }
 
     const bookId = crypto.randomUUID();
@@ -591,17 +551,9 @@ app.post("/api/admin/books", async (c) => {
 
     for (const chapter of normalizedChapters) {
       const sourceR2Key = buildOriginalChapterKey(bookSlug, chapter.slug);
-      const originalDocument = buildInitialOriginalDocument(
-        bookSlug,
-        chapter.slug,
-        chapter.sourceText,
-      );
+      const originalDocument = buildInitialOriginalDocument(bookSlug, chapter.slug, chapter.sourceText);
 
-      await writeObjectJson(
-        c.env.CONTENT_BUCKET,
-        sourceR2Key,
-        originalDocument,
-      );
+      await writeObjectJson(c.env.CONTENT_BUCKET, sourceR2Key, originalDocument);
 
       await c.env.DB.prepare(
         `
@@ -620,53 +572,24 @@ app.post("/api/admin/books", async (c) => {
           ) VALUES (?, ?, ?, ?, ?, 0, ?, 'draft', ?, ?, NULL)
         `,
       )
-        .bind(
-          crypto.randomUUID(),
-          bookId,
-          chapter.slug,
-          chapter.position,
-          chapter.title,
-          sourceR2Key,
-          now,
-          now,
-        )
+        .bind(crypto.randomUUID(), bookId, chapter.slug, chapter.position, chapter.title, sourceR2Key, now, now)
         .run();
     }
 
-    const payload = await getAdminBookSourcePayload(
-      c.env.DB,
-      c.env.CONTENT_BUCKET,
-      bookSlug,
-    );
+    const payload = await getAdminBookSourcePayload(c.env.DB, c.env.CONTENT_BUCKET, bookSlug);
 
     if (!payload) {
-      return c.json(
-        failure(
-          "internal_error",
-          "Book was created but could not be reloaded.",
-        ),
-        500,
-      );
+      return c.json(failure("internal_error", "Book was created but could not be reloaded."), 500);
     }
 
     return c.json(success(payload), 201);
   } catch (error) {
-    return c.json(
-      failure(
-        "bad_request",
-        error instanceof Error ? error.message : "Failed to create book.",
-      ),
-      400,
-    );
+    return c.json(failure("bad_request", error instanceof Error ? error.message : "Failed to create book."), 400);
   }
 });
 
 app.get("/api/admin/books/:bookSlug/source", async (c) => {
-  const payload = await getAdminBookSourcePayload(
-    c.env.DB,
-    c.env.CONTENT_BUCKET,
-    c.req.param("bookSlug"),
-  );
+  const payload = await getAdminBookSourcePayload(c.env.DB, c.env.CONTENT_BUCKET, c.req.param("bookSlug"));
 
   if (!payload) {
     return c.json(failure("not_found", "Book was not found."), 404);
@@ -676,10 +599,7 @@ app.get("/api/admin/books/:bookSlug/source", async (c) => {
 });
 
 app.get("/api/admin/books/:bookSlug/translations", async (c) => {
-  const translations = await listAdminTranslations(
-    c.env.DB,
-    c.req.param("bookSlug"),
-  );
+  const translations = await listAdminTranslations(c.env.DB, c.req.param("bookSlug"));
   return c.json(success({ translations }));
 });
 
@@ -697,10 +617,7 @@ app.post("/api/admin/books/:bookSlug/translations", async (c) => {
     }>();
 
     if (!body.title?.trim()) {
-      return c.json(
-        failure("bad_request", "A translation name is required."),
-        400,
-      );
+      return c.json(failure("bad_request", "A translation name is required."), 400);
     }
 
     if (!body.model?.trim()) {
@@ -711,9 +628,7 @@ app.post("/api/admin/books/:bookSlug/translations", async (c) => {
       return c.json(failure("bad_request", "A prompt is required."), 400);
     }
 
-    const book = await c.env.DB.prepare(
-      `SELECT id, slug FROM books WHERE slug = ?`,
-    )
+    const book = await c.env.DB.prepare(`SELECT id, slug FROM books WHERE slug = ?`)
       .bind(bookSlug)
       .first<{ id: string; slug: string }>();
 
@@ -768,46 +683,26 @@ app.post("/api/admin/books/:bookSlug/translations", async (c) => {
     });
 
     if (!session) {
-      return c.json(
-        failure(
-          "internal_error",
-          "Translation was created but could not be reloaded.",
-        ),
-        500,
-      );
+      return c.json(failure("internal_error", "Translation was created but could not be reloaded."), 500);
     }
 
     const translation = await getAdminTranslationDetail(c.env.DB, translationId);
 
     if (!translation) {
-      return c.json(
-        failure(
-          "internal_error",
-          "Translation was created but could not be reloaded.",
-        ),
-        500,
-      );
+      return c.json(failure("internal_error", "Translation was created but could not be reloaded."), 500);
     }
 
     return c.json(success(translation), 201);
   } catch (error) {
     return c.json(
-      failure(
-        "bad_request",
-        error instanceof Error
-          ? error.message
-          : "Failed to create translation.",
-      ),
+      failure("bad_request", error instanceof Error ? error.message : "Failed to create translation."),
       400,
     );
   }
 });
 
 app.get("/api/admin/translations/:translationId", async (c) => {
-  const translation = await getAdminTranslationDetail(
-    c.env.DB,
-    c.req.param("translationId"),
-  );
+  const translation = await getAdminTranslationDetail(c.env.DB, c.req.param("translationId"));
 
   if (!translation) {
     return c.json(failure("not_found", "Translation was not found."), 404);
@@ -839,10 +734,7 @@ app.put("/api/admin/translations/:translationId", async (c) => {
   const now = new Date().toISOString();
   const nextName = body.name?.trim() || existing.name;
   const nextSlug = slugify(body.slug || existing.slug);
-  const nextDescription =
-    typeof body.description === "string"
-      ? body.description.trim() || null
-      : existing.description;
+  const nextDescription = typeof body.description === "string" ? body.description.trim() || null : existing.description;
   const nextStatus =
     body.status && ["draft", "generating", "ready", "published", "failed"].includes(body.status)
       ? body.status
@@ -850,25 +742,20 @@ app.put("/api/admin/translations/:translationId", async (c) => {
   const nextPrompt = body.prompt?.trim() || existing.aiSystemPrompt || "";
   const nextModel = body.model?.trim() || existing.latestSession?.model || "openai/gpt-4o-mini";
   const nextContextBeforeChapterCount =
-    typeof body.contextBeforeChapterCount === "number" &&
-    body.contextBeforeChapterCount >= 0
+    typeof body.contextBeforeChapterCount === "number" && body.contextBeforeChapterCount >= 0
       ? body.contextBeforeChapterCount
-      : existing.latestSession?.contextBeforeChapterCount ?? 1;
+      : (existing.latestSession?.contextBeforeChapterCount ?? 1);
   const nextContextAfterChapterCount =
-    typeof body.contextAfterChapterCount === "number" &&
-    body.contextAfterChapterCount >= 0
+    typeof body.contextAfterChapterCount === "number" && body.contextAfterChapterCount >= 0
       ? body.contextAfterChapterCount
-      : existing.latestSession?.contextAfterChapterCount ?? 1;
+      : (existing.latestSession?.contextAfterChapterCount ?? 1);
   const nextCurrentChapterIndex =
     typeof body.currentChapterIndex === "number" && body.currentChapterIndex >= 0
       ? body.currentChapterIndex
-      : existing.currentSession?.currentChapterIndex ??
-        existing.latestSession?.currentChapterIndex ??
-        0;
+      : (existing.currentSession?.currentChapterIndex ?? existing.latestSession?.currentChapterIndex ?? 0);
 
-  await c.env.DB
-    .prepare(
-      `
+  await c.env.DB.prepare(
+    `
         UPDATE translations
         SET slug = ?,
             name = ?,
@@ -879,7 +766,7 @@ app.put("/api/admin/translations/:translationId", async (c) => {
             updated_at = ?
         WHERE id = ?
       `,
-    )
+  )
     .bind(
       nextSlug,
       nextName,
@@ -893,9 +780,8 @@ app.put("/api/admin/translations/:translationId", async (c) => {
     .run();
 
   if (existing.currentSession) {
-    await c.env.DB
-      .prepare(
-        `
+    await c.env.DB.prepare(
+      `
           UPDATE admin_ingestion_sessions
           SET title = ?,
               model = ?,
@@ -906,7 +792,7 @@ app.put("/api/admin/translations/:translationId", async (c) => {
               updated_at = ?
           WHERE id = ?
         `,
-      )
+    )
       .bind(
         nextName,
         nextModel,
@@ -923,29 +809,17 @@ app.put("/api/admin/translations/:translationId", async (c) => {
   const updated = await getAdminTranslationDetail(c.env.DB, translationId);
 
   if (!updated) {
-    return c.json(
-      failure(
-        "internal_error",
-        "Translation was updated but could not be reloaded.",
-      ),
-      500,
-    );
+    return c.json(failure("internal_error", "Translation was updated but could not be reloaded."), 500);
   }
 
   return c.json(success(updated));
 });
 
 app.get("/api/admin/translations/:translationId/validate", async (c) => {
-  const payload = await validateTranslation(
-    c.env.DB,
-    c.req.param("translationId"),
-  );
+  const payload = await validateTranslation(c.env.DB, c.req.param("translationId"));
 
   if (!payload) {
-    return c.json(
-      failure("not_found", "Translation was not found."),
-      404,
-    );
+    return c.json(failure("not_found", "Translation was not found."), 404);
   }
 
   return c.json(success(payload));
@@ -982,10 +856,7 @@ app.post("/api/admin/ingestion/sessions", async (c) => {
     }>();
 
     if (!body.title?.trim()) {
-      return c.json(
-        failure("bad_request", "A session title is required."),
-        400,
-      );
+      return c.json(failure("bad_request", "A session title is required."), 400);
     }
 
     if (!body.model?.trim()) {
@@ -997,32 +868,16 @@ app.post("/api/admin/ingestion/sessions", async (c) => {
     }
 
     if (body.sourceMode !== "paste" && body.sourceMode !== "existing_story") {
-      return c.json(
-        failure(
-          "bad_request",
-          "sourceMode must be 'paste' or 'existing_story'.",
-        ),
-        400,
-      );
+      return c.json(failure("bad_request", "sourceMode must be 'paste' or 'existing_story'."), 400);
     }
 
     const chapters =
       body.sourceMode === "existing_story"
-        ? await buildChapterInputsFromExistingStory(
-            c.env.DB,
-            c.env.CONTENT_BUCKET,
-            body.sourceBookSlug,
-          )
+        ? await buildChapterInputsFromExistingStory(c.env.DB, c.env.CONTENT_BUCKET, body.sourceBookSlug)
         : normalizePastedChapterInputs(body.chapters ?? []);
 
     if (chapters.length === 0) {
-      return c.json(
-        failure(
-          "bad_request",
-          "At least one chapter is required to create a session.",
-        ),
-        400,
-      );
+      return c.json(failure("bad_request", "At least one chapter is required to create a session."), 400);
     }
 
     const now = new Date().toISOString();
@@ -1096,32 +951,17 @@ app.post("/api/admin/ingestion/sessions", async (c) => {
     const detail = await getAdminIngestionSessionDetail(c.env.DB, sessionId);
 
     if (!detail) {
-      return c.json(
-        failure(
-          "internal_error",
-          "Session was created but could not be reloaded.",
-        ),
-        500,
-      );
+      return c.json(failure("internal_error", "Session was created but could not be reloaded."), 500);
     }
 
     return c.json(success(detail), 201);
   } catch (error) {
-    return c.json(
-      failure(
-        "bad_request",
-        error instanceof Error ? error.message : "Failed to create session.",
-      ),
-      400,
-    );
+    return c.json(failure("bad_request", error instanceof Error ? error.message : "Failed to create session."), 400);
   }
 });
 
 app.get("/api/admin/ingestion/sessions/:sessionId", async (c) => {
-  const detail = await getAdminIngestionSessionDetail(
-    c.env.DB,
-    c.req.param("sessionId"),
-  );
+  const detail = await getAdminIngestionSessionDetail(c.env.DB, c.req.param("sessionId"));
 
   if (!detail) {
     return c.json(failure("not_found", "Session was not found."), 404);
@@ -1151,18 +991,15 @@ app.put("/api/admin/ingestion/sessions/:sessionId", async (c) => {
   const nextModel = body.model?.trim() || existing.model;
   const nextPrompt = body.prompt?.trim() || existing.prompt;
   const nextContextBeforeChapterCount =
-    typeof body.contextBeforeChapterCount === "number" &&
-    body.contextBeforeChapterCount >= 0
+    typeof body.contextBeforeChapterCount === "number" && body.contextBeforeChapterCount >= 0
       ? body.contextBeforeChapterCount
       : existing.contextBeforeChapterCount;
   const nextContextAfterChapterCount =
-    typeof body.contextAfterChapterCount === "number" &&
-    body.contextAfterChapterCount >= 0
+    typeof body.contextAfterChapterCount === "number" && body.contextAfterChapterCount >= 0
       ? body.contextAfterChapterCount
       : existing.contextAfterChapterCount;
   const nextCurrentChapterIndex =
-    typeof body.currentChapterIndex === "number" &&
-    body.currentChapterIndex >= 0
+    typeof body.currentChapterIndex === "number" && body.currentChapterIndex >= 0
       ? body.currentChapterIndex
       : existing.currentChapterIndex;
 
@@ -1188,128 +1025,19 @@ app.put("/api/admin/ingestion/sessions/:sessionId", async (c) => {
   const detail = await getAdminIngestionSessionDetail(c.env.DB, sessionId);
 
   if (!detail) {
-    return c.json(
-      failure(
-        "internal_error",
-        "Session was updated but could not be reloaded.",
-      ),
-      500,
-    );
+    return c.json(failure("internal_error", "Session was updated but could not be reloaded."), 500);
   }
 
   return c.json(success(detail));
 });
 
-app.post(
-  "/api/admin/ingestion/sessions/:sessionId/chapters/:position/generate",
-  async (c) => {
-    try {
-      const sessionId = c.req.param("sessionId");
-      const position = Number(c.req.param("position"));
-
-      if (!Number.isInteger(position) || position < 0) {
-        return c.json(
-          failure("bad_request", "Chapter position is invalid."),
-          400,
-        );
-      }
-
-      const detail = await getAdminIngestionSessionDetail(c.env.DB, sessionId);
-
-      if (!detail) {
-        return c.json(failure("not_found", "Session was not found."), 404);
-      }
-
-      const chapter = detail.chapters.find(
-        (entry) => entry.position === position,
-      );
-
-      if (!chapter) {
-        return c.json(failure("not_found", "Chapter was not found."), 404);
-      }
-
-      const settings = await getSettingsMap(c.env.DB);
-      const apiKey = settings[APP_SETTING_KEYS.OPENROUTER_API_KEY]?.trim();
-
-      if (!apiKey) {
-        return c.json(
-          failure(
-            "missing_api_key",
-            "Set openrouter_api_key in admin settings before generating chapters.",
-          ),
-          400,
-        );
-      }
-
-      const previousChapters = detail.chapters
-        .filter(
-          (entry) =>
-            entry.position < position &&
-            entry.position >= position - detail.contextBeforeChapterCount,
-        )
-        .sort((left, right) => left.position - right.position);
-      const nextChapters = detail.chapters
-        .filter(
-          (entry) =>
-            entry.position > position &&
-            entry.position <= position + detail.contextAfterChapterCount,
-        )
-        .sort((left, right) => left.position - right.position);
-
-      const rawResponse = await generateChapterWithOpenRouter({
-        apiKey,
-        model: detail.model,
-        prompt: detail.prompt,
-        session: detail,
-        chapter,
-        previousChapters,
-        nextChapters,
-        publicAppUrl: c.env.PUBLIC_APP_URL,
-      });
-
-      const updatedChapter = await persistGeneratedChapter({
-        db: c.env.DB,
-        session: detail,
-        chapter,
-        rawResponse,
-        statusOnSuccess: "generated",
-      });
-
-      return c.json(success({ chapter: updatedChapter }));
-    } catch (error) {
-      return c.json(
-        failure(
-          "generation_failed",
-          error instanceof Error ? error.message : "Chapter generation failed.",
-        ),
-        500,
-      );
-    }
-  },
-);
-
-app.put(
-  "/api/admin/ingestion/sessions/:sessionId/chapters/:position/save",
-  async (c) => {
+app.post("/api/admin/ingestion/sessions/:sessionId/chapters/:position/generate", async (c) => {
+  try {
     const sessionId = c.req.param("sessionId");
     const position = Number(c.req.param("position"));
-    const body = await c.req.json<{ rawResponse?: string }>();
 
     if (!Number.isInteger(position) || position < 0) {
-      return c.json(
-        failure("bad_request", "Chapter position is invalid."),
-        400,
-      );
-    }
-
-    if (!body.rawResponse?.trim()) {
-      return c.json(
-        failure(
-          "bad_request",
-          "rawResponse is required when saving a chapter.",
-        ),
-        400,
-      );
+      return c.json(failure("bad_request", "Chapter position is invalid."), 400);
     }
 
     const detail = await getAdminIngestionSessionDetail(c.env.DB, sessionId);
@@ -1318,46 +1046,110 @@ app.put(
       return c.json(failure("not_found", "Session was not found."), 404);
     }
 
-    const chapter = detail.chapters.find(
-      (entry) => entry.position === position,
-    );
+    const chapter = detail.chapters.find((entry) => entry.position === position);
 
     if (!chapter) {
       return c.json(failure("not_found", "Chapter was not found."), 404);
     }
 
-    const updatedChapter = await persistGeneratedChapter({
-      db: c.env.DB,
-      bucket: c.env.CONTENT_BUCKET,
+    const settings = await getSettingsMap(c.env.DB);
+    const apiKey = settings[APP_SETTING_KEYS.OPENROUTER_API_KEY]?.trim();
+
+    if (!apiKey) {
+      return c.json(
+        failure("missing_api_key", "Set openrouter_api_key in admin settings before generating chapters."),
+        400,
+      );
+    }
+
+    const previousChapters = detail.chapters
+      .filter((entry) => entry.position < position && entry.position >= position - detail.contextBeforeChapterCount)
+      .sort((left, right) => left.position - right.position);
+    const nextChapters = detail.chapters
+      .filter((entry) => entry.position > position && entry.position <= position + detail.contextAfterChapterCount)
+      .sort((left, right) => left.position - right.position);
+
+    const rawResponse = await generateChapterWithOpenRouter({
+      apiKey,
+      model: detail.model,
+      prompt: detail.prompt,
       session: detail,
       chapter,
-      rawResponse: body.rawResponse,
-      statusOnSuccess: "saved",
+      previousChapters,
+      nextChapters,
+      publicAppUrl: c.env.PUBLIC_APP_URL,
     });
 
-    await c.env.DB.prepare(
-      `
+    const updatedChapter = await persistGeneratedChapter({
+      db: c.env.DB,
+      session: detail,
+      chapter,
+      rawResponse,
+      statusOnSuccess: "generated",
+    });
+
+    return c.json(success({ chapter: updatedChapter }));
+  } catch (error) {
+    return c.json(
+      failure("generation_failed", error instanceof Error ? error.message : "Chapter generation failed."),
+      500,
+    );
+  }
+});
+
+app.put("/api/admin/ingestion/sessions/:sessionId/chapters/:position/save", async (c) => {
+  const sessionId = c.req.param("sessionId");
+  const position = Number(c.req.param("position"));
+  const body = await c.req.json<{ rawResponse?: string }>();
+
+  if (!Number.isInteger(position) || position < 0) {
+    return c.json(failure("bad_request", "Chapter position is invalid."), 400);
+  }
+
+  if (!body.rawResponse?.trim()) {
+    return c.json(failure("bad_request", "rawResponse is required when saving a chapter."), 400);
+  }
+
+  const detail = await getAdminIngestionSessionDetail(c.env.DB, sessionId);
+
+  if (!detail) {
+    return c.json(failure("not_found", "Session was not found."), 404);
+  }
+
+  const chapter = detail.chapters.find((entry) => entry.position === position);
+
+  if (!chapter) {
+    return c.json(failure("not_found", "Chapter was not found."), 404);
+  }
+
+  const updatedChapter = await persistGeneratedChapter({
+    db: c.env.DB,
+    bucket: c.env.CONTENT_BUCKET,
+    session: detail,
+    chapter,
+    rawResponse: body.rawResponse,
+    statusOnSuccess: "saved",
+  });
+
+  await c.env.DB.prepare(
+    `
         UPDATE admin_ingestion_sessions
         SET current_chapter_index = ?, updated_at = ?
         WHERE id = ?
       `,
-    )
-      .bind(position + 1, new Date().toISOString(), sessionId)
-      .run();
+  )
+    .bind(position + 1, new Date().toISOString(), sessionId)
+    .run();
 
-    const updatedSession = await getAdminIngestionSessionDetail(
-      c.env.DB,
-      sessionId,
-    );
+  const updatedSession = await getAdminIngestionSessionDetail(c.env.DB, sessionId);
 
-    return c.json(
-      success({
-        chapter: updatedChapter,
-        session: updatedSession,
-      }),
-    );
-  },
-);
+  return c.json(
+    success({
+      chapter: updatedChapter,
+      session: updatedSession,
+    }),
+  );
+});
 
 app.notFound((c) => {
   return c.json(failure("not_found", "Route not found."), 404);
@@ -1382,10 +1174,7 @@ function failure(code: string, message: string): ApiFailure {
   };
 }
 
-async function readObjectJson<T>(
-  bucket: R2Bucket,
-  key: string,
-): Promise<T | null> {
+async function readObjectJson<T>(bucket: R2Bucket, key: string): Promise<T | null> {
   const object = await bucket.get(key);
 
   if (!object) {
@@ -1396,9 +1185,7 @@ async function readObjectJson<T>(
 }
 
 async function getSettingsMap(db: D1Database): Promise<Record<string, string>> {
-  const results = await db
-    .prepare(`SELECT key, value, updated_at AS updatedAt FROM app_settings`)
-    .all<AppSetting>();
+  const results = await db.prepare(`SELECT key, value, updated_at AS updatedAt FROM app_settings`).all<AppSetting>();
 
   const settings: Record<string, string> = {};
   for (const row of results.results ?? []) {
@@ -1408,9 +1195,7 @@ async function getSettingsMap(db: D1Database): Promise<Record<string, string>> {
   return settings;
 }
 
-async function listAdminBookWorkflowSummaries(
-  db: D1Database,
-): Promise<AdminBookWorkflowSummary[]> {
+async function listAdminBookWorkflowSummaries(db: D1Database): Promise<AdminBookWorkflowSummary[]> {
   const results = await db
     .prepare(
       `
@@ -1466,10 +1251,7 @@ async function listAdminBookWorkflowSummaries(
   }));
 }
 
-async function listAdminTranslations(
-  db: D1Database,
-  bookSlug: string,
-): Promise<AdminTranslationSummary[]> {
+async function listAdminTranslations(db: D1Database, bookSlug: string): Promise<AdminTranslationSummary[]> {
   const translationRows = await db
     .prepare(
       `
@@ -1584,15 +1366,11 @@ async function hydrateTranslationSummaries(
 
   const latestSessions = await Promise.all(
     rows.map((row) =>
-      row.latestSessionId
-        ? getAdminIngestionSessionSummaryById(db, row.latestSessionId)
-        : Promise.resolve(null),
+      row.latestSessionId ? getAdminIngestionSessionSummaryById(db, row.latestSessionId) : Promise.resolve(null),
     ),
   );
 
-  const counts = await Promise.all(
-    rows.map((row) => countTranslationProgress(db, row.id)),
-  );
+  const counts = await Promise.all(rows.map((row) => countTranslationProgress(db, row.id)));
 
   return rows.map((row, index) => {
     const count = counts[index] ?? {
@@ -1835,9 +1613,7 @@ async function getAdminIngestionSessionDetail(
     .bind(sessionId)
     .all<AdminIngestionChapterRow>();
 
-  const chapters = (chapterResults.results ?? []).map(
-    mapAdminIngestionChapterRecord,
-  );
+  const chapters = (chapterResults.results ?? []).map(mapAdminIngestionChapterRecord);
 
   return {
     ...mapAdminIngestionSessionSummary({
@@ -1849,9 +1625,7 @@ async function getAdminIngestionSessionDetail(
   };
 }
 
-function mapAdminIngestionSessionSummary(
-  row: AdminIngestionSessionRow,
-): AdminIngestionSessionSummary {
+function mapAdminIngestionSessionSummary(row: AdminIngestionSessionRow): AdminIngestionSessionSummary {
   return {
     id: row.id,
     title: row.title,
@@ -1868,9 +1642,7 @@ function mapAdminIngestionSessionSummary(
   };
 }
 
-function mapAdminIngestionChapterRecord(
-  row: AdminIngestionChapterRow,
-): AdminIngestionChapterRecord {
+function mapAdminIngestionChapterRecord(row: AdminIngestionChapterRow): AdminIngestionChapterRecord {
   return {
     id: row.id,
     position: Number(row.position),
@@ -1880,12 +1652,8 @@ function mapAdminIngestionChapterRecord(
     sourceChapterSlug: row.sourceChapterSlug,
     status: row.status,
     rawResponse: row.rawResponse,
-    originalDocument: parseJsonOrNull<OriginalChapterDocument>(
-      row.originalDocumentJson,
-    ),
-    translationDocument: parseJsonOrNull<TranslationChapterDocument>(
-      row.translationDocumentJson,
-    ),
+    originalDocument: parseJsonOrNull<OriginalChapterDocument>(row.originalDocumentJson),
+    translationDocument: parseJsonOrNull<TranslationChapterDocument>(row.translationDocumentJson),
     notes: row.notes,
     errorMessage: row.errorMessage,
     updatedAt: row.updatedAt,
@@ -1900,9 +1668,7 @@ function parseJsonOrNull<T>(value: string | null): T | null {
   return JSON.parse(value) as T;
 }
 
-function normalizePastedChapterInputs(
-  chapters: AdminIngestionChapterInput[],
-): AdminIngestionChapterInput[] {
+function normalizePastedChapterInputs(chapters: AdminIngestionChapterInput[]): AdminIngestionChapterInput[] {
   return chapters
     .filter((chapter) => chapter.sourceText.trim().length > 0)
     .map((chapter, index) => ({
@@ -1920,9 +1686,7 @@ async function buildChapterInputsFromExistingStory(
   sourceBookSlug: string | undefined,
 ): Promise<AdminIngestionChapterInput[]> {
   if (!sourceBookSlug?.trim()) {
-    throw new Error(
-      "sourceBookSlug is required when using existing_story mode.",
-    );
+    throw new Error("sourceBookSlug is required when using existing_story mode.");
   }
 
   const book = await db
@@ -1958,15 +1722,10 @@ async function buildChapterInputsFromExistingStory(
   const inputs: AdminIngestionChapterInput[] = [];
 
   for (const [index, chapter] of chapters.entries()) {
-    const original = await readObjectJson<OriginalChapterDocument>(
-      bucket,
-      chapter.sourceR2Key,
-    );
+    const original = await readObjectJson<OriginalChapterDocument>(bucket, chapter.sourceR2Key);
 
     if (!original) {
-      throw new Error(
-        `Original chapter asset '${chapter.sourceR2Key}' is missing from R2.`,
-      );
+      throw new Error(`Original chapter asset '${chapter.sourceR2Key}' is missing from R2.`);
     }
 
     inputs.push({
@@ -2062,10 +1821,7 @@ async function getAdminBookSourcePayload(
   const sourceChapterInputs: AdminBookChapterInput[] = [];
 
   for (const chapter of chapters) {
-    const original = await readObjectJson<OriginalChapterDocument>(
-      bucket,
-      chapter.sourceR2Key,
-    );
+    const original = await readObjectJson<OriginalChapterDocument>(bucket, chapter.sourceR2Key);
 
     sourceChapterInputs.push({
       position: chapter.position,
@@ -2100,11 +1856,7 @@ function buildInitialOriginalDocument(
     .map((chunk) => chunk.trim())
     .filter(Boolean);
   const useVerse = lines.length > 1 && lines.length >= paragraphs.length * 2;
-  const rawChunks = useVerse
-    ? lines
-    : paragraphs.length > 0
-      ? paragraphs
-      : [normalized];
+  const rawChunks = useVerse ? lines : paragraphs.length > 0 ? paragraphs : [normalized];
 
   return {
     bookSlug,
@@ -2118,11 +1870,7 @@ function buildInitialOriginalDocument(
   };
 }
 
-async function writeObjectJson(
-  bucket: R2Bucket,
-  key: string,
-  value: unknown,
-): Promise<void> {
+async function writeObjectJson(bucket: R2Bucket, key: string, value: unknown): Promise<void> {
   await bucket.put(key, JSON.stringify(value, null, 2), {
     httpMetadata: {
       contentType: "application/json; charset=utf-8",
@@ -2141,11 +1889,7 @@ async function createAdminIngestionSessionForBook(input: {
   contextBeforeChapterCount: number;
   contextAfterChapterCount: number;
 }): Promise<AdminIngestionSessionDetail | null> {
-  const chapters = await buildChapterInputsFromExistingStory(
-    input.db,
-    input.bucket,
-    input.bookSlug,
-  );
+  const chapters = await buildChapterInputsFromExistingStory(input.db, input.bucket, input.bookSlug);
   const now = new Date().toISOString();
   const sessionId = crypto.randomUUID();
 
@@ -2229,16 +1973,10 @@ async function validateTranslation(
   }
 
   const chapterChecks = session.chapters.map((chapter) => {
-    const issues: AdminTranslationValidationPayload["chapters"][number]["issues"] =
-      [];
-    const originalChunkIds = new Set(
-      chapter.originalDocument?.chunks.map((chunk) => chunk.id) ?? [],
-    );
+    const issues: AdminTranslationValidationPayload["chapters"][number]["issues"] = [];
+    const originalChunkIds = new Set(chapter.originalDocument?.chunks.map((chunk) => chunk.id) ?? []);
 
-    if (
-      !chapter.originalDocument ||
-      chapter.originalDocument.chunks.length === 0
-    ) {
+    if (!chapter.originalDocument || chapter.originalDocument.chunks.length === 0) {
       issues.push({
         level: "error",
         message: "Original chunks are missing.",
@@ -2247,10 +1985,7 @@ async function validateTranslation(
       });
     }
 
-    if (
-      !chapter.translationDocument ||
-      chapter.translationDocument.chunks.length === 0
-    ) {
+    if (!chapter.translationDocument || chapter.translationDocument.chunks.length === 0) {
       issues.push({
         level: "error",
         message: "Translation chunks are missing.",
@@ -2312,15 +2047,22 @@ async function validateTranslation(
   };
 }
 
-function formatContextChapters(
-  chapters: AdminIngestionChapterRecord[] | undefined,
-): string {
+function formatContextChapters(chapters: AdminIngestionChapterRecord[] | undefined): string {
   if (!chapters || chapters.length === 0) {
     return "(none)";
   }
 
   return chapters
-    .map((chapter) => `## ${chapter.title}\n${chapter.sourceText}`)
+    .map((chapter) => {
+      let content = `## ${chapter.title}\nSource Text:\n${chapter.sourceText}`;
+
+      if (chapter.translationDocument) {
+        const translatedText = chapter.translationDocument.chunks.map((chunk) => chunk.text).join("\n");
+        content += `\n\nTranslated Text:\n${translatedText}`;
+      }
+
+      return content;
+    })
     .join("\n\n");
 }
 
@@ -2342,9 +2084,7 @@ async function generateChapterWithOpenRouter(input: {
     userPrompt: buildGenerationUserPrompt(input),
   });
 
-  const initialValidation = validateAiChapterPayloadText(
-    initialResult.extractedContent,
-  );
+  const initialValidation = validateAiChapterPayloadText(initialResult.extractedContent);
   await writeOpenRouterLog({
     timestamp: new Date().toISOString(),
     sessionId: input.session.id,
@@ -2369,17 +2109,14 @@ async function generateChapterWithOpenRouter(input: {
     apiKey: input.apiKey,
     model: input.model,
     publicAppUrl: input.publicAppUrl,
-    systemPrompt:
-      "Repair the user's JSON so it matches the required schema exactly. Return JSON only.",
+    systemPrompt: "Repair the user's JSON so it matches the required schema exactly. Return JSON only.",
     userPrompt: buildRepairUserPrompt({
       originalError: initialValidation.error,
       rawResponse: initialResult.extractedContent,
     }),
   });
 
-  const repairedValidation = validateAiChapterPayloadText(
-    repairedResult.extractedContent,
-  );
+  const repairedValidation = validateAiChapterPayloadText(repairedResult.extractedContent);
   await writeOpenRouterLog({
     timestamp: new Date().toISOString(),
     sessionId: input.session.id,
@@ -2400,9 +2137,7 @@ async function generateChapterWithOpenRouter(input: {
     return repairedResult.extractedContent;
   }
 
-  throw new Error(
-    `Model response failed validation after repair: ${repairedValidation.error}`,
-  );
+  throw new Error(`Model response failed validation after repair: ${repairedValidation.error}`);
 }
 
 async function callOpenRouterChat(input: {
@@ -2432,27 +2167,21 @@ async function callOpenRouterChat(input: {
     ],
   } satisfies Record<string, unknown>;
 
-  const response = await fetch(
-    "https://openrouter.ai/api/v1/chat/completions",
-    {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${input.apiKey}`,
-        "Content-Type": "application/json",
-        "HTTP-Referer": input.publicAppUrl ?? "http://127.0.0.1:5173",
-        "X-Title": "Ancient Epics Admin",
-      },
-      body: JSON.stringify(requestPayload),
+  const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${input.apiKey}`,
+      "Content-Type": "application/json",
+      "HTTP-Referer": input.publicAppUrl ?? "http://127.0.0.1:5173",
+      "X-Title": "Ancient Epics Admin",
     },
-  );
+    body: JSON.stringify(requestPayload),
+  });
 
   const payload = (await response.json()) as OpenRouterChatResponse;
 
   if (!response.ok) {
-    throw new Error(
-      payload.error?.message ||
-        `OpenRouter request failed with status ${response.status}.`,
-    );
+    throw new Error(payload.error?.message || `OpenRouter request failed with status ${response.status}.`);
   }
 
   const content = payload.choices?.[0]?.message?.content;
@@ -2514,10 +2243,7 @@ function buildGenerationUserPrompt(input: {
   ].join("\n");
 }
 
-function buildRepairUserPrompt(input: {
-  originalError: string;
-  rawResponse: string;
-}): string {
+function buildRepairUserPrompt(input: { originalError: string; rawResponse: string }): string {
   return [
     "Repair this model output into valid JSON matching the required schema.",
     `Validation error: ${input.originalError}`,
@@ -2601,11 +2327,7 @@ async function persistGeneratedChapter(input: {
           input.chapter.slug,
           translationSlug,
         );
-        await writeObjectJson(
-          input.bucket,
-          translationKey,
-          normalized.translationDocument,
-        );
+        await writeObjectJson(input.bucket, translationKey, normalized.translationDocument);
 
         await input.db
           .prepare(
@@ -2622,8 +2344,7 @@ async function persistGeneratedChapter(input: {
       }
     }
   } catch (error) {
-    const message =
-      error instanceof Error ? error.message : "Failed to parse AI response.";
+    const message = error instanceof Error ? error.message : "Failed to parse AI response.";
 
     await input.db
       .prepare(
@@ -2692,14 +2413,12 @@ function normalizeGeneratedChapter(input: {
     throw new Error("AI response did not include any translation chunks.");
   }
 
-  const originalChunks: TextChunk[] = parsed.originalChunks.map(
-    (chunk, index) => ({
-      id: `c${index + 1}`,
-      type: chunk.type ?? inferChunkType(chunk.text),
-      text: chunk.text.trim(),
-      ordinal: index + 1,
-    }),
-  );
+  const originalChunks: TextChunk[] = parsed.originalChunks.map((chunk, index) => ({
+    id: `c${index + 1}`,
+    type: chunk.type ?? inferChunkType(chunk.text),
+    text: chunk.text.trim(),
+    ordinal: index + 1,
+  }));
 
   const translationChunks = parsed.translationChunks.map((chunk, index) => {
     const ordinals = normalizeSourceOrdinals(
@@ -2724,8 +2443,7 @@ function normalizeGeneratedChapter(input: {
       chunks: originalChunks,
     },
     translationDocument: {
-      translationSlug:
-        input.translationSlug ?? `${slugify(input.session.title)}-draft`,
+      translationSlug: input.translationSlug ?? `${slugify(input.session.title)}-draft`,
       chunks: translationChunks,
     },
     notes: parsed.notes?.trim() || null,
@@ -2739,14 +2457,11 @@ function parseAiChapterPayload(rawResponse: string): ParsedAiChapterPayload {
     ? parsed.originalChunks.map(normalizeAiChunk).filter(isPresent)
     : [];
   const translation = Array.isArray(parsed.translationChunks)
-    ? parsed.translationChunks
-        .map(normalizeAiTranslationChunk)
-        .filter(isPresent)
+    ? parsed.translationChunks.map(normalizeAiTranslationChunk).filter(isPresent)
     : [];
 
   const payload = {
-    chapterTitle:
-      typeof parsed.chapterTitle === "string" ? parsed.chapterTitle : undefined,
+    chapterTitle: typeof parsed.chapterTitle === "string" ? parsed.chapterTitle : undefined,
     notes: typeof parsed.notes === "string" ? parsed.notes : undefined,
     originalChunks: original,
     translationChunks: translation,
@@ -2757,17 +2472,14 @@ function parseAiChapterPayload(rawResponse: string): ParsedAiChapterPayload {
   return payload;
 }
 
-function validateAiChapterPayloadText(rawResponse: string):
-  | { ok: true }
-  | { ok: false; error: string } {
+function validateAiChapterPayloadText(rawResponse: string): { ok: true } | { ok: false; error: string } {
   try {
     parseAiChapterPayload(rawResponse);
     return { ok: true };
   } catch (error) {
     return {
       ok: false,
-      error:
-        error instanceof Error ? error.message : "Unknown schema validation error.",
+      error: error instanceof Error ? error.message : "Unknown schema validation error.",
     };
   }
 }
@@ -2792,13 +2504,8 @@ function validateParsedAiChapterPayload(payload: ParsedAiChapterPayload): void {
       throw new Error(`translationChunks[${index}].text must be non-empty.`);
     }
 
-    if (
-      !chunk.sourceOrdinals?.length &&
-      !chunk.sourceOriginalOrdinals?.length
-    ) {
-      throw new Error(
-        `translationChunks[${index}] must include at least one source ordinal.`,
-      );
+    if (!chunk.sourceOrdinals?.length && !chunk.sourceOriginalOrdinals?.length) {
+      throw new Error(`translationChunks[${index}] must include at least one source ordinal.`);
     }
   });
 }
@@ -2825,9 +2532,7 @@ function normalizeAiChunk(value: unknown): ParsedAiChunk | null {
   };
 }
 
-function normalizeAiTranslationChunk(
-  value: unknown,
-): ParsedAiTranslationChunk | null {
+function normalizeAiTranslationChunk(value: unknown): ParsedAiTranslationChunk | null {
   if (!value || typeof value !== "object") {
     if (typeof value === "string" && value.trim()) {
       return { text: value.trim() };
@@ -2860,21 +2565,15 @@ function normalizeNumberArray(value: unknown): number[] | undefined {
     return undefined;
   }
 
-  const normalized = value
-    .map((entry) => Number(entry))
-    .filter((entry) => Number.isInteger(entry) && entry > 0);
+  const normalized = value.map((entry) => Number(entry)).filter((entry) => Number.isInteger(entry) && entry > 0);
 
   return normalized.length > 0 ? normalized : undefined;
 }
 
-function normalizeSourceOrdinals(
-  value: number[] | undefined,
-  maxOrdinal: number,
-  translationIndex: number,
-): number[] {
-  const normalized = [
-    ...new Set((value ?? []).filter((entry) => entry <= maxOrdinal)),
-  ].sort((left, right) => left - right);
+function normalizeSourceOrdinals(value: number[] | undefined, maxOrdinal: number, translationIndex: number): number[] {
+  const normalized = [...new Set((value ?? []).filter((entry) => entry <= maxOrdinal))].sort(
+    (left, right) => left - right,
+  );
 
   if (normalized.length > 0) {
     return normalized;

@@ -5,25 +5,25 @@
   "main": "src/index.ts",
   "compatibility_date": "2026-03-06",
   "observability": {
-    "enabled": true
+    "enabled": true,
   },
   "vars": {
     "APP_ENV": "development",
-    "PUBLIC_APP_URL": "http://127.0.0.1:5173"
+    "PUBLIC_APP_URL": "http://127.0.0.1:5173",
   },
   "d1_databases": [
     {
       "binding": "DB",
       "database_name": "ancient-epics",
       "database_id": "00000000-0000-0000-0000-000000000000",
-      "migrations_dir": "migrations"
-    }
+      "migrations_dir": "migrations",
+    },
   ],
   "r2_buckets": [
     {
       "binding": "CONTENT_BUCKET",
       "bucket_name": "ancient-epics-content",
-      "preview_bucket_name": "ancient-epics-content-preview"
-    }
-  ]
+      "preview_bucket_name": "ancient-epics-content-preview",
+    },
+  ],
 }

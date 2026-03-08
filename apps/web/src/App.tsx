@@ -11,19 +11,10 @@ import {
   type AdminTranslationValidationPayload,
 } from "@ancient-epics/shared";
 
-import {
-  splitSourceTextIntoChapters,
-  type ChapterSplitMode,
-  type SplitChapterInput,
-} from "./lib/chapter-splitting";
+import { splitSourceTextIntoChapters, type ChapterSplitMode, type SplitChapterInput } from "./lib/chapter-splitting";
 import { api } from "./lib/api";
 
-type AdminScreen =
-  | "books"
-  | "create-book"
-  | "translations"
-  | "workspace"
-  | "validate";
+type AdminScreen = "books" | "create-book" | "translations" | "workspace" | "validate";
 
 type ChapterEditorState = {
   chapterTitle: string;
@@ -42,21 +33,14 @@ const DEFAULT_HEADING_PATTERN = "^(book|chapter|canto|scroll)\\b.*$";
 export default function App() {
   const [screen, setScreen] = useState<AdminScreen>("books");
   const [settingsOpen, setSettingsOpen] = useState(false);
-  const [showAdvancedTranslationSettings, setShowAdvancedTranslationSettings] =
-    useState(false);
+  const [showAdvancedTranslationSettings, setShowAdvancedTranslationSettings] = useState(false);
   const [showRawJsonEditor, setShowRawJsonEditor] = useState(false);
 
-  const [bootstrap, setBootstrap] =
-    useState<AdminIngestionBootstrapPayload | null>(null);
-  const [selectedBook, setSelectedBook] =
-    useState<AdminBookSourcePayload | null>(null);
-  const [translations, setTranslations] = useState<AdminTranslationSummary[]>(
-    [],
-  );
-  const [activeTranslation, setActiveTranslation] =
-    useState<AdminTranslationDetail | null>(null);
-  const [validation, setValidation] =
-    useState<AdminTranslationValidationPayload | null>(null);
+  const [bootstrap, setBootstrap] = useState<AdminIngestionBootstrapPayload | null>(null);
+  const [selectedBook, setSelectedBook] = useState<AdminBookSourcePayload | null>(null);
+  const [translations, setTranslations] = useState<AdminTranslationSummary[]>([]);
+  const [activeTranslation, setActiveTranslation] = useState<AdminTranslationDetail | null>(null);
+  const [validation, setValidation] = useState<AdminTranslationValidationPayload | null>(null);
   const [selectedChapterIndex, setSelectedChapterIndex] = useState(0);
   const [validationPreviewIndex, setValidationPreviewIndex] = useState(0);
 
@@ -85,19 +69,14 @@ export default function App() {
   const [translationDescription, setTranslationDescription] = useState("");
   const [translationModel, setTranslationModel] = useState(DEFAULT_MODEL);
   const [translationPrompt, setTranslationPrompt] = useState("");
-  const [contextBeforeChapterCount, setContextBeforeChapterCount] =
-    useState("1");
+  const [contextBeforeChapterCount, setContextBeforeChapterCount] = useState("1");
   const [contextAfterChapterCount, setContextAfterChapterCount] = useState("1");
   const [editedRawResponse, setEditedRawResponse] = useState("");
-  const [chapterEditor, setChapterEditor] = useState<ChapterEditorState | null>(
-    null,
-  );
+  const [chapterEditor, setChapterEditor] = useState<ChapterEditorState | null>(null);
 
   const activeSession = activeTranslation?.currentSession ?? null;
-  const currentWorkspaceChapter =
-    activeSession?.chapters[selectedChapterIndex] ?? null;
-  const validationPreviewChapter =
-    validation?.session.chapters[validationPreviewIndex] ?? null;
+  const currentWorkspaceChapter = activeSession?.chapters[selectedChapterIndex] ?? null;
+  const validationPreviewChapter = validation?.session.chapters[validationPreviewIndex] ?? null;
   const translationMetadataIsDirty = useMemo(() => {
     if (!activeTranslation) {
       return false;
@@ -137,9 +116,8 @@ export default function App() {
     }
 
     return (
-      JSON.stringify(
-        serializeEditorState(buildChapterEditorState(currentWorkspaceChapter)),
-      ) !== JSON.stringify(serializeEditorState(chapterEditor))
+      JSON.stringify(serializeEditorState(buildChapterEditorState(currentWorkspaceChapter))) !==
+      JSON.stringify(serializeEditorState(chapterEditor))
     );
   }, [chapterEditor, currentWorkspaceChapter]);
 
@@ -159,25 +137,18 @@ export default function App() {
       try {
         const payload = await api.getAdminIngestionBootstrap();
         setBootstrap(payload);
-        setSettingsApiKey(
-          payload.settings[APP_SETTING_KEYS.OPENROUTER_API_KEY] ?? "",
-        );
+        setSettingsApiKey(payload.settings[APP_SETTING_KEYS.OPENROUTER_API_KEY] ?? "");
         const model =
           payload.settings[APP_SETTING_KEYS.ADMIN_INGESTION_MODEL] ??
           payload.settings[APP_SETTING_KEYS.DEFAULT_TRANSLATION_MODEL] ??
           DEFAULT_MODEL;
-        const prompt =
-          payload.settings[APP_SETTING_KEYS.ADMIN_INGESTION_PROMPT] ?? "";
+        const prompt = payload.settings[APP_SETTING_KEYS.ADMIN_INGESTION_PROMPT] ?? "";
         setSettingsModel(model);
         setSettingsPrompt(prompt);
         setTranslationModel(model);
         setTranslationPrompt(prompt);
       } catch (loadError) {
-        setError(
-          loadError instanceof Error
-            ? loadError.message
-            : "Failed to load admin data.",
-        );
+        setError(loadError instanceof Error ? loadError.message : "Failed to load admin data.");
       } finally {
         setIsLoading(false);
       }
@@ -187,29 +158,20 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    const nextEditor = currentWorkspaceChapter
-      ? buildChapterEditorState(currentWorkspaceChapter)
-      : null;
+    const nextEditor = currentWorkspaceChapter ? buildChapterEditorState(currentWorkspaceChapter) : null;
     setChapterEditor(nextEditor);
-    setEditedRawResponse(
-      nextEditor
-        ? JSON.stringify(serializeEditorState(nextEditor), null, 2)
-        : "",
-    );
+    setEditedRawResponse(nextEditor ? JSON.stringify(serializeEditorState(nextEditor), null, 2) : "");
   }, [currentWorkspaceChapter]);
 
   async function refreshBootstrap() {
     const payload = await api.getAdminIngestionBootstrap();
     setBootstrap(payload);
-    setSettingsApiKey(
-      payload.settings[APP_SETTING_KEYS.OPENROUTER_API_KEY] ?? "",
-    );
+    setSettingsApiKey(payload.settings[APP_SETTING_KEYS.OPENROUTER_API_KEY] ?? "");
     const model =
       payload.settings[APP_SETTING_KEYS.ADMIN_INGESTION_MODEL] ??
       payload.settings[APP_SETTING_KEYS.DEFAULT_TRANSLATION_MODEL] ??
       DEFAULT_MODEL;
-    const prompt =
-      payload.settings[APP_SETTING_KEYS.ADMIN_INGESTION_PROMPT] ?? "";
+    const prompt = payload.settings[APP_SETTING_KEYS.ADMIN_INGESTION_PROMPT] ?? "";
     setSettingsModel(model);
     setSettingsPrompt(prompt);
   }
@@ -255,9 +217,7 @@ export default function App() {
       resetTranslationForm();
       setScreen("translations");
     } catch (loadError) {
-      setError(
-        loadError instanceof Error ? loadError.message : "Failed to load book.",
-      );
+      setError(loadError instanceof Error ? loadError.message : "Failed to load book.");
     } finally {
       setIsBusy(false);
     }
@@ -283,11 +243,7 @@ export default function App() {
       setSettingsOpen(false);
       setNotice("Saved settings.");
     } catch (saveError) {
-      setError(
-        saveError instanceof Error
-          ? saveError.message
-          : "Failed to save settings.",
-      );
+      setError(saveError instanceof Error ? saveError.message : "Failed to save settings.");
     } finally {
       setIsBusy(false);
     }
@@ -302,22 +258,13 @@ export default function App() {
     );
   }
 
-  function updateStagedChapter(
-    index: number,
-    key: keyof SplitChapterInput,
-    value: string | null,
-  ) {
+  function updateStagedChapter(index: number, key: keyof SplitChapterInput, value: string | null) {
     setStagedChapters((current) =>
       current.map((chapter, chapterIndex) =>
         chapterIndex === index
           ? {
               ...chapter,
-              [key]:
-                key === "sourceChapterSlug"
-                  ? value
-                  : typeof value === "string"
-                    ? value
-                    : chapter[key],
+              [key]: key === "sourceChapterSlug" ? value : typeof value === "string" ? value : chapter[key],
             }
           : chapter,
       ),
@@ -343,9 +290,7 @@ export default function App() {
 
   function deleteStagedChapter(index: number) {
     setStagedChapters((current) =>
-      current
-        .filter((_, chapterIndex) => chapterIndex !== index)
-        .map((entry, position) => ({ ...entry, position })),
+      current.filter((_, chapterIndex) => chapterIndex !== index).map((entry, position) => ({ ...entry, position })),
     );
   }
 
@@ -435,11 +380,7 @@ export default function App() {
       setScreen("translations");
       setNotice(`Created draft book '${created.book.title}'.`);
     } catch (createError) {
-      setError(
-        createError instanceof Error
-          ? createError.message
-          : "Failed to create book.",
-      );
+      setError(createError instanceof Error ? createError.message : "Failed to create book.");
     } finally {
       setIsBusy(false);
     }
@@ -455,18 +396,15 @@ export default function App() {
     setNotice(null);
 
     try {
-      const translation = await api.createAdminTranslation(
-        selectedBook.book.slug,
-        {
-          title: translationTitle,
-          slug: translationSlug || undefined,
-          description: translationDescription || undefined,
-          model: translationModel,
-          prompt: translationPrompt,
-          contextBeforeChapterCount: Number(contextBeforeChapterCount || 0),
-          contextAfterChapterCount: Number(contextAfterChapterCount || 0),
-        },
-      );
+      const translation = await api.createAdminTranslation(selectedBook.book.slug, {
+        title: translationTitle,
+        slug: translationSlug || undefined,
+        description: translationDescription || undefined,
+        model: translationModel,
+        prompt: translationPrompt,
+        contextBeforeChapterCount: Number(contextBeforeChapterCount || 0),
+        contextAfterChapterCount: Number(contextAfterChapterCount || 0),
+      });
       await refreshTranslations(selectedBook.book.slug);
       setActiveTranslation(translation);
       setSelectedChapterIndex(
@@ -478,11 +416,7 @@ export default function App() {
       setScreen("workspace");
       setNotice(`Created translation '${translation.name}'.`);
     } catch (createError) {
-      setError(
-        createError instanceof Error
-          ? createError.message
-          : "Failed to create translation.",
-      );
+      setError(createError instanceof Error ? createError.message : "Failed to create translation.");
     } finally {
       setIsBusy(false);
     }
@@ -499,11 +433,7 @@ export default function App() {
       setValidation(null);
       setScreen("workspace");
     } catch (loadError) {
-      setError(
-        loadError instanceof Error
-          ? loadError.message
-          : "Failed to load translation.",
-      );
+      setError(loadError instanceof Error ? loadError.message : "Failed to load translation.");
     } finally {
       setIsBusy(false);
     }
@@ -515,15 +445,9 @@ export default function App() {
     setTranslationSlug(translation.slug);
     setTranslationDescription(translation.description ?? "");
     setTranslationModel(translation.currentSession?.model ?? DEFAULT_MODEL);
-    setTranslationPrompt(
-      translation.currentSession?.prompt ?? translation.aiSystemPrompt ?? "",
-    );
-    setContextBeforeChapterCount(
-      String(translation.currentSession?.contextBeforeChapterCount ?? 1),
-    );
-    setContextAfterChapterCount(
-      String(translation.currentSession?.contextAfterChapterCount ?? 1),
-    );
+    setTranslationPrompt(translation.currentSession?.prompt ?? translation.aiSystemPrompt ?? "");
+    setContextBeforeChapterCount(String(translation.currentSession?.contextBeforeChapterCount ?? 1));
+    setContextAfterChapterCount(String(translation.currentSession?.contextAfterChapterCount ?? 1));
     setSelectedChapterIndex(
       Math.min(
         translation.currentSession?.currentChapterIndex ?? 0,
@@ -532,9 +456,7 @@ export default function App() {
     );
   }
 
-  async function saveTranslationSettings(extra?: {
-    status?: "draft" | "ready" | "published";
-  }) {
+  async function saveTranslationSettings(extra?: { status?: "draft" | "ready" | "published" }) {
     if (!activeTranslation) {
       return null;
     }
@@ -569,21 +491,16 @@ export default function App() {
 
     try {
       const updatedTranslation = await saveTranslationSettings();
-      const sessionId =
-        updatedTranslation?.currentSession?.id ?? activeSession.id;
-      const result = await api.generateAdminIngestionChapter(
-        sessionId,
-        currentWorkspaceChapter.position,
-      );
+      const sessionId = updatedTranslation?.currentSession?.id ?? activeSession.id;
+      const result = await api.generateAdminIngestionChapter(sessionId, currentWorkspaceChapter.position);
 
       if (updatedTranslation?.currentSession) {
         const nextTranslation = {
           ...updatedTranslation,
           currentSession: {
             ...updatedTranslation.currentSession,
-            chapters: updatedTranslation.currentSession.chapters.map(
-              (chapter) =>
-                chapter.id === result.chapter.id ? result.chapter : chapter,
+            chapters: updatedTranslation.currentSession.chapters.map((chapter) =>
+              chapter.id === result.chapter.id ? result.chapter : chapter,
             ),
           },
         };
@@ -592,11 +509,7 @@ export default function App() {
 
       setNotice(`Generated '${currentWorkspaceChapter.title}'.`);
     } catch (generateError) {
-      setError(
-        generateError instanceof Error
-          ? generateError.message
-          : "Failed to generate chapter.",
-      );
+      setError(generateError instanceof Error ? generateError.message : "Failed to generate chapter.");
     } finally {
       setIsBusy(false);
     }
@@ -619,25 +532,16 @@ export default function App() {
       );
 
       if (result.session && activeTranslation) {
-        const refreshedTranslation = await api.getAdminTranslation(
-          activeTranslation.id,
-        );
+        const refreshedTranslation = await api.getAdminTranslation(activeTranslation.id);
         hydrateActiveTranslation(refreshedTranslation);
         setSelectedChapterIndex(
-          Math.min(
-            currentWorkspaceChapter.position + 1,
-            Math.max(result.session.chapters.length - 1, 0),
-          ),
+          Math.min(currentWorkspaceChapter.position + 1, Math.max(result.session.chapters.length - 1, 0)),
         );
       }
 
       setNotice(`Saved '${currentWorkspaceChapter.title}'.`);
     } catch (saveError) {
-      setError(
-        saveError instanceof Error
-          ? saveError.message
-          : "Failed to save chapter.",
-      );
+      setError(saveError instanceof Error ? saveError.message : "Failed to save chapter.");
     } finally {
       setIsBusy(false);
     }
@@ -658,15 +562,9 @@ export default function App() {
       setValidation(payload);
       setValidationPreviewIndex(0);
       setScreen("validate");
-      setNotice(
-        payload.isValid ? "Validation passed." : "Validation found issues.",
-      );
+      setNotice(payload.isValid ? "Validation passed." : "Validation found issues.");
     } catch (validateError) {
-      setError(
-        validateError instanceof Error
-          ? validateError.message
-          : "Failed to validate translation.",
-      );
+      setError(validateError instanceof Error ? validateError.message : "Failed to validate translation.");
     } finally {
       setIsBusy(false);
     }
@@ -679,17 +577,9 @@ export default function App() {
 
     try {
       await saveTranslationSettings({ status });
-      setNotice(
-        status === "ready"
-          ? "Translation marked ready."
-          : "Translation published.",
-      );
+      setNotice(status === "ready" ? "Translation marked ready." : "Translation published.");
     } catch (statusError) {
-      setError(
-        statusError instanceof Error
-          ? statusError.message
-          : "Failed to update draft status.",
-      );
+      setError(statusError instanceof Error ? statusError.message : "Failed to update draft status.");
     } finally {
       setIsBusy(false);
     }
@@ -699,12 +589,9 @@ export default function App() {
     if (!activeTranslation?.currentSession) {
       return;
     }
-    const blob = new Blob(
-      [JSON.stringify(activeTranslation.currentSession, null, 2)],
-      {
-        type: "application/json",
-      },
-    );
+    const blob = new Blob([JSON.stringify(activeTranslation.currentSession, null, 2)], {
+      type: "application/json",
+    });
     const url = URL.createObjectURL(blob);
     const anchor = document.createElement("a");
     anchor.href = url;
@@ -730,9 +617,7 @@ export default function App() {
     }
   }
 
-  function updateChapterEditor(
-    updater: (current: ChapterEditorState) => ChapterEditorState,
-  ) {
+  function updateChapterEditor(updater: (current: ChapterEditorState) => ChapterEditorState) {
     setChapterEditor((current) => {
       if (!current) {
         return current;
@@ -750,11 +635,7 @@ export default function App() {
       setNotice("Reloaded the structured editor from raw JSON.");
       setError(null);
     } catch (parseError) {
-      setError(
-        parseError instanceof Error
-          ? parseError.message
-          : "Failed to parse raw JSON.",
-      );
+      setError(parseError instanceof Error ? parseError.message : "Failed to parse raw JSON.");
     }
   }
 
@@ -805,25 +686,12 @@ export default function App() {
           </div>
           <div className="mt-4 flex flex-wrap items-center gap-2 text-sm text-ink/60">
             {breadcrumbs.map((crumb, index) => (
-              <div
-                key={`${crumb.label}-${index}`}
-                className="flex items-center gap-2"
-              >
+              <div key={`${crumb.label}-${index}`} className="flex items-center gap-2">
                 {index > 0 ? <span className="text-ink/35">/</span> : null}
                 {crumb.isCurrent || !crumb.onClick ? (
-                  <span
-                    className={
-                      crumb.isCurrent ? "font-semibold text-ink" : undefined
-                    }
-                  >
-                    {crumb.label}
-                  </span>
+                  <span className={crumb.isCurrent ? "font-semibold text-ink" : undefined}>{crumb.label}</span>
                 ) : (
-                  <button
-                    type="button"
-                    onClick={crumb.onClick}
-                    className="transition hover:text-ink"
-                  >
+                  <button type="button" onClick={crumb.onClick} className="transition hover:text-ink">
                     {crumb.label}
                   </button>
                 )}
@@ -848,37 +716,17 @@ export default function App() {
                     className="rounded-[24px] border border-border/70 bg-paper/80 p-5 text-left transition hover:border-accent/50 hover:bg-white"
                   >
                     <div className="flex items-center justify-between gap-3">
-                      <p className="text-xs font-semibold uppercase tracking-[0.18em] text-accent">
-                        {book.status}
-                      </p>
-                      <span className="text-xs text-ink/55">
-                        {formatTimestamp(book.latestActivityAt)}
-                      </span>
+                      <p className="text-xs font-semibold uppercase tracking-[0.18em] text-accent">{book.status}</p>
+                      <span className="text-xs text-ink/55">{formatTimestamp(book.latestActivityAt)}</span>
                     </div>
-                    <h2 className="mt-3 font-display text-3xl text-ink">
-                      {book.title}
-                    </h2>
+                    <h2 className="mt-3 font-display text-3xl text-ink">{book.title}</h2>
                     <p className="mt-2 text-sm text-ink/65">{book.author}</p>
-                    <p className="mt-4 text-sm leading-7 text-ink/75">
-                      {book.description || "No description yet."}
-                    </p>
+                    <p className="mt-4 text-sm leading-7 text-ink/75">{book.description || "No description yet."}</p>
                     <div className="mt-4 grid grid-cols-2 gap-3 text-sm text-ink/70">
-                      <Metric
-                        label="Chapters"
-                        value={String(book.chapterCount)}
-                      />
-                      <Metric
-                        label="Translations"
-                        value={String(book.translationCount)}
-                      />
-                      <Metric
-                        label="Saved"
-                        value={`${book.savedChapterCount}/${book.chapterCount || 0}`}
-                      />
-                      <Metric
-                        label="Ready"
-                        value={String(book.readyTranslationCount)}
-                      />
+                      <Metric label="Chapters" value={String(book.chapterCount)} />
+                      <Metric label="Translations" value={String(book.translationCount)} />
+                      <Metric label="Saved" value={`${book.savedChapterCount}/${book.chapterCount || 0}`} />
+                      <Metric label="Ready" value={String(book.readyTranslationCount)} />
                     </div>
                   </button>
                 ))}
@@ -887,15 +735,11 @@ export default function App() {
 
             <Panel title="Create New">
               <p className="text-base leading-7 text-ink/70">
-                Paste a source text, auto-split it, then hand-edit the staged
-                chapter list before anything is written to D1 or R2.
+                Paste a source text, auto-split it, then hand-edit the staged chapter list before anything is written to
+                D1 or R2.
               </p>
               <div className="mt-6">
-                <ActionButton
-                  label="Create New Book"
-                  onClick={() => setScreen("create-book")}
-                  tone="accent"
-                />
+                <ActionButton label="Create New Book" onClick={() => setScreen("create-book")} tone="accent" />
               </div>
             </Panel>
           </section>
@@ -905,32 +749,11 @@ export default function App() {
           <section className="grid gap-6 xl:grid-cols-[380px_1fr]">
             <Panel title="Book Details">
               <div className="space-y-4">
-                <InputField
-                  label="Title"
-                  value={bookTitle}
-                  onChange={setBookTitle}
-                />
-                <InputField
-                  label="Slug"
-                  value={bookSlug}
-                  onChange={setBookSlug}
-                />
-                <InputField
-                  label="Author"
-                  value={bookAuthor}
-                  onChange={setBookAuthor}
-                />
-                <InputField
-                  label="Original Language"
-                  value={bookLanguage}
-                  onChange={setBookLanguage}
-                />
-                <TextareaField
-                  label="Description"
-                  value={bookDescription}
-                  onChange={setBookDescription}
-                  rows={5}
-                />
+                <InputField label="Title" value={bookTitle} onChange={setBookTitle} />
+                <InputField label="Slug" value={bookSlug} onChange={setBookSlug} />
+                <InputField label="Author" value={bookAuthor} onChange={setBookAuthor} />
+                <InputField label="Original Language" value={bookLanguage} onChange={setBookLanguage} />
+                <TextareaField label="Description" value={bookDescription} onChange={setBookDescription} rows={5} />
                 <SegmentedControl
                   label="Chapter Split"
                   value={splitMode}
@@ -942,23 +765,12 @@ export default function App() {
                   onChange={(value) => setSplitMode(value as ChapterSplitMode)}
                 />
                 {splitMode === "heading" ? (
-                  <InputField
-                    label="Heading Regex"
-                    value={headingPattern}
-                    onChange={setHeadingPattern}
-                  />
+                  <InputField label="Heading Regex" value={headingPattern} onChange={setHeadingPattern} />
                 ) : null}
                 {splitMode === "delimiter" ? (
-                  <InputField
-                    label="Delimiter"
-                    value={delimiter}
-                    onChange={setDelimiter}
-                  />
+                  <InputField label="Delimiter" value={delimiter} onChange={setDelimiter} />
                 ) : null}
-                <ActionButton
-                  label="Back To Books"
-                  onClick={() => setScreen("books")}
-                />
+                <ActionButton label="Back To Books" onClick={() => setScreen("books")} />
               </div>
             </Panel>
 
@@ -978,9 +790,7 @@ export default function App() {
                     tone="accent"
                     disabled={chapterPreview.length === 0}
                   />
-                  <span className="text-sm text-ink/60">
-                    {chapterPreview.length} chapter split(s) detected.
-                  </span>
+                  <span className="text-sm text-ink/60">{chapterPreview.length} chapter split(s) detected.</span>
                 </div>
               </Panel>
 
@@ -995,50 +805,30 @@ export default function App() {
                         <InputField
                           label={`Chapter ${index + 1} Title`}
                           value={chapter.title}
-                          onChange={(value) =>
-                            updateStagedChapter(index, "title", value)
-                          }
+                          onChange={(value) => updateStagedChapter(index, "title", value)}
                         />
                         <InputField
                           label="Slug"
                           value={chapter.slug}
-                          onChange={(value) =>
-                            updateStagedChapter(index, "slug", value)
-                          }
+                          onChange={(value) => updateStagedChapter(index, "slug", value)}
                         />
                         <div className="flex flex-wrap items-end gap-2">
-                          <MiniButton
-                            label="Up"
-                            onClick={() => moveStagedChapter(index, -1)}
-                            disabled={index === 0}
-                          />
+                          <MiniButton label="Up" onClick={() => moveStagedChapter(index, -1)} disabled={index === 0} />
                           <MiniButton
                             label="Down"
                             onClick={() => moveStagedChapter(index, 1)}
                             disabled={index === stagedChapters.length - 1}
                           />
-                          <MiniButton
-                            label="Split"
-                            onClick={() => splitStagedChapter(index)}
-                          />
-                          <MiniButton
-                            label="Merge"
-                            onClick={() => mergeStagedChapter(index)}
-                            disabled={index === 0}
-                          />
-                          <MiniButton
-                            label="Delete"
-                            onClick={() => deleteStagedChapter(index)}
-                          />
+                          <MiniButton label="Split" onClick={() => splitStagedChapter(index)} />
+                          <MiniButton label="Merge" onClick={() => mergeStagedChapter(index)} disabled={index === 0} />
+                          <MiniButton label="Delete" onClick={() => deleteStagedChapter(index)} />
                         </div>
                       </div>
                       <div className="mt-4">
                         <TextareaField
                           label="Source Text"
                           value={chapter.sourceText}
-                          onChange={(value) =>
-                            updateStagedChapter(index, "sourceText", value)
-                          }
+                          onChange={(value) => updateStagedChapter(index, "sourceText", value)}
                           rows={8}
                         />
                       </div>
@@ -1046,8 +836,7 @@ export default function App() {
                   ))}
                   {stagedChapters.length === 0 ? (
                     <p className="text-base leading-7 text-ink/65">
-                      Generate an auto-split preview, then edit the staged
-                      chapters here before creating the book.
+                      Generate an auto-split preview, then edit the staged chapters here before creating the book.
                     </p>
                   ) : null}
                 </div>
@@ -1056,9 +845,7 @@ export default function App() {
                     label={isBusy ? "Saving..." : "Create Book"}
                     onClick={createBook}
                     tone="accent"
-                    disabled={
-                      isBusy || !bookTitle.trim() || stagedChapters.length === 0
-                    }
+                    disabled={isBusy || !bookTitle.trim() || stagedChapters.length === 0}
                   />
                 </div>
               </Panel>
@@ -1073,29 +860,16 @@ export default function App() {
                 <p className="text-xs font-semibold uppercase tracking-[0.18em] text-accent">
                   {selectedBook.book.status}
                 </p>
-                <h2 className="font-display text-4xl text-ink">
-                  {selectedBook.book.title}
-                </h2>
-                <p className="text-sm text-ink/65">
-                  {selectedBook.book.author}
-                </p>
+                <h2 className="font-display text-4xl text-ink">{selectedBook.book.title}</h2>
+                <p className="text-sm text-ink/65">{selectedBook.book.author}</p>
                 <p className="text-sm leading-7 text-ink/75">
                   {selectedBook.book.description || "No description yet."}
                 </p>
                 <div className="grid grid-cols-2 gap-3 rounded-2xl border border-border/70 bg-paper/75 p-4 text-sm text-ink/70">
-                  <Metric
-                    label="Chapters"
-                    value={String(selectedBook.chapters.length)}
-                  />
-                  <Metric
-                    label="Translations"
-                    value={String(translations.length)}
-                  />
+                  <Metric label="Chapters" value={String(selectedBook.chapters.length)} />
+                  <Metric label="Translations" value={String(translations.length)} />
                 </div>
-                <ActionButton
-                  label="Back To Books"
-                  onClick={() => setScreen("books")}
-                />
+                <ActionButton label="Back To Books" onClick={() => setScreen("books")} />
               </div>
             </Panel>
 
@@ -1113,33 +887,17 @@ export default function App() {
                         <p className="text-xs font-semibold uppercase tracking-[0.18em] text-accent">
                           {translation.status}
                         </p>
-                        <span className="text-xs text-ink/55">
-                          {formatTimestamp(translation.latestActivityAt)}
-                        </span>
+                        <span className="text-xs text-ink/55">{formatTimestamp(translation.latestActivityAt)}</span>
                       </div>
-                      <h3 className="mt-3 font-display text-3xl text-ink">
-                        {translation.name}
-                      </h3>
+                      <h3 className="mt-3 font-display text-3xl text-ink">{translation.name}</h3>
                       <p className="mt-2 text-sm leading-7 text-ink/70">
                         {translation.description || "No description yet."}
                       </p>
                       <div className="mt-4 grid grid-cols-2 gap-3 text-sm text-ink/70">
-                        <Metric
-                          label="Saved"
-                          value={`${translation.savedChapterCount}/${translation.chapterCount}`}
-                        />
-                        <Metric
-                          label="Generated"
-                          value={String(translation.generatedChapterCount)}
-                        />
-                        <Metric
-                          label="Pending"
-                          value={String(translation.pendingChapterCount)}
-                        />
-                        <Metric
-                          label="Runs"
-                          value={String(translation.sessionCount)}
-                        />
+                        <Metric label="Saved" value={`${translation.savedChapterCount}/${translation.chapterCount}`} />
+                        <Metric label="Generated" value={String(translation.generatedChapterCount)} />
+                        <Metric label="Pending" value={String(translation.pendingChapterCount)} />
+                        <Metric label="Runs" value={String(translation.sessionCount)} />
                       </div>
                     </button>
                   ))}
@@ -1148,11 +906,7 @@ export default function App() {
 
               <Panel title="Create Translation">
                 <div className="grid gap-4 lg:grid-cols-[1fr_auto] lg:items-end">
-                  <InputField
-                    label="Translation Name"
-                    value={translationTitle}
-                    onChange={setTranslationTitle}
-                  />
+                  <InputField label="Translation Name" value={translationTitle} onChange={setTranslationTitle} />
                   <ActionButton
                     label={isBusy ? "Creating..." : "Create Translation"}
                     onClick={createTranslation}
@@ -1162,33 +916,21 @@ export default function App() {
                 </div>
                 <button
                   type="button"
-                  onClick={() =>
-                    setShowAdvancedTranslationSettings((current) => !current)
-                  }
+                  onClick={() => setShowAdvancedTranslationSettings((current) => !current)}
                   className="mt-4 text-sm font-semibold text-accent"
                 >
-                  {showAdvancedTranslationSettings
-                    ? "Hide advanced settings"
-                    : "Show advanced settings"}
+                  {showAdvancedTranslationSettings ? "Hide advanced settings" : "Show advanced settings"}
                 </button>
                 {showAdvancedTranslationSettings ? (
                   <>
                     <div className="mt-4 grid gap-4 lg:grid-cols-2">
-                      <InputField
-                        label="Slug"
-                        value={translationSlug}
-                        onChange={setTranslationSlug}
-                      />
+                      <InputField label="Slug" value={translationSlug} onChange={setTranslationSlug} />
                       <InputField
                         label="Description"
                         value={translationDescription}
                         onChange={setTranslationDescription}
                       />
-                      <InputField
-                        label="Model"
-                        value={translationModel}
-                        onChange={setTranslationModel}
-                      />
+                      <InputField label="Model" value={translationModel} onChange={setTranslationModel} />
                       <InputField
                         label="Context Before Chapters"
                         value={contextBeforeChapterCount}
@@ -1219,23 +961,15 @@ export default function App() {
           <section className="grid gap-6 xl:grid-cols-[320px_1fr]">
             <Panel title="Translation">
               <div className="rounded-2xl border border-border/60 bg-paper/70 p-4 text-sm text-ink/70">
-                <p className="text-xs font-semibold uppercase tracking-[0.18em] text-accent">
-                  Translation
-                </p>
-                <h3 className="mt-2 font-display text-3xl text-ink">
-                  {activeTranslation.name}
-                </h3>
-                <p className="mt-2 leading-7">
-                  {activeTranslation.description || "No description yet."}
-                </p>
+                <p className="text-xs font-semibold uppercase tracking-[0.18em] text-accent">Translation</p>
+                <h3 className="mt-2 font-display text-3xl text-ink">{activeTranslation.name}</h3>
+                <p className="mt-2 leading-7">{activeTranslation.description || "No description yet."}</p>
               </div>
               <div className="mt-4 space-y-3">
                 {activeSession.chapters.map((chapter, index) => {
                   const issueCount =
-                    validation?.chapters.find(
-                      (validationChapter) =>
-                        validationChapter.position === chapter.position,
-                    )?.issues.length ?? 0;
+                    validation?.chapters.find((validationChapter) => validationChapter.position === chapter.position)
+                      ?.issues.length ?? 0;
                   return (
                     <button
                       key={chapter.id}
@@ -1249,60 +983,31 @@ export default function App() {
                     >
                       <div className="flex items-start justify-between gap-3">
                         <div>
-                          <p className="font-semibold text-ink">
-                            {chapter.title}
-                          </p>
-                          <p className="mt-1 text-xs uppercase tracking-[0.18em] text-accent">
-                            {chapter.slug}
-                          </p>
+                          <p className="font-semibold text-ink">{chapter.title}</p>
+                          <p className="mt-1 text-xs uppercase tracking-[0.18em] text-accent">{chapter.slug}</p>
                         </div>
                         <StatusPill status={chapter.status} />
                       </div>
                       <p className="mt-2 text-sm text-ink/60">
-                        {issueCount > 0
-                          ? `${issueCount} validation issues`
-                          : "No flagged issues"}
+                        {issueCount > 0 ? `${issueCount} validation issues` : "No flagged issues"}
                       </p>
                     </button>
                   );
                 })}
               </div>
               <div className="mt-6 flex flex-wrap gap-3">
-                <ActionButton
-                  label="Back To Translations"
-                  onClick={() => setScreen("translations")}
-                />
-                <ActionButton
-                  label="Validate Translation"
-                  onClick={validateCurrentTranslation}
-                  tone="accent"
-                />
+                <ActionButton label="Back To Translations" onClick={() => setScreen("translations")} />
+                <ActionButton label="Validate Translation" onClick={validateCurrentTranslation} tone="accent" />
               </div>
             </Panel>
 
             <div className="grid gap-6">
               <Panel title="Translation Settings">
                 <div className="grid gap-4 lg:grid-cols-2">
-                  <InputField
-                    label="Translation Name"
-                    value={translationTitle}
-                    onChange={setTranslationTitle}
-                  />
-                  <InputField
-                    label="Slug"
-                    value={translationSlug}
-                    onChange={setTranslationSlug}
-                  />
-                  <InputField
-                    label="Description"
-                    value={translationDescription}
-                    onChange={setTranslationDescription}
-                  />
-                  <InputField
-                    label="Model"
-                    value={translationModel}
-                    onChange={setTranslationModel}
-                  />
+                  <InputField label="Translation Name" value={translationTitle} onChange={setTranslationTitle} />
+                  <InputField label="Slug" value={translationSlug} onChange={setTranslationSlug} />
+                  <InputField label="Description" value={translationDescription} onChange={setTranslationDescription} />
+                  <InputField label="Model" value={translationModel} onChange={setTranslationModel} />
                   <InputField
                     label="Context Before Chapters"
                     value={contextBeforeChapterCount}
@@ -1315,12 +1020,7 @@ export default function App() {
                   />
                 </div>
                 <div className="mt-4">
-                  <TextareaField
-                    label="Prompt"
-                    value={translationPrompt}
-                    onChange={setTranslationPrompt}
-                    rows={8}
-                  />
+                  <TextareaField label="Prompt" value={translationPrompt} onChange={setTranslationPrompt} rows={8} />
                 </div>
                 <div className="mt-6 flex flex-wrap gap-3">
                   <ActionButton
@@ -1335,9 +1035,7 @@ export default function App() {
                     disabled={isBusy || !translationMetadataIsDirty}
                   />
                   <ActionButton
-                    label={
-                      isBusy ? "Generating..." : "Generate Current Chapter"
-                    }
+                    label={isBusy ? "Generating..." : "Generate Current Chapter"}
                     onClick={generateCurrentChapter}
                     tone="accent"
                     disabled={isBusy || !currentWorkspaceChapter}
@@ -1400,9 +1098,7 @@ export default function App() {
                     </section>
                     <button
                       type="button"
-                      onClick={() =>
-                        setShowRawJsonEditor((current) => !current)
-                      }
+                      onClick={() => setShowRawJsonEditor((current) => !current)}
                       className="mt-4 text-sm font-semibold text-accent"
                     >
                       {showRawJsonEditor ? "Hide raw JSON" : "Show raw JSON"}
@@ -1412,15 +1108,10 @@ export default function App() {
                         <textarea
                           className="min-h-[260px] w-full rounded-2xl border border-border/70 bg-paper/70 px-4 py-3 font-mono text-sm leading-6 text-ink outline-none transition focus:border-accent"
                           value={editedRawResponse}
-                          onChange={(event) =>
-                            setEditedRawResponse(event.target.value)
-                          }
+                          onChange={(event) => setEditedRawResponse(event.target.value)}
                         />
                         <div className="mt-3">
-                          <ActionButton
-                            label="Reload Editor From Raw JSON"
-                            onClick={reloadEditorFromRawJson}
-                          />
+                          <ActionButton label="Reload Editor From Raw JSON" onClick={reloadEditorFromRawJson} />
                         </div>
                       </div>
                     ) : null}
@@ -1452,32 +1143,19 @@ export default function App() {
                 {validation.isValid ? "Ready for finish line" : "Issues found"}
               </p>
               <div className="mt-4 grid grid-cols-2 gap-3 text-sm text-ink/70">
-                <Metric
-                  label="Chapters"
-                  value={String(validation.chapters.length)}
-                />
+                <Metric label="Chapters" value={String(validation.chapters.length)} />
                 <Metric
                   label="Errors"
-                  value={String(
-                    validation.issues.filter((issue) => issue.level === "error")
-                      .length,
-                  )}
+                  value={String(validation.issues.filter((issue) => issue.level === "error").length)}
                 />
                 <Metric
                   label="Warnings"
-                  value={String(
-                    validation.issues.filter(
-                      (issue) => issue.level === "warning",
-                    ).length,
-                  )}
+                  value={String(validation.issues.filter((issue) => issue.level === "warning").length)}
                 />
                 <Metric label="Status" value={activeTranslation.status} />
               </div>
               <div className="mt-6 flex flex-wrap gap-3">
-                <ActionButton
-                  label="Continue Editing"
-                  onClick={() => setScreen("workspace")}
-                />
+                <ActionButton label="Continue Editing" onClick={() => setScreen("workspace")} />
                 <ActionButton
                   label="Mark Ready"
                   onClick={() => void markTranslationStatus("ready")}
@@ -1489,10 +1167,7 @@ export default function App() {
                   onClick={() => void markTranslationStatus("published")}
                   disabled={!validation.isValid || isBusy}
                 />
-                <ActionButton
-                  label="Export Translation JSON"
-                  onClick={exportTranslationJson}
-                />
+                <ActionButton label="Export Translation JSON" onClick={exportTranslationJson} />
               </div>
             </Panel>
 
@@ -1511,16 +1186,11 @@ export default function App() {
                             : "border-amber-200 bg-amber-50 text-amber-900"
                         }`}
                       >
-                        <span className="font-semibold">
-                          {issue.chapterSlug ?? "Translation"}
-                        </span>{" "}
-                        {issue.message}
+                        <span className="font-semibold">{issue.chapterSlug ?? "Translation"}</span> {issue.message}
                       </button>
                     ))
                   ) : (
-                    <p className="text-base leading-7 text-ink/70">
-                      No validation issues found.
-                    </p>
+                    <p className="text-base leading-7 text-ink/70">No validation issues found.</p>
                   )}
                 </div>
               </Panel>
@@ -1540,12 +1210,8 @@ export default function App() {
                     >
                       <div className="flex items-start justify-between gap-3">
                         <div>
-                          <p className="font-semibold text-ink">
-                            {chapter.title}
-                          </p>
-                          <p className="mt-1 text-xs uppercase tracking-[0.18em] text-accent">
-                            {chapter.slug}
-                          </p>
+                          <p className="font-semibold text-ink">{chapter.title}</p>
+                          <p className="mt-1 text-xs uppercase tracking-[0.18em] text-accent">{chapter.slug}</p>
                         </div>
                         <StatusPill status={chapter.status} />
                       </div>
@@ -1561,9 +1227,7 @@ export default function App() {
 
               {validationPreviewChapter ? (
                 <Panel title="Side-by-Side Preview">
-                  <ChapterSideBySidePreview
-                    chapter={validationPreviewChapter}
-                  />
+                  <ChapterSideBySidePreview chapter={validationPreviewChapter} />
                 </Panel>
               ) : null}
             </div>
@@ -1586,9 +1250,7 @@ export default function App() {
             </div>
             <div className="mt-6 space-y-6">
               <section className="space-y-4">
-                <p className="text-xs font-semibold uppercase tracking-[0.18em] text-accent">
-                  Credentials
-                </p>
+                <p className="text-xs font-semibold uppercase tracking-[0.18em] text-accent">Credentials</p>
                 <InputField
                   label="OpenRouter API Key"
                   value={settingsApiKey}
@@ -1597,20 +1259,9 @@ export default function App() {
                 />
               </section>
               <section className="space-y-4">
-                <p className="text-xs font-semibold uppercase tracking-[0.18em] text-accent">
-                  Generation Defaults
-                </p>
-                <InputField
-                  label="Default Model"
-                  value={settingsModel}
-                  onChange={setSettingsModel}
-                />
-                <TextareaField
-                  label="Default Prompt"
-                  value={settingsPrompt}
-                  onChange={setSettingsPrompt}
-                  rows={10}
-                />
+                <p className="text-xs font-semibold uppercase tracking-[0.18em] text-accent">Generation Defaults</p>
+                <InputField label="Default Model" value={settingsModel} onChange={setSettingsModel} />
+                <TextareaField label="Default Prompt" value={settingsPrompt} onChange={setSettingsPrompt} rows={10} />
               </section>
               <ActionButton
                 label={isBusy ? "Saving..." : "Save Settings"}
@@ -1626,13 +1277,7 @@ export default function App() {
   );
 }
 
-function Panel({
-  title,
-  children,
-}: {
-  title: string;
-  children: React.ReactNode;
-}) {
+function Panel({ title, children }: { title: string; children: React.ReactNode }) {
   return (
     <section className="rounded-[28px] border border-border/70 bg-white/80 p-6 shadow-panel backdrop-blur">
       <h2 className="font-display text-3xl text-ink">{title}</h2>
@@ -1654,9 +1299,7 @@ function InputField({
 }) {
   return (
     <label className="grid gap-2">
-      <span className="text-xs font-semibold uppercase tracking-[0.18em] text-accent">
-        {label}
-      </span>
+      <span className="text-xs font-semibold uppercase tracking-[0.18em] text-accent">{label}</span>
       <input
         type={type}
         value={value}
@@ -1682,9 +1325,7 @@ function TextareaField({
 }) {
   return (
     <label className="grid gap-2">
-      <span className="text-xs font-semibold uppercase tracking-[0.18em] text-accent">
-        {label}
-      </span>
+      <span className="text-xs font-semibold uppercase tracking-[0.18em] text-accent">{label}</span>
       <textarea
         rows={rows}
         value={value}
@@ -1709,9 +1350,7 @@ function SegmentedControl({
 }) {
   return (
     <div className="grid gap-2">
-      <span className="text-xs font-semibold uppercase tracking-[0.18em] text-accent">
-        {label}
-      </span>
+      <span className="text-xs font-semibold uppercase tracking-[0.18em] text-accent">{label}</span>
       <div className="flex flex-wrap gap-2">
         {options.map((option) => (
           <button
@@ -1759,15 +1398,7 @@ function ActionButton({
   );
 }
 
-function MiniButton({
-  label,
-  onClick,
-  disabled,
-}: {
-  label: string;
-  onClick: () => void;
-  disabled?: boolean;
-}) {
+function MiniButton({ label, onClick, disabled }: { label: string; onClick: () => void; disabled?: boolean }) {
   return (
     <button
       type="button"
@@ -1783,9 +1414,7 @@ function MiniButton({
 function Metric({ label, value }: { label: string; value: string }) {
   return (
     <div className="rounded-2xl border border-border/50 bg-white/70 p-3">
-      <p className="text-xs font-semibold uppercase tracking-[0.18em] text-accent/80">
-        {label}
-      </p>
+      <p className="text-xs font-semibold uppercase tracking-[0.18em] text-accent/80">{label}</p>
       <p className="mt-1 text-lg font-semibold text-ink">{value}</p>
     </div>
   );
@@ -1802,11 +1431,7 @@ function StatusPill({ status }: { status: string }) {
           : "bg-stone-200 text-stone-700";
 
   return (
-    <span
-      className={`rounded-full px-3 py-1 text-xs font-semibold uppercase tracking-[0.18em] ${tone}`}
-    >
-      {status}
-    </span>
+    <span className={`rounded-full px-3 py-1 text-xs font-semibold uppercase tracking-[0.18em] ${tone}`}>{status}</span>
   );
 }
 
@@ -1820,13 +1445,8 @@ function CompactOriginalChunkList({
   return (
     <div className="rounded-2xl border border-border/70 bg-paper/70 p-4">
       <div className="flex items-center justify-between gap-3">
-        <p className="text-xs font-semibold uppercase tracking-[0.18em] text-accent">
-          Original Chunk Bank
-        </p>
-        <MiniButton
-          label="Add Original Chunk"
-          onClick={() => onChange([...chunks, { text: "", type: "prose" }])}
-        />
+        <p className="text-xs font-semibold uppercase tracking-[0.18em] text-accent">Original Chunk Bank</p>
+        <MiniButton label="Add Original Chunk" onClick={() => onChange([...chunks, { text: "", type: "prose" }])} />
       </div>
       <div className="mt-3 space-y-2">
         {chunks.map((chunk, index) => (
@@ -1835,17 +1455,13 @@ function CompactOriginalChunkList({
             className="grid gap-3 rounded-xl border border-border/50 bg-white/65 p-3 lg:grid-cols-[96px_1fr_auto]"
           >
             <div className="space-y-2">
-              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-accent/80">
-                c{index + 1}
-              </p>
+              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-accent/80">c{index + 1}</p>
               <CompactSelect
                 value={chunk.type}
                 onChange={(value) =>
                   onChange(
                     chunks.map((entry, chunkIndex) =>
-                      chunkIndex === index
-                        ? { ...entry, type: value as "prose" | "verse" }
-                        : entry,
+                      chunkIndex === index ? { ...entry, type: value as "prose" | "verse" } : entry,
                     ),
                   )
                 }
@@ -1862,9 +1478,7 @@ function CompactOriginalChunkList({
               onChange={(event) =>
                 onChange(
                   chunks.map((entry, chunkIndex) =>
-                    chunkIndex === index
-                      ? { ...entry, text: event.target.value }
-                      : entry,
+                    chunkIndex === index ? { ...entry, text: event.target.value } : entry,
                   ),
                 )
               }
@@ -1874,20 +1488,12 @@ function CompactOriginalChunkList({
               <MiniButton
                 label="Add Below"
                 onClick={() =>
-                  onChange([
-                    ...chunks.slice(0, index + 1),
-                    { text: "", type: chunk.type },
-                    ...chunks.slice(index + 1),
-                  ])
+                  onChange([...chunks.slice(0, index + 1), { text: "", type: chunk.type }, ...chunks.slice(index + 1)])
                 }
               />
               <MiniButton
                 label="Delete"
-                onClick={() =>
-                  onChange(
-                    chunks.filter((_, chunkIndex) => chunkIndex !== index),
-                  )
-                }
+                onClick={() => onChange(chunks.filter((_, chunkIndex) => chunkIndex !== index))}
                 disabled={chunks.length === 1}
               />
             </div>
@@ -1917,17 +1523,12 @@ function AlignedTranslationReview({
     }>,
   ) => void;
 }) {
-  const sourceOptions = Array.from(
-    { length: originalChunks.length },
-    (_, index) => `c${index + 1}`,
-  );
+  const sourceOptions = Array.from({ length: originalChunks.length }, (_, index) => `c${index + 1}`);
 
   return (
     <div className="rounded-2xl border border-border/70 bg-paper/70 p-4">
       <div className="flex items-center justify-between gap-3">
-        <p className="text-xs font-semibold uppercase tracking-[0.18em] text-accent">
-          Aligned Translation Review
-        </p>
+        <p className="text-xs font-semibold uppercase tracking-[0.18em] text-accent">Aligned Translation Review</p>
         <MiniButton
           label="Add Translation Chunk"
           onClick={() =>
@@ -1959,9 +1560,7 @@ function AlignedTranslationReview({
             >
               <div className="min-w-0 border-r border-border/35 pr-4 xl:pr-5">
                 <div className="flex items-center justify-between gap-3">
-                  <p className="text-xs font-semibold uppercase tracking-[0.18em] text-accent/80">
-                    Source
-                  </p>
+                  <p className="text-xs font-semibold uppercase tracking-[0.18em] text-accent/80">Source</p>
                 </div>
                 <div className="mt-3 space-y-3">
                   {sourceChunks.map((sourceChunk) => (
@@ -1979,9 +1578,7 @@ function AlignedTranslationReview({
 
               <div className="min-w-0">
                 <div className="flex flex-wrap items-center gap-2">
-                  <p className="mr-1 text-xs font-semibold uppercase tracking-[0.18em] text-accent/80">
-                    T{index + 1}
-                  </p>
+                  <p className="mr-1 text-xs font-semibold uppercase tracking-[0.18em] text-accent/80">T{index + 1}</p>
                   <CompactSelect
                     value={chunk.sourceChunkIds[0] ?? ""}
                     onChange={(value) =>
@@ -2007,9 +1604,7 @@ function AlignedTranslationReview({
                     onChange={(value) =>
                       onChange(
                         chunks.map((entry, chunkIndex) =>
-                          chunkIndex === index
-                            ? { ...entry, type: value as "prose" | "verse" }
-                            : entry,
+                          chunkIndex === index ? { ...entry, type: value as "prose" | "verse" } : entry,
                         ),
                       )
                     }
@@ -2035,11 +1630,7 @@ function AlignedTranslationReview({
                   />
                   <MiniButton
                     label="Delete"
-                    onClick={() =>
-                      onChange(
-                        chunks.filter((_, chunkIndex) => chunkIndex !== index),
-                      )
-                    }
+                    onClick={() => onChange(chunks.filter((_, chunkIndex) => chunkIndex !== index))}
                     disabled={chunks.length === 1}
                   />
                 </div>
@@ -2050,9 +1641,7 @@ function AlignedTranslationReview({
                   onChange={(event) =>
                     onChange(
                       chunks.map((entry, chunkIndex) =>
-                        chunkIndex === index
-                          ? { ...entry, text: event.target.value }
-                          : entry,
+                        chunkIndex === index ? { ...entry, text: event.target.value } : entry,
                       ),
                     )
                   }
@@ -2097,36 +1686,24 @@ function CompactSelect({
 function ChapterSideBySidePreview({
   chapter,
 }: {
-  chapter: NonNullable<
-    AdminTranslationValidationPayload["session"]
-  >["chapters"][number];
+  chapter: NonNullable<AdminTranslationValidationPayload["session"]>["chapters"][number];
 }) {
-  const originalMap = new Map(
-    (chapter.originalDocument?.chunks ?? []).map((chunk) => [chunk.id, chunk]),
-  );
+  const originalMap = new Map((chapter.originalDocument?.chunks ?? []).map((chunk) => [chunk.id, chunk]));
 
   return (
     <div className="divide-y divide-border/35">
       {(chapter.translationDocument?.chunks ?? []).map((chunk) => {
-        const sourceChunks = chunk.sourceChunkIds
-          .map((chunkId) => originalMap.get(chunkId))
-          .filter(isPresent);
+        const sourceChunks = chunk.sourceChunkIds.map((chunkId) => originalMap.get(chunkId)).filter(isPresent);
 
         return (
-          <div
-            key={chunk.id}
-            className="grid gap-4 py-4 md:grid-cols-2 md:gap-8"
-          >
+          <div key={chunk.id} className="grid gap-4 py-4 md:grid-cols-2 md:gap-8">
             <div>
               <p className="text-xs font-semibold uppercase tracking-[0.18em] text-accent">
                 Source · {chunk.sourceChunkIds.join(" + ")}
               </p>
               <div className="mt-3 space-y-3">
                 {sourceChunks.map((sourceChunk) => (
-                  <p
-                    key={sourceChunk.id}
-                    className="font-display text-2xl leading-9 text-ink"
-                  >
+                  <p key={sourceChunk.id} className="font-display text-2xl leading-9 text-ink">
                     <span className="mr-3 align-top font-sans text-[0.72rem] font-semibold uppercase tracking-[0.18em] text-accent/85">
                       {sourceChunk.id}
                     </span>
@@ -2136,9 +1713,7 @@ function ChapterSideBySidePreview({
               </div>
             </div>
             <div>
-              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-accent">
-                Translation · {chunk.id}
-              </p>
+              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-accent">Translation · {chunk.id}</p>
               <p className="mt-3 text-lg leading-8 text-ink/80">{chunk.text}</p>
             </div>
           </div>
@@ -2148,9 +1723,7 @@ function ChapterSideBySidePreview({
   );
 }
 
-function buildChapterEditorState(
-  chapter: AdminIngestionChapterRecord,
-): ChapterEditorState {
+function buildChapterEditorState(chapter: AdminIngestionChapterRecord): ChapterEditorState {
   if (chapter.rawResponse?.trim()) {
     try {
       return parseEditorStateFromRaw(chapter.rawResponse);
@@ -2162,14 +1735,12 @@ function buildChapterEditorState(
   return {
     chapterTitle: chapter.title,
     notes: chapter.notes ?? "",
-    originalChunks: (
-      chapter.originalDocument?.chunks ?? [
-        { text: "", type: "prose", id: "c1", ordinal: 1 },
-      ]
-    ).map((chunk) => ({
-      text: chunk.text,
-      type: chunk.type,
-    })),
+    originalChunks: (chapter.originalDocument?.chunks ?? [{ text: "", type: "prose", id: "c1", ordinal: 1 }]).map(
+      (chunk) => ({
+        text: chunk.text,
+        type: chunk.type,
+      }),
+    ),
     translationChunks: (
       chapter.translationDocument?.chunks ?? [
         {
@@ -2197,14 +1768,9 @@ function buildTranslationMetadataSnapshot(input: {
     slug: input.activeTranslation.slug.trim(),
     description: (input.activeTranslation.description ?? "").trim(),
     model: (input.activeSession?.model ?? DEFAULT_MODEL).trim(),
-    prompt:
-      input.activeSession?.prompt ??
-      input.activeTranslation.aiSystemPrompt ??
-      "",
-    contextBeforeChapterCount:
-      input.activeSession?.contextBeforeChapterCount ?? 1,
-    contextAfterChapterCount:
-      input.activeSession?.contextAfterChapterCount ?? 1,
+    prompt: input.activeSession?.prompt ?? input.activeTranslation.aiSystemPrompt ?? "",
+    contextBeforeChapterCount: input.activeSession?.contextBeforeChapterCount ?? 1,
+    contextAfterChapterCount: input.activeSession?.contextAfterChapterCount ?? 1,
   };
 }
 
@@ -2298,26 +1864,18 @@ function parseEditorStateFromRaw(rawResponse: string): ChapterEditorState {
     }>;
   };
 
-  const originalChunks: ChapterEditorState["originalChunks"] = (
-    parsed.originalChunks ?? []
-  ).map((chunk) => ({
+  const originalChunks: ChapterEditorState["originalChunks"] = (parsed.originalChunks ?? []).map((chunk) => ({
     text: chunk.text?.trim() ?? "",
     type: chunk.type === "verse" ? "verse" : "prose",
   }));
-  const translationChunks: ChapterEditorState["translationChunks"] = (
-    parsed.translationChunks ?? []
-  ).map((chunk) => ({
+  const translationChunks: ChapterEditorState["translationChunks"] = (parsed.translationChunks ?? []).map((chunk) => ({
     text: chunk.text?.trim() ?? "",
     type: chunk.type === "verse" ? "verse" : "prose",
-    sourceChunkIds:
-      chunk.sourceChunkIds ??
-      (chunk.sourceOrdinals ?? []).map((ordinal) => `c${ordinal}`),
+    sourceChunkIds: chunk.sourceChunkIds ?? (chunk.sourceOrdinals ?? []).map((ordinal) => `c${ordinal}`),
   }));
 
   if (originalChunks.length === 0 || translationChunks.length === 0) {
-    throw new Error(
-      "Raw JSON must include originalChunks and translationChunks.",
-    );
+    throw new Error("Raw JSON must include originalChunks and translationChunks.");
   }
 
   return {

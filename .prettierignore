@@ -1,0 +1,10 @@
+node_modules
+.pnpm-store
+dist
+.wrangler
+coverage
+pnpm-lock.yaml
+package-lock.json
+yarn.lock
+apps/web/.env
+apps/api/.dev.vars

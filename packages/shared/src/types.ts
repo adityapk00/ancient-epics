@@ -6,12 +6,7 @@ export type ChunkType = "prose" | "verse";
 export type ContentStatus = "draft" | "published";
 
 /** Status for translation variants (includes generation lifecycle). */
-export type TranslationStatus =
-  | "draft"
-  | "generating"
-  | "ready"
-  | "published"
-  | "failed";
+export type TranslationStatus = "draft" | "generating" | "ready" | "published" | "failed";
 
 export type SubscriptionStatus = "free" | "trial" | "active" | "expired";
 
@@ -19,11 +14,7 @@ export type UserRole = "reader" | "admin";
 
 export type AdminIngestionSourceMode = "paste" | "existing_story";
 
-export type AdminIngestionChapterStatus =
-  | "pending"
-  | "generated"
-  | "saved"
-  | "error";
+export type AdminIngestionChapterStatus = "pending" | "generated" | "saved" | "error";
 
 // ── R2 document shapes ──────────────────────────────────────
 
@@ -91,8 +82,7 @@ export interface AdminBookWorkflowSummary extends BookSummary {
   latestActivityAt: string | null;
 }
 
-export interface AdminTranslationSessionSummary
-  extends AdminIngestionSessionSummary {}
+export type AdminTranslationSessionSummary = AdminIngestionSessionSummary;
 
 export interface AdminTranslationSummary extends TranslationSummary {
   bookSlug: string;

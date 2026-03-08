@@ -1,4 +1,2 @@
-1. The user can switch between the type of translation while viewing the book as well, and it will dynamically load the new translation.
-2. Make it clear that there are multiple translations for each book. Eg. For Iliad, the translations could be - verse/preserve meter, verse/preserve meaning, prose/capture atmosphere, prose/capture meaning, prose/modern interpretation etc...
-
-Can you design all the data structure and storage for this app. What will live in D1 vs R2? What is the data structures / tables / file layout? What will the files contain? How will we 'chunk' the books? I'm imagining that the admin will add a new book, then set up the translation type and 'guide' the translation? How will we save the translations and how will we align them with the original text (we described how we'll align it in the UI, but how will we align the translations in the data storage?)
+1. Where is the context_before_chapter_count set in the UI?
+2. The admin_ingestion_sessions has a prompt, but the translations table also has a prompt. are they kept in sync as the translation moves through the life cycle?
