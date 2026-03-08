@@ -1,5 +1,4 @@
 import {
-  APP_SETTING_KEYS,
   type AdminBookChapterInput,
   type AdminBookSourcePayload,
   type AdminBookWorkflowSummary,
@@ -21,7 +20,7 @@ import {
   type TranslationChapterDocument,
   type TranslationSummary,
 } from "@ancient-epics/shared";
-import { isPresent, readObjectJson, slugify, writeObjectJson } from "./http";
+import { readObjectJson, slugify, writeObjectJson } from "./http";
 
 type AdminBookChapterRow = ChapterSummary & { bookId: string };
 
@@ -228,7 +227,9 @@ export async function getAdminTranslationDetail(
 
   const sessions = await listAdminIngestionSessionsByTranslationId(db, translationId);
   const currentSessionSummary = sessions[0] ?? null;
-  const currentSession = currentSessionSummary ? await getAdminIngestionSessionDetail(db, currentSessionSummary.id) : null;
+  const currentSession = currentSessionSummary
+    ? await getAdminIngestionSessionDetail(db, currentSessionSummary.id)
+    : null;
 
   return {
     ...summary,
@@ -656,8 +657,9 @@ export async function getAdminBookSourcePayload(
   }
 
   const [chaptersResult, translationsResult] = await Promise.all([
-    db.prepare(
-      `
+    db
+      .prepare(
+        `
         SELECT
           id,
           book_id AS bookId,
@@ -672,11 +674,12 @@ export async function getAdminBookSourcePayload(
         WHERE book_id = ?
         ORDER BY position ASC
       `,
-    )
+      )
       .bind(book.id)
       .all<AdminBookChapterRow>(),
-    db.prepare(
-      `
+    db
+      .prepare(
+        `
         SELECT
           id,
           slug,
@@ -688,7 +691,7 @@ export async function getAdminBookSourcePayload(
         WHERE book_id = ?
         ORDER BY name ASC
       `,
-    )
+      )
       .bind(book.id)
       .all<TranslationSummary>(),
   ]);
