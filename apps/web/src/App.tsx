@@ -604,8 +604,9 @@ export default function App() {
         const refreshedTranslation = await api.getAdminTranslation(activeTranslation.id);
         hydrateActiveTranslation(refreshedTranslation);
         const refreshedChapterIndex =
-          refreshedTranslation.currentSession?.chapters.findIndex((chapter) => chapter.id === currentWorkspaceChapter.id) ??
-          -1;
+          refreshedTranslation.currentSession?.chapters.findIndex(
+            (chapter) => chapter.id === currentWorkspaceChapter.id,
+          ) ?? -1;
         if (refreshedChapterIndex >= 0) {
           setSelectedChapterIndex(refreshedChapterIndex);
         }
