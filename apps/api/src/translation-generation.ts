@@ -419,11 +419,11 @@ function normalizeChapterText(value: string): string {
   return value.replace(/\r\n/g, "\n").trim();
 }
 
-function originalTextReconstructsSource(
-  sourceText: string,
-  chunks: TranslationChapterDocument["chunks"],
-): boolean {
-  return normalizeSemanticChapterText(sourceText) === normalizeSemanticChapterText(chunks.map((chunk) => chunk.originalText).join("\n"));
+function originalTextReconstructsSource(sourceText: string, chunks: TranslationChapterDocument["chunks"]): boolean {
+  return (
+    normalizeSemanticChapterText(sourceText) ===
+    normalizeSemanticChapterText(chunks.map((chunk) => chunk.originalText).join("\n"))
+  );
 }
 
 function normalizeSemanticChapterText(value: string): string {
