@@ -374,6 +374,60 @@ try {
   }
 
   {
+    const { status, json } = await api("POST", "/api/admin/ingestion/sessions", {
+      title: "Smoke Chunk Reconstruction Session",
+      sourceMode: "paste",
+      model: "openai/gpt-4o-mini",
+      prompt: "Return JSON only.",
+      chapters: [
+        {
+          position: 0,
+          title: "Split Chapter",
+          slug: "split-chapter",
+          sourceText: "Alpha line.\nBeta line.",
+          sourceChapterSlug: null,
+        },
+      ],
+    });
+
+    assert("POST chunk reconstruction session returns 201", status === 201);
+    assert("chunk reconstruction session has one chapter", json.data?.chapters?.length === 1);
+
+    const sessionId = json.data.id;
+    const splitChunkResponse = JSON.stringify({
+      chapterTitle: "Split Chapter",
+      chunks: [
+        {
+          originalText: "Alpha line.\n",
+          translatedText: "Alpha translated.\n",
+          type: "verse",
+        },
+        {
+          originalText: "Beta line.",
+          translatedText: "Beta translated.",
+          type: "verse",
+        },
+      ],
+    });
+
+    const saveResult = await api("PUT", `/api/admin/ingestion/sessions/${sessionId}/chapters/0/save`, {
+      rawResponse: splitChunkResponse,
+    });
+    assert("saving split chunks returns 200", saveResult.status === 200);
+    assert("split chunk chapter is marked saved", saveResult.json.data?.chapter?.status === "saved");
+    assert("split chunk chapter has no error message", saveResult.json.data?.chapter?.errorMessage === null);
+    assert(
+      "split chunk chapter preserves both chunk boundaries",
+      saveResult.json.data?.chapter?.translationDocument?.chunks?.length === 2,
+    );
+    assert(
+      "split chunk chapter reconstructs source text without inserted blank lines",
+      saveResult.json.data?.chapter?.translationDocument?.chunks?.map((chunk) => chunk.originalText).join("") ===
+        "Alpha line.\nBeta line.",
+    );
+  }
+
+  {
     const createTranslationResult = await api("POST", "/api/admin/books/iliad/translations", {
       title: "Smoke Iliad Translation",
       description: "Created during smoke validation.",
