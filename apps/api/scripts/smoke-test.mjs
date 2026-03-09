@@ -222,7 +222,10 @@ try {
     assert("GET translation returns 200", status === 200);
     assert("translation has chunks array", Array.isArray(json.data?.content?.chunks));
     assert("first translation chunk has id", typeof json.data?.content?.chunks?.[0]?.id === "string");
-    assert("first translation chunk has original text", typeof json.data?.content?.chunks?.[0]?.originalText === "string");
+    assert(
+      "first translation chunk has original text",
+      typeof json.data?.content?.chunks?.[0]?.originalText === "string",
+    );
     assert(
       "first translation chunk has translated text",
       typeof json.data?.content?.chunks?.[0]?.translatedText === "string",

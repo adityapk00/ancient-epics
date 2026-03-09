@@ -103,3 +103,5 @@ SMOKE_PERSIST_TO=/tmp/ancient-epics-smoke pnpm smoke
 ## Contributing
 
 The reader experience depends on strong typography and clear passage relationships. Test UI changes on desktop and mobile, and preserve the source-anchor contract when changing content or rendering code.
+
+Git pushes run a `pre-push` hook that executes `pnpm format:check`. If the hook blocks your push, run `pnpm format`, review the changes, and commit them before pushing again.

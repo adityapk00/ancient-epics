@@ -1,0 +1,10 @@
+#!/bin/sh
+
+echo "Checking formatting before push..."
+
+if ! pnpm format:check; then
+  echo
+  echo "Push blocked: formatting check failed."
+  echo "Run 'pnpm format' and commit the resulting changes before pushing."
+  exit 1
+fi
