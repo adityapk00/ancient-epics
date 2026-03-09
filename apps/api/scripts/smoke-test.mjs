@@ -222,7 +222,10 @@ try {
     assert("GET translation returns 200", status === 200);
     assert("translation has chunks array", Array.isArray(json.data?.content?.chunks));
     assert("first translation chunk has id", typeof json.data?.content?.chunks?.[0]?.id === "string");
-    assert("first translation chunk has original text", typeof json.data?.content?.chunks?.[0]?.originalText === "string");
+    assert(
+      "first translation chunk has original text",
+      typeof json.data?.content?.chunks?.[0]?.originalText === "string",
+    );
     assert(
       "first translation chunk has translated text",
       typeof json.data?.content?.chunks?.[0]?.translatedText === "string",
@@ -286,7 +289,6 @@ try {
   {
     const { status, json } = await api("POST", "/api/admin/books", {
       title: "Smoke Book",
-      slug: "smoke-book",
       author: "Smoke Tester",
       originalLanguage: "English",
       description: "Created during the smoke test.",
@@ -301,6 +303,7 @@ try {
     });
     assert("POST /api/admin/books returns 201", status === 201);
     assert("created book has draft status", json.data?.book?.status === "draft");
+    assert("created book slug is auto-generated from the title", json.data?.book?.slug === "smoke-book");
     assert("created book has one chapter", json.data?.chapters?.length === 1);
   }
 
@@ -373,7 +376,6 @@ try {
   {
     const createTranslationResult = await api("POST", "/api/admin/books/iliad/translations", {
       title: "Smoke Iliad Translation",
-      slug: "smoke-iliad-translation",
       description: "Created during smoke validation.",
       model: "openai/gpt-4o-mini",
       prompt: "Return JSON only.",
@@ -381,6 +383,10 @@ try {
       contextAfterChapterCount: 0,
     });
     assert("POST book translation returns 201", createTranslationResult.status === 201);
+    assert(
+      "created translation slug is auto-generated from the title",
+      createTranslationResult.json.data?.slug === "smoke-iliad-translation",
+    );
 
     const linkedTranslationId = createTranslationResult.json.data?.id;
     const translationsResult = await api("GET", "/api/admin/books/iliad/translations");
