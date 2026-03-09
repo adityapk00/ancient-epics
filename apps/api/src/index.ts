@@ -120,7 +120,7 @@ app.get("/api/books/:bookSlug", async (c) => {
           status,
           published_at AS publishedAt
         FROM chapters
-        WHERE book_id = ?
+        WHERE book_id = ? AND status = 'published'
         ORDER BY position ASC
       `,
     )
@@ -169,7 +169,7 @@ app.get("/api/books/:bookSlug/chapters/:chapterSlug", async (c) => {
         books.id AS bookId
       FROM chapters
       JOIN books ON books.id = chapters.book_id
-      WHERE books.slug = ? AND chapters.slug = ? AND books.status = 'published'
+      WHERE books.slug = ? AND chapters.slug = ? AND books.status = 'published' AND chapters.status = 'published'
     `,
   )
     .bind(bookSlug, chapterSlug)
