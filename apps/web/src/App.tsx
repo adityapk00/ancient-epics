@@ -787,9 +787,6 @@ export default function App() {
             <Panel title="Book Details">
               <div className="space-y-4">
                 <InputField label="Title" value={bookTitle} onChange={setBookTitle} />
-                <p className="text-sm leading-7 text-ink/60">
-                  The book slug will be generated automatically from the title.
-                </p>
                 <InputField label="Author" value={bookAuthor} onChange={setBookAuthor} />
                 <InputField label="Original Language" value={bookLanguage} onChange={setBookLanguage} />
                 <TextareaField label="Description" value={bookDescription} onChange={setBookDescription} rows={5} />
@@ -978,9 +975,6 @@ export default function App() {
                         onChange={setTranslationDescription}
                       />
                     </div>
-                    <p className="mt-4 text-sm leading-7 text-ink/60">
-                      The translation slug will be generated automatically from the translation name.
-                    </p>
                     <div className="mt-4">
                       <TranslationAiSettingsRow
                         provider={translationProvider}
