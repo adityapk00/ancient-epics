@@ -70,7 +70,6 @@ export default function App() {
   const [settingsPrompt, setSettingsPrompt] = useState("");
 
   const [bookTitle, setBookTitle] = useState("");
-  const [bookSlug, setBookSlug] = useState("");
   const [bookAuthor, setBookAuthor] = useState("");
   const [bookLanguage, setBookLanguage] = useState("");
   const [bookDescription, setBookDescription] = useState("");
@@ -209,7 +208,6 @@ export default function App() {
 
   function resetBookForm() {
     setBookTitle("");
-    setBookSlug("");
     setBookAuthor("");
     setBookLanguage("");
     setBookDescription("");
@@ -396,7 +394,6 @@ export default function App() {
     try {
       const created = await api.createAdminBook({
         title: bookTitle,
-        slug: bookSlug || undefined,
         author: bookAuthor || undefined,
         originalLanguage: bookLanguage || undefined,
         description: bookDescription || undefined,
@@ -433,7 +430,6 @@ export default function App() {
     try {
       const translation = await api.createAdminTranslation(selectedBook.book.slug, {
         title: translationTitle,
-        slug: translationSlug || undefined,
         description: translationDescription || undefined,
         provider: translationProvider,
         model: translationModel,
@@ -791,7 +787,9 @@ export default function App() {
             <Panel title="Book Details">
               <div className="space-y-4">
                 <InputField label="Title" value={bookTitle} onChange={setBookTitle} />
-                <InputField label="Slug" value={bookSlug} onChange={setBookSlug} />
+                <p className="text-sm leading-7 text-ink/60">
+                  The book slug will be generated automatically from the title.
+                </p>
                 <InputField label="Author" value={bookAuthor} onChange={setBookAuthor} />
                 <InputField label="Original Language" value={bookLanguage} onChange={setBookLanguage} />
                 <TextareaField label="Description" value={bookDescription} onChange={setBookDescription} rows={5} />
@@ -974,13 +972,15 @@ export default function App() {
                 {showAdvancedTranslationSettings ? (
                   <>
                     <div className="mt-4 grid gap-4 lg:grid-cols-2">
-                      <InputField label="Slug" value={translationSlug} onChange={setTranslationSlug} />
                       <InputField
                         label="Description"
                         value={translationDescription}
                         onChange={setTranslationDescription}
                       />
                     </div>
+                    <p className="mt-4 text-sm leading-7 text-ink/60">
+                      The translation slug will be generated automatically from the translation name.
+                    </p>
                     <div className="mt-4">
                       <TranslationAiSettingsRow
                         provider={translationProvider}

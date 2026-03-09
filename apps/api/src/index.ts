@@ -372,7 +372,6 @@ app.post("/api/admin/books", async (c) => {
   try {
     const body = await c.req.json<{
       title?: string;
-      slug?: string;
       author?: string;
       originalLanguage?: string;
       description?: string;
@@ -397,7 +396,7 @@ app.post("/api/admin/books", async (c) => {
     }
 
     const bookId = crypto.randomUUID();
-    const bookSlug = slugify(body.slug || body.title);
+    const bookSlug = slugify(body.title);
     const now = new Date().toISOString();
 
     await c.env.DB.prepare(
@@ -464,7 +463,6 @@ app.post("/api/admin/books/:bookSlug/translations", async (c) => {
     const bookSlug = c.req.param("bookSlug");
     const body = await c.req.json<{
       title?: string;
-      slug?: string;
       description?: string;
       provider?: AiProvider;
       model?: string;
@@ -484,7 +482,7 @@ app.post("/api/admin/books/:bookSlug/translations", async (c) => {
     }
 
     const translationId = crypto.randomUUID();
-    const translationSlug = slugify(body.slug || body.title);
+    const translationSlug = slugify(body.title);
     const now = new Date().toISOString();
 
     await c.env.DB.prepare(

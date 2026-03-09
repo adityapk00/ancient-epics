@@ -58,7 +58,6 @@ export const api = {
   getAdminIngestionBootstrap: () => request<AdminIngestionBootstrapPayload>("/api/admin/ingestion/bootstrap"),
   createAdminBook: (body: {
     title: string;
-    slug?: string;
     author?: string;
     originalLanguage?: string;
     description?: string;
@@ -71,7 +70,6 @@ export const api = {
     bookSlug: string,
     body: {
       title: string;
-      slug?: string;
       description?: string;
       provider: AiProvider;
       model: string;
