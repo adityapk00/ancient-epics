@@ -420,12 +420,5 @@ function normalizeChapterText(value: string): string {
 }
 
 function originalTextReconstructsSource(sourceText: string, chunks: TranslationChapterDocument["chunks"]): boolean {
-  return (
-    normalizeSemanticChapterText(sourceText) ===
-    normalizeSemanticChapterText(chunks.map((chunk) => chunk.originalText).join("\n"))
-  );
-}
-
-function normalizeSemanticChapterText(value: string): string {
-  return normalizeChapterText(value).replace(/\s+/g, " ");
+  return normalizeChapterText(sourceText) === normalizeChapterText(chunks.map((chunk) => chunk.originalText).join(""));
 }

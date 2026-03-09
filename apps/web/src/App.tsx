@@ -2170,8 +2170,8 @@ function parseEditorStateFromRaw(rawResponse: string): ChapterEditorState {
   };
 
   const chunks: ChapterEditorState["chunks"] = (parsed.chunks ?? []).map((chunk) => ({
-    originalText: chunk.originalText?.trim() ?? "",
-    translatedText: chunk.translatedText?.trim() ?? "",
+    originalText: chunk.originalText ?? "",
+    translatedText: chunk.translatedText ?? "",
     type: chunk.type === "verse" ? "verse" : "prose",
   }));
 
