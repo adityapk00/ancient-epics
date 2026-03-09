@@ -110,7 +110,7 @@ export default function App() {
   const validationPreviewChapter = validation?.session.chapters[validationPreviewIndex] ?? null;
   const currentValidationChapter =
     validation && currentWorkspaceChapter
-      ? validation.chapters.find((chapter) => chapter.position === currentWorkspaceChapter.position) ?? null
+      ? (validation.chapters.find((chapter) => chapter.position === currentWorkspaceChapter.position) ?? null)
       : null;
   const translationMetadataIsDirty = useMemo(() => {
     if (!activeTranslation) {
@@ -1199,8 +1199,8 @@ export default function App() {
 
                         {chapterIsDirty ? (
                           <p className="text-sm leading-6 text-ink/60">
-                            The diff above is computed from unsaved editor changes. Save the chapter before re-validating
-                            if you want server-side validation to include those edits.
+                            The diff above is computed from unsaved editor changes. Save the chapter before
+                            re-validating if you want server-side validation to include those edits.
                           </p>
                         ) : null}
                       </div>
@@ -1907,12 +1907,7 @@ function SourceDiffPreview({
   return (
     <div className="space-y-4">
       <div className="grid gap-4 lg:grid-cols-2">
-        <DiffTextCard
-          label="Source Text"
-          tone="source"
-          text={diff.sourceText}
-          emptyLabel="Source text is empty."
-        />
+        <DiffTextCard label="Source Text" tone="source" text={diff.sourceText} emptyLabel="Source text is empty." />
         <DiffTextCard
           label="Reconstructed From Chunks"
           tone="reconstructed"
@@ -2293,9 +2288,7 @@ function diffLines(leftLines: string[], rightLines: string[]) {
   }
 
   const operations: Array<
-    | { type: "equal"; left: string; right: string }
-    | { type: "remove"; left: string }
-    | { type: "add"; right: string }
+    { type: "equal"; left: string; right: string } | { type: "remove"; left: string } | { type: "add"; right: string }
   > = [];
   let leftIndex = 0;
   let rightIndex = 0;
