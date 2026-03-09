@@ -340,10 +340,7 @@ function normalizeGeneratedChapter(input: {
     })),
   };
 
-  if (
-    normalizeChapterText(originalDocument.fullText) !==
-    normalizeChapterText(translationDocument.chunks.map((chunk) => chunk.originalText).join(""))
-  ) {
+  if (!originalTextReconstructsSource(originalDocument.fullText, translationDocument.chunks)) {
     throw new Error("Chunked originalText must exactly reconstruct the chapter source text.");
   }
 
@@ -420,4 +417,15 @@ function extractJsonObject(raw: string): string {
 
 function normalizeChapterText(value: string): string {
   return value.replace(/\r\n/g, "\n").trim();
+}
+
+function originalTextReconstructsSource(
+  sourceText: string,
+  chunks: TranslationChapterDocument["chunks"],
+): boolean {
+  return normalizeSemanticChapterText(sourceText) === normalizeSemanticChapterText(chunks.map((chunk) => chunk.originalText).join("\n"));
+}
+
+function normalizeSemanticChapterText(value: string): string {
+  return normalizeChapterText(value).replace(/\s+/g, " ");
 }

@@ -1,4 +1,5 @@
 .env
+.codex/
 node_modules
 .pnpm-store
 dist
