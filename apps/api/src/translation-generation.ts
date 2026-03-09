@@ -334,15 +334,15 @@ function normalizeGeneratedChapter(input: {
     chunks: parsed.chunks.map((chunk, index) => ({
       id: `t${index + 1}`,
       type: chunk.type ?? inferChunkType(chunk.originalText),
-      originalText: chunk.originalText.trim(),
-      translatedText: chunk.translatedText.trim(),
+      originalText: chunk.originalText,
+      translatedText: chunk.translatedText,
       ordinal: index + 1,
     })),
   };
 
   if (
     normalizeChapterText(originalDocument.fullText) !==
-    normalizeChapterText(translationDocument.chunks.map((chunk) => chunk.originalText).join("\n\n"))
+    normalizeChapterText(translationDocument.chunks.map((chunk) => chunk.originalText).join(""))
   ) {
     throw new Error("Chunked originalText must exactly reconstruct the chapter source text.");
   }
@@ -385,9 +385,9 @@ function normalizeAiChunk(value: unknown): ParsedAiChunk | null {
     return null;
   }
   const entry = value as Record<string, unknown>;
-  const originalText = typeof entry.originalText === "string" ? entry.originalText.trim() : "";
-  const translatedText = typeof entry.translatedText === "string" ? entry.translatedText.trim() : "";
-  if (!originalText || !translatedText) {
+  const originalText = typeof entry.originalText === "string" ? entry.originalText : "";
+  const translatedText = typeof entry.translatedText === "string" ? entry.translatedText : "";
+  if (!originalText.trim() || !translatedText.trim()) {
     return null;
   }
   return {

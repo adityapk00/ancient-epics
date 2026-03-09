@@ -884,7 +884,7 @@ export async function validateTranslation(
     const originalFullText = chapter.originalDocument?.fullText ?? "";
     const reconstructedOriginalText = (chapter.translationDocument?.chunks ?? [])
       .map((chunk) => chunk.originalText)
-      .join("\n\n");
+      .join("");
 
     if (
       chapter.originalDocument &&
