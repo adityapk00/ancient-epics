@@ -4,6 +4,7 @@
   "type": "module",
   "packageManager": "pnpm@9.15.4",
   "scripts": {
+    "prepare": "node scripts/setup-git-hooks.mjs",
     "dev": "concurrently -n api,web -c cyan,magenta \"pnpm --filter @ancient-epics/api dev\" \"pnpm --filter @ancient-epics/web dev\"",
     "build": "pnpm -r build",
     "lint": "pnpm -r lint",

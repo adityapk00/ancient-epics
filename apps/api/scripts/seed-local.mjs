@@ -71,11 +71,7 @@ function ensureEnvFile(filePath) {
     return;
   }
 
-  writeFileSync(
-    filePath,
-    ["OPENROUTER_API_KEY=", "GEMINI_API_KEY=", ""].join("\n"),
-    "utf8",
-  );
+  writeFileSync(filePath, ["OPENROUTER_API_KEY=", "GEMINI_API_KEY=", ""].join("\n"), "utf8");
 }
 
 function loadDotEnv(filePath) {
@@ -96,7 +92,10 @@ function loadDotEnv(filePath) {
     }
 
     const key = line.slice(0, separatorIndex).trim();
-    const value = line.slice(separatorIndex + 1).trim().replace(/^['"]|['"]$/gu, "");
+    const value = line
+      .slice(separatorIndex + 1)
+      .trim()
+      .replace(/^['"]|['"]$/gu, "");
 
     if (!key) {
       continue;
