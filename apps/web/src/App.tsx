@@ -27,6 +27,19 @@ type ChapterEditorState = {
   }>;
 };
 
+type DiffSegment = {
+  value: string;
+  kind: "equal" | "remove" | "add";
+};
+
+type DiffLine = {
+  left: DiffSegment[];
+  right: DiffSegment[];
+  leftLineNumber: number | null;
+  rightLineNumber: number | null;
+  hasChanges: boolean;
+};
+
 const DEFAULT_PROVIDER: AiProvider = "google";
 const DEFAULT_MODEL = "gemini-3-flash-preview";
 const DEFAULT_HEADING_PATTERN = "^(book|chapter|canto|scroll)\\b.*$";
@@ -95,6 +108,10 @@ export default function App() {
   const activeSession = activeTranslation?.currentSession ?? null;
   const currentWorkspaceChapter = activeSession?.chapters[selectedChapterIndex] ?? null;
   const validationPreviewChapter = validation?.session.chapters[validationPreviewIndex] ?? null;
+  const currentValidationChapter =
+    validation && currentWorkspaceChapter
+      ? (validation.chapters.find((chapter) => chapter.position === currentWorkspaceChapter.position) ?? null)
+      : null;
   const translationMetadataIsDirty = useMemo(() => {
     if (!activeTranslation) {
       return false;
@@ -153,6 +170,21 @@ export default function App() {
       }),
     [bookRawText, delimiter, headingPattern, splitMode],
   );
+  const sourceDiff = useMemo(() => {
+    if (!currentWorkspaceChapter || !chapterEditor) {
+      return null;
+    }
+
+    const sourceText = currentWorkspaceChapter.sourceText;
+    const reconstructedText = chapterEditor.chunks.map((chunk) => chunk.originalText).join("");
+
+    return {
+      sourceText,
+      reconstructedText,
+      hasMismatch: normalizeChapterText(sourceText) !== normalizeChapterText(reconstructedText),
+      lines: buildSideBySideDiff(sourceText, reconstructedText),
+    };
+  }, [chapterEditor, currentWorkspaceChapter]);
 
   useEffect(() => {
     async function load() {
@@ -584,7 +616,7 @@ export default function App() {
     }
   }
 
-  async function validateCurrentTranslation() {
+  async function validateCurrentTranslation(options?: { openResults?: boolean }) {
     if (!activeTranslation) {
       return;
     }
@@ -597,8 +629,14 @@ export default function App() {
       await saveTranslationSettings();
       const payload = await api.validateAdminTranslation(activeTranslation.id);
       setValidation(payload);
-      setValidationPreviewIndex(0);
-      setScreen("validate");
+      const matchingChapterIndex =
+        currentWorkspaceChapter != null
+          ? payload.chapters.findIndex((chapter) => chapter.position === currentWorkspaceChapter.position)
+          : -1;
+      setValidationPreviewIndex(matchingChapterIndex >= 0 ? matchingChapterIndex : 0);
+      if (options?.openResults ?? true) {
+        setScreen("validate");
+      }
       setNotice(payload.isValid ? "Validation passed." : "Validation found issues.");
     } catch (validateError) {
       setError(validateError instanceof Error ? validateError.message : "Failed to validate translation.");
@@ -1044,7 +1082,11 @@ export default function App() {
               </div>
               <div className="mt-6 flex flex-wrap gap-3">
                 <ActionButton label="Back To Translations" onClick={() => setScreen("translations")} />
-                <ActionButton label="Validate Translation" onClick={validateCurrentTranslation} tone="accent" />
+                <ActionButton
+                  label="Validate Translation"
+                  onClick={() => void validateCurrentTranslation()}
+                  tone="accent"
+                />
               </div>
             </Panel>
 
@@ -1113,10 +1155,54 @@ export default function App() {
                       </span>
                     </button>
                     {workspaceSourceExpanded ? (
-                      <div className="mt-5">
-                        <p className="whitespace-pre-wrap text-base leading-7 text-ink/80">
-                          {currentWorkspaceChapter.sourceText}
-                        </p>
+                      <div className="mt-5 space-y-5">
+                        <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-border/60 bg-paper/60 p-4">
+                          <div>
+                            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-accent">
+                              Source Reconstruction
+                            </p>
+                            <p
+                              className={`mt-2 text-sm leading-6 ${
+                                sourceDiff?.hasMismatch
+                                  ? "text-red-700"
+                                  : currentValidationChapter?.issues.length
+                                    ? "text-amber-800"
+                                    : "text-ink/70"
+                              }`}
+                            >
+                              {sourceDiff?.hasMismatch
+                                ? "Current chapter chunks do not reconstruct the source text exactly."
+                                : "Current chapter chunks reconstruct the source text exactly."}
+                            </p>
+                            {currentValidationChapter?.issues.length ? (
+                              <p className="mt-1 text-sm leading-6 text-ink/60">
+                                Last validation run: {currentValidationChapter.issues.length} issue(s) on this chapter.
+                              </p>
+                            ) : null}
+                          </div>
+                          <ActionButton
+                            label={isBusy ? "Re-Validating..." : "Re-Validate Translation"}
+                            onClick={() => void validateCurrentTranslation({ openResults: false })}
+                            disabled={isBusy}
+                          />
+                        </div>
+
+                        {sourceDiff?.hasMismatch ? (
+                          <SourceDiffPreview diff={sourceDiff} />
+                        ) : (
+                          <div className="rounded-2xl border border-border/60 bg-paper/55 p-4">
+                            <p className="whitespace-pre-wrap text-base leading-7 text-ink/80">
+                              {currentWorkspaceChapter.sourceText}
+                            </p>
+                          </div>
+                        )}
+
+                        {chapterIsDirty ? (
+                          <p className="text-sm leading-6 text-ink/60">
+                            The diff above is computed from unsaved editor changes. Save the chapter before
+                            re-validating if you want server-side validation to include those edits.
+                          </p>
+                        ) : null}
                       </div>
                     ) : null}
                   </section>
@@ -1808,6 +1894,104 @@ function ChapterSideBySidePreview({
   );
 }
 
+function SourceDiffPreview({
+  diff,
+}: {
+  diff: {
+    sourceText: string;
+    reconstructedText: string;
+    hasMismatch: boolean;
+    lines: DiffLine[];
+  };
+}) {
+  return (
+    <div className="space-y-4">
+      <div className="grid gap-4 lg:grid-cols-2">
+        <DiffTextCard label="Source Text" tone="source" text={diff.sourceText} emptyLabel="Source text is empty." />
+        <DiffTextCard
+          label="Reconstructed From Chunks"
+          tone="reconstructed"
+          text={diff.reconstructedText}
+          emptyLabel="Reconstructed text is empty."
+        />
+      </div>
+      <div className="overflow-hidden rounded-2xl border border-border/60 bg-paper/60">
+        <div className="grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)] border-b border-border/60 bg-white/70">
+          <div className="px-4 py-3 text-xs font-semibold uppercase tracking-[0.18em] text-accent">Source</div>
+          <div className="border-l border-border/60 px-4 py-3 text-xs font-semibold uppercase tracking-[0.18em] text-accent">
+            Reconstructed
+          </div>
+        </div>
+        <div className="divide-y divide-border/40">
+          {diff.lines.map((line, index) => (
+            <div key={`${line.leftLineNumber}-${line.rightLineNumber}-${index}`} className="grid grid-cols-2">
+              <DiffLineCell segments={line.left} lineNumber={line.leftLineNumber} tone="source" />
+              <DiffLineCell segments={line.right} lineNumber={line.rightLineNumber} tone="reconstructed" />
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function DiffTextCard({
+  label,
+  text,
+  emptyLabel,
+  tone,
+}: {
+  label: string;
+  text: string;
+  emptyLabel: string;
+  tone: "source" | "reconstructed";
+}) {
+  return (
+    <div className="rounded-2xl border border-border/60 bg-paper/55 p-4">
+      <p className="text-xs font-semibold uppercase tracking-[0.18em] text-accent">{label}</p>
+      <div className={`mt-3 rounded-xl border px-4 py-3 ${tone === "source" ? "bg-red-50/70" : "bg-emerald-50/70"}`}>
+        <p className="whitespace-pre-wrap text-sm leading-6 text-ink/85">{text || emptyLabel}</p>
+      </div>
+    </div>
+  );
+}
+
+function DiffLineCell({
+  segments,
+  lineNumber,
+  tone,
+}: {
+  segments: DiffSegment[];
+  lineNumber: number | null;
+  tone: "source" | "reconstructed";
+}) {
+  return (
+    <div className={`flex gap-3 px-4 py-3 ${tone === "reconstructed" ? "border-l border-border/60" : ""}`}>
+      <span className="w-8 shrink-0 pt-0.5 text-right font-mono text-xs text-ink/35">{lineNumber ?? ""}</span>
+      <p className="min-w-0 whitespace-pre-wrap break-words font-mono text-sm leading-6 text-ink/85">
+        {segments.length > 0 ? segments.map((segment, index) => renderDiffSegment(segment, tone, index)) : " "}
+      </p>
+    </div>
+  );
+}
+
+function renderDiffSegment(segment: DiffSegment, tone: "source" | "reconstructed", index: number) {
+  if (segment.kind === "equal") {
+    return <span key={index}>{segment.value}</span>;
+  }
+
+  const className =
+    tone === "source"
+      ? "rounded bg-red-200/90 px-0.5 text-red-900"
+      : "rounded bg-emerald-200/90 px-0.5 text-emerald-950";
+
+  return (
+    <mark key={index} className={className}>
+      {segment.value}
+    </mark>
+  );
+}
+
 function buildChapterEditorState(chapter: AdminIngestionChapterRecord): ChapterEditorState {
   if (chapter.rawResponse?.trim()) {
     try {
@@ -1986,8 +2170,8 @@ function parseEditorStateFromRaw(rawResponse: string): ChapterEditorState {
   };
 
   const chunks: ChapterEditorState["chunks"] = (parsed.chunks ?? []).map((chunk) => ({
-    originalText: chunk.originalText?.trim() ?? "",
-    translatedText: chunk.translatedText?.trim() ?? "",
+    originalText: chunk.originalText ?? "",
+    translatedText: chunk.translatedText ?? "",
     type: chunk.type === "verse" ? "verse" : "prose",
   }));
 
@@ -2021,6 +2205,182 @@ function formatTimestamp(value: string | null) {
   return new Date(value).toLocaleDateString();
 }
 
-function isPresent<T>(value: T | null | undefined): value is T {
-  return value != null;
+function buildSideBySideDiff(sourceText: string, reconstructedText: string): DiffLine[] {
+  const leftLines = sourceText.split("\n");
+  const rightLines = reconstructedText.split("\n");
+  const operations = diffLines(leftLines, rightLines);
+  const rows: DiffLine[] = [];
+  let leftLineNumber = 1;
+  let rightLineNumber = 1;
+
+  for (let index = 0; index < operations.length; index += 1) {
+    const operation = operations[index];
+
+    if (operation?.type === "equal") {
+      rows.push({
+        left: [{ value: operation.left, kind: "equal" }],
+        right: [{ value: operation.right, kind: "equal" }],
+        leftLineNumber,
+        rightLineNumber,
+        hasChanges: false,
+      });
+      leftLineNumber += 1;
+      rightLineNumber += 1;
+      continue;
+    }
+
+    const removed: string[] = [];
+    const added: string[] = [];
+    while (operations[index]?.type === "remove") {
+      const entry = operations[index];
+      if (entry?.type !== "remove") {
+        break;
+      }
+      removed.push(entry.left);
+      index += 1;
+    }
+    while (operations[index]?.type === "add") {
+      const entry = operations[index];
+      if (entry?.type !== "add") {
+        break;
+      }
+      added.push(entry.right);
+      index += 1;
+    }
+    index -= 1;
+
+    const pairCount = Math.max(removed.length, added.length);
+    for (let pairIndex = 0; pairIndex < pairCount; pairIndex += 1) {
+      const left = removed[pairIndex];
+      const right = added[pairIndex];
+      const highlighted = highlightChangedLine(left, right);
+      rows.push({
+        left: highlighted.left,
+        right: highlighted.right,
+        leftLineNumber: left != null ? leftLineNumber++ : null,
+        rightLineNumber: right != null ? rightLineNumber++ : null,
+        hasChanges: true,
+      });
+    }
+  }
+
+  return rows;
+}
+
+function diffLines(leftLines: string[], rightLines: string[]) {
+  const leftLength = leftLines.length;
+  const rightLength = rightLines.length;
+  const dp = Array.from({ length: leftLength + 1 }, () => Array<number>(rightLength + 1).fill(0));
+
+  for (let leftIndex = leftLength - 1; leftIndex >= 0; leftIndex -= 1) {
+    for (let rightIndex = rightLength - 1; rightIndex >= 0; rightIndex -= 1) {
+      const row = dp[leftIndex];
+      if (!row) {
+        continue;
+      }
+      const leftLine = leftLines[leftIndex] ?? "";
+      const rightLine = rightLines[rightIndex] ?? "";
+      const down = dp[leftIndex + 1]?.[rightIndex] ?? 0;
+      const right = dp[leftIndex]?.[rightIndex + 1] ?? 0;
+      const diagonal = dp[leftIndex + 1]?.[rightIndex + 1] ?? 0;
+      row[rightIndex] = leftLine === rightLine ? diagonal + 1 : Math.max(down, right);
+    }
+  }
+
+  const operations: Array<
+    { type: "equal"; left: string; right: string } | { type: "remove"; left: string } | { type: "add"; right: string }
+  > = [];
+  let leftIndex = 0;
+  let rightIndex = 0;
+
+  while (leftIndex < leftLength && rightIndex < rightLength) {
+    const leftLine = leftLines[leftIndex] ?? "";
+    const rightLine = rightLines[rightIndex] ?? "";
+    if (leftLine === rightLine) {
+      operations.push({ type: "equal", left: leftLine, right: rightLine });
+      leftIndex += 1;
+      rightIndex += 1;
+    } else if ((dp[leftIndex + 1]?.[rightIndex] ?? 0) >= (dp[leftIndex]?.[rightIndex + 1] ?? 0)) {
+      operations.push({ type: "remove", left: leftLine });
+      leftIndex += 1;
+    } else {
+      operations.push({ type: "add", right: rightLine });
+      rightIndex += 1;
+    }
+  }
+
+  while (leftIndex < leftLength) {
+    operations.push({ type: "remove", left: leftLines[leftIndex] ?? "" });
+    leftIndex += 1;
+  }
+
+  while (rightIndex < rightLength) {
+    operations.push({ type: "add", right: rightLines[rightIndex] ?? "" });
+    rightIndex += 1;
+  }
+
+  return operations;
+}
+
+function highlightChangedLine(left: string | undefined, right: string | undefined) {
+  if (left == null) {
+    return {
+      left: [] as DiffSegment[],
+      right: right ? [{ value: right, kind: "add" as const }] : [],
+    };
+  }
+
+  if (right == null) {
+    return {
+      left: left ? [{ value: left, kind: "remove" as const }] : [],
+      right: [] as DiffSegment[],
+    };
+  }
+
+  let prefixLength = 0;
+  while (prefixLength < left.length && prefixLength < right.length && left[prefixLength] === right[prefixLength]) {
+    prefixLength += 1;
+  }
+
+  let leftSuffixIndex = left.length - 1;
+  let rightSuffixIndex = right.length - 1;
+  while (
+    leftSuffixIndex >= prefixLength &&
+    rightSuffixIndex >= prefixLength &&
+    left[leftSuffixIndex] === right[rightSuffixIndex]
+  ) {
+    leftSuffixIndex -= 1;
+    rightSuffixIndex -= 1;
+  }
+
+  const leftSegments: DiffSegment[] = [];
+  const rightSegments: DiffSegment[] = [];
+  const prefix = left.slice(0, prefixLength);
+  const leftMiddle = left.slice(prefixLength, leftSuffixIndex + 1);
+  const rightMiddle = right.slice(prefixLength, rightSuffixIndex + 1);
+  const suffix = left.slice(leftSuffixIndex + 1);
+
+  if (prefix) {
+    leftSegments.push({ value: prefix, kind: "equal" });
+    rightSegments.push({ value: prefix, kind: "equal" });
+  }
+  if (leftMiddle) {
+    leftSegments.push({ value: leftMiddle, kind: "remove" });
+  }
+  if (rightMiddle) {
+    rightSegments.push({ value: rightMiddle, kind: "add" });
+  }
+  if (suffix) {
+    leftSegments.push({ value: suffix, kind: "equal" });
+    rightSegments.push({ value: suffix, kind: "equal" });
+  }
+
+  return {
+    left: leftSegments,
+    right: rightSegments,
+  };
+}
+
+function normalizeChapterText(value: string): string {
+  return value.replace(/\r\n/g, "\n").trim();
 }
