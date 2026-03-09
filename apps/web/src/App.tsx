@@ -603,9 +603,12 @@ export default function App() {
       if (result.session && activeTranslation) {
         const refreshedTranslation = await api.getAdminTranslation(activeTranslation.id);
         hydrateActiveTranslation(refreshedTranslation);
-        setSelectedChapterIndex(
-          Math.min(currentWorkspaceChapter.position + 1, Math.max(result.session.chapters.length - 1, 0)),
-        );
+        const refreshedChapterIndex =
+          refreshedTranslation.currentSession?.chapters.findIndex((chapter) => chapter.id === currentWorkspaceChapter.id) ??
+          -1;
+        if (refreshedChapterIndex >= 0) {
+          setSelectedChapterIndex(refreshedChapterIndex);
+        }
       }
 
       setNotice(`Saved '${currentWorkspaceChapter.title}'.`);

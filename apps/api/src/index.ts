@@ -947,7 +947,7 @@ app.put("/api/admin/ingestion/sessions/:sessionId/chapters/:position/save", asyn
   });
 
   await c.env.DB.prepare(`UPDATE admin_ingestion_sessions SET current_chapter_index = ?, updated_at = ? WHERE id = ?`)
-    .bind(position + 1, new Date().toISOString(), sessionId)
+    .bind(position, new Date().toISOString(), sessionId)
     .run();
 
   return c.json(
