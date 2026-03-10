@@ -652,8 +652,7 @@ app.put("/api/admin/translations/:translationId", async (c) => {
   }>();
 
   const existing = await getAdminTranslationDetail(c.env.DB, translationId);
-  const translationRow = await c.env.DB
-    .prepare(`SELECT book_id AS bookId FROM translations WHERE id = ?`)
+  const translationRow = await c.env.DB.prepare(`SELECT book_id AS bookId FROM translations WHERE id = ?`)
     .bind(translationId)
     .first<{ bookId: string }>();
   if (!existing) {
@@ -745,7 +744,10 @@ app.put("/api/admin/translations/:translationId", async (c) => {
     const publishDetail = await getAdminTranslationDetail(c.env.DB, translationId);
     if (!publishDetail?.currentSession) {
       return c.json(
-        failure("bad_request", "A translation needs an active session with chapter content before it can be published."),
+        failure(
+          "bad_request",
+          "A translation needs an active session with chapter content before it can be published.",
+        ),
         400,
       );
     }
