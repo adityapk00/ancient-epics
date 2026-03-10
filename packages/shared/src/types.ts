@@ -2,7 +2,7 @@
 
 export type ChunkType = "prose" | "verse";
 
-/** Status for books and chapters. */
+/** Status for books. */
 export type ContentStatus = "draft" | "published";
 
 /** Status for translation variants (includes generation lifecycle). */
@@ -62,7 +62,6 @@ export interface ChapterSummary {
   title: string;
   isPreview: boolean;
   sourceR2Key: string;
-  status: ContentStatus;
   publishedAt: string | null;
 }
 
@@ -258,7 +257,7 @@ export interface BookExportArchive {
   exportedAt: string;
   book: Omit<BookSummary, "status"> & { originalLanguage: string | null };
   chapters: Array<{
-    meta: Omit<ChapterSummary, "status">;
+    meta: ChapterSummary;
     fullText: string;
   }>;
 }

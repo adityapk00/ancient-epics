@@ -16,7 +16,9 @@ import {
   type BookDetail,
   type BookSummary,
   type ChapterSummary,
+  normalizeChapterText,
   type OriginalChapterDocument,
+  reconstructSourceTextFromChunks,
   type ThinkingLevel,
   type TranslationChapterDocument,
   type TranslationSummary,
@@ -604,7 +606,6 @@ export async function buildChapterInputsFromExistingStory(
           title,
           is_preview AS isPreview,
           source_r2_key AS sourceR2Key,
-          status,
           published_at AS publishedAt
         FROM chapters
         WHERE book_id = ?
@@ -675,7 +676,6 @@ export async function getAdminBookSourcePayload(
           title,
           is_preview AS isPreview,
           source_r2_key AS sourceR2Key,
-          status,
           published_at AS publishedAt
         FROM chapters
         WHERE book_id = ?
@@ -882,9 +882,7 @@ export async function validateTranslation(
     }
 
     const originalFullText = chapter.originalDocument?.fullText ?? "";
-    const reconstructedOriginalText = (chapter.translationDocument?.chunks ?? [])
-      .map((chunk) => chunk.originalText)
-      .join("");
+    const reconstructedOriginalText = reconstructSourceTextFromChunks(chapter.translationDocument?.chunks ?? []);
 
     if (
       chapter.originalDocument &&
@@ -936,8 +934,4 @@ export async function seedInitialOriginalDocument(input: {
   const originalDocument = buildInitialOriginalDocument(input.bookSlug, input.chapterSlug, input.sourceText);
   await writeObjectJson(input.bucket, buildOriginalChapterKey(input.bookSlug, input.chapterSlug), originalDocument);
   return originalDocument;
-}
-
-function normalizeChapterText(value: string): string {
-  return value.replace(/\r\n/g, "\n").trim();
 }

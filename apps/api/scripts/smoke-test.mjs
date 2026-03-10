@@ -193,7 +193,7 @@ try {
     assert("book has translations array", Array.isArray(json.data?.translations));
 
     const ch = json.data.chapters?.[0];
-    assert("chapter has status field", typeof ch?.status === "string");
+    assert("chapter has no status field", ch?.status === undefined, "chapter status should not be exposed");
     assert("chapter has NO isPublished field", ch?.isPublished === undefined, "legacy field still present on chapter");
 
     const tr = json.data.translations?.[0];
@@ -370,7 +370,7 @@ try {
       "saved chapter has normalized translation chunks",
       saveResult.json.data?.chapter?.translationDocument?.chunks?.length === 1,
     );
-    assert("session advances to the next chapter", saveResult.json.data?.session?.currentChapterIndex === 1);
+    assert("session stays on the saved chapter", saveResult.json.data?.session?.currentChapterIndex === 0);
   }
 
   {

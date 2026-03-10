@@ -7,6 +7,7 @@ import {
   type OriginalChapterDocument,
   type ThinkingLevel,
   type TranslationChapterDocument,
+  originalTextReconstructsSource,
 } from "@ancient-epics/shared";
 import { slugify, writeObjectJson } from "./http";
 
@@ -413,12 +414,4 @@ function extractJsonObject(raw: string): string {
     throw new Error("Response did not include a JSON object.");
   }
   return trimmed.slice(start, end + 1);
-}
-
-function normalizeChapterText(value: string): string {
-  return value.replace(/\r\n/g, "\n").trim();
-}
-
-function originalTextReconstructsSource(sourceText: string, chunks: TranslationChapterDocument["chunks"]): boolean {
-  return normalizeChapterText(sourceText) === normalizeChapterText(chunks.map((chunk) => chunk.originalText).join(""));
 }
