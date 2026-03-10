@@ -1,6 +1,12 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 
-import type { BookDetail, BookSummary, ChapterPayload, TranslationPayload } from "@ancient-epics/shared";
+import type {
+  BookDetail,
+  BookSummary,
+  ChapterPayload,
+  TranslationPayload,
+  TranslationSummary,
+} from "@ancient-epics/shared";
 
 import { api } from "./lib/api";
 
@@ -8,19 +14,22 @@ type ReaderAppProps = {
   onOpenAdmin: () => void;
 };
 
+type ReaderScreen = "books" | "translations" | "chapters" | "reader";
+
 export default function ReaderApp({ onOpenAdmin }: ReaderAppProps) {
+  const [screen, setScreen] = useState<ReaderScreen>("books");
   const [books, setBooks] = useState<BookSummary[]>([]);
   const [selectedBookSlug, setSelectedBookSlug] = useState<string | null>(null);
   const [selectedBook, setSelectedBook] = useState<BookDetail | null>(null);
-  const [selectedChapterSlug, setSelectedChapterSlug] = useState<string | null>(null);
   const [selectedTranslationSlug, setSelectedTranslationSlug] = useState<string | null>(null);
+  const [selectedChapterSlug, setSelectedChapterSlug] = useState<string | null>(null);
   const [chapterPayload, setChapterPayload] = useState<ChapterPayload | null>(null);
   const [translationPayload, setTranslationPayload] = useState<TranslationPayload | null>(null);
   const [isLoadingBooks, setIsLoadingBooks] = useState(true);
   const [isLoadingBook, setIsLoadingBook] = useState(false);
-  const [isLoadingChapter, setIsLoadingChapter] = useState(false);
-  const [isLoadingTranslation, setIsLoadingTranslation] = useState(false);
+  const [isLoadingReader, setIsLoadingReader] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
   useEffect(() => {
     let isCancelled = false;
 
@@ -34,7 +43,6 @@ export default function ReaderApp({ onOpenAdmin }: ReaderAppProps) {
           return;
         }
         setBooks(payload.books);
-        setSelectedBookSlug((current) => current ?? payload.books[0]?.slug ?? null);
       } catch (loadError) {
         if (!isCancelled) {
           setError(loadError instanceof Error ? loadError.message : "Failed to load books.");
@@ -55,8 +63,10 @@ export default function ReaderApp({ onOpenAdmin }: ReaderAppProps) {
   useEffect(() => {
     if (!selectedBookSlug) {
       setSelectedBook(null);
-      setSelectedChapterSlug(null);
       setSelectedTranslationSlug(null);
+      setSelectedChapterSlug(null);
+      setChapterPayload(null);
+      setTranslationPayload(null);
       return;
     }
 
@@ -72,20 +82,7 @@ export default function ReaderApp({ onOpenAdmin }: ReaderAppProps) {
         if (isCancelled) {
           return;
         }
-
         setSelectedBook(payload);
-        setSelectedChapterSlug((current) => {
-          if (current && payload.chapters.some((chapter) => chapter.slug === current)) {
-            return current;
-          }
-          return payload.chapters[0]?.slug ?? null;
-        });
-        setSelectedTranslationSlug((current) => {
-          if (current && payload.translations.some((translation) => translation.slug === current)) {
-            return current;
-          }
-          return payload.translations[0]?.slug ?? null;
-        });
       } catch (loadError) {
         if (!isCancelled) {
           setError(loadError instanceof Error ? loadError.message : "Failed to load book.");
@@ -104,46 +101,8 @@ export default function ReaderApp({ onOpenAdmin }: ReaderAppProps) {
   }, [selectedBookSlug]);
 
   useEffect(() => {
-    if (!selectedBook || !selectedChapterSlug) {
+    if (!selectedBook || !selectedTranslationSlug || !selectedChapterSlug) {
       setChapterPayload(null);
-      setTranslationPayload(null);
-      return;
-    }
-
-    const bookSlug = selectedBook.slug;
-    const chapterSlug = selectedChapterSlug;
-    let isCancelled = false;
-
-    async function loadChapter() {
-      setIsLoadingChapter(true);
-      setError(null);
-      setChapterPayload(null);
-
-      try {
-        const payload = await api.getChapter(bookSlug, chapterSlug);
-        if (isCancelled) {
-          return;
-        }
-        setChapterPayload(payload);
-      } catch (loadError) {
-        if (!isCancelled) {
-          setError(loadError instanceof Error ? loadError.message : "Failed to load chapter.");
-        }
-      } finally {
-        if (!isCancelled) {
-          setIsLoadingChapter(false);
-        }
-      }
-    }
-
-    void loadChapter();
-    return () => {
-      isCancelled = true;
-    };
-  }, [selectedBook, selectedChapterSlug]);
-
-  useEffect(() => {
-    if (!selectedBook || !selectedChapterSlug || !selectedTranslationSlug) {
       setTranslationPayload(null);
       return;
     }
@@ -153,86 +112,116 @@ export default function ReaderApp({ onOpenAdmin }: ReaderAppProps) {
     const translationSlug = selectedTranslationSlug;
     let isCancelled = false;
 
-    async function loadTranslation() {
-      setIsLoadingTranslation(true);
+    async function loadReaderContent() {
+      setIsLoadingReader(true);
       setError(null);
+      setChapterPayload(null);
       setTranslationPayload(null);
 
       try {
-        const payload = await api.getTranslation(bookSlug, chapterSlug, translationSlug);
+        const [chapter, translation] = await Promise.all([
+          api.getChapter(bookSlug, chapterSlug),
+          api.getTranslation(bookSlug, chapterSlug, translationSlug),
+        ]);
         if (isCancelled) {
           return;
         }
-        setTranslationPayload(payload);
+        setChapterPayload(chapter);
+        setTranslationPayload(translation);
       } catch (loadError) {
         if (!isCancelled) {
-          setError(loadError instanceof Error ? loadError.message : "Failed to load translation.");
+          setError(loadError instanceof Error ? loadError.message : "Failed to load reader content.");
         }
       } finally {
         if (!isCancelled) {
-          setIsLoadingTranslation(false);
+          setIsLoadingReader(false);
         }
       }
     }
 
-    void loadTranslation();
+    void loadReaderContent();
     return () => {
       isCancelled = true;
     };
-  }, [selectedBook, selectedChapterSlug, selectedTranslationSlug]);
+  }, [selectedBook, selectedTranslationSlug, selectedChapterSlug]);
 
-  const originalRows = useMemo(() => {
-    if (translationPayload) {
-      return translationPayload.content.chunks.map((chunk) => ({
-        id: chunk.id,
-        type: chunk.type,
-        originalText: chunk.originalText,
-      }));
-    }
-
-    if (chapterPayload) {
-      return [
-        {
-          id: chapterPayload.chapter.id,
-          type: "prose" as const,
-          originalText: chapterPayload.original.fullText,
-        },
-      ];
-    }
-
-    return [];
-  }, [chapterPayload, translationPayload]);
-  const translationRows = translationPayload?.content.chunks ?? [];
-
-  const chapterTitle =
-    chapterPayload?.chapter.title ??
-    selectedBook?.chapters.find((chapter) => chapter.slug === selectedChapterSlug)?.title;
-  const currentTranslation =
+  const selectedTranslation =
     selectedBook?.translations.find((translation) => translation.slug === selectedTranslationSlug) ?? null;
+  const selectedChapter = selectedBook?.chapters.find((chapter) => chapter.slug === selectedChapterSlug) ?? null;
+  const translationRows = translationPayload?.content.chunks ?? [];
+  const activeChapterTitle = chapterPayload?.chapter.title ?? selectedChapter?.title ?? "Chapter";
+
+  function openBook(bookSlug: string) {
+    setSelectedBookSlug(bookSlug);
+    setSelectedTranslationSlug(null);
+    setSelectedChapterSlug(null);
+    setChapterPayload(null);
+    setTranslationPayload(null);
+    setScreen("translations");
+  }
+
+  function openTranslation(translationSlug: string) {
+    setSelectedTranslationSlug(translationSlug);
+    setSelectedChapterSlug(null);
+    setChapterPayload(null);
+    setTranslationPayload(null);
+    setScreen("chapters");
+  }
+
+  function openChapter(chapterSlug: string) {
+    setSelectedChapterSlug(chapterSlug);
+    setScreen("reader");
+  }
+
+  const breadcrumbs = useMemo(
+    () =>
+      [
+        {
+          label: "Library",
+          isCurrent: screen === "books",
+          onClick: () => setScreen("books"),
+        },
+        screen !== "books" && selectedBook
+          ? {
+              label: selectedBook.title,
+              isCurrent: screen === "translations",
+              onClick: () => setScreen("translations"),
+            }
+          : null,
+        (screen === "chapters" || screen === "reader") && selectedTranslation
+          ? {
+              label: selectedTranslation.name,
+              isCurrent: screen === "chapters",
+              onClick: () => setScreen("chapters"),
+            }
+          : null,
+        screen === "reader" && selectedChapter
+          ? {
+              label: selectedChapter.title,
+              isCurrent: screen === "reader",
+              onClick: () => setScreen("reader"),
+            }
+          : null,
+      ].filter(Boolean) as Array<{ label: string; isCurrent: boolean; onClick: () => void }>,
+    [screen, selectedBook, selectedChapter, selectedTranslation],
+  );
 
   return (
     <main className="min-h-screen bg-paper px-6 py-8 text-ink lg:px-10">
-      <div className="mx-auto flex max-w-[1500px] flex-col gap-8">
-        <section className="grid gap-6 rounded-[32px] border border-border/70 bg-white/80 p-6 shadow-panel backdrop-blur lg:grid-cols-[1.2fr_320px] lg:p-8">
-          <div className="space-y-4">
-            <p className="text-xs font-semibold uppercase tracking-[0.22em] text-accent">Ancient Epics</p>
+      <div className="mx-auto flex max-w-[1400px] flex-col gap-8">
+        <header className="rounded-[32px] border border-border/70 bg-white/82 p-6 shadow-panel backdrop-blur lg:p-8">
+          <div className="flex flex-wrap items-start justify-between gap-4">
             <div className="space-y-3">
-              <h1 className="max-w-4xl font-display text-5xl leading-tight text-ink lg:text-6xl">
-                Read original texts with live translation variants side by side.
+              <p className="text-xs font-semibold uppercase tracking-[0.22em] text-accent">Ancient Epics</p>
+              <h1 className="font-display text-5xl leading-tight text-ink lg:text-6xl">
+                Published books, translations, and aligned bilingual reading.
               </h1>
               <p className="max-w-3xl text-base leading-8 text-ink/72">
-                Browse the published library, choose a chapter, then switch between translation approaches without
-                losing the original text.
+                Move from book to translation to chapter, then read each original chunk directly beside its matching
+                translation.
               </p>
             </div>
-            <div className="flex flex-wrap gap-3 text-sm text-ink/68">
-              <ReaderStat label="Books" value={String(books.length)} />
-              <ReaderStat label="Chapters" value={String(selectedBook?.chapters.length ?? 0)} />
-              <ReaderStat label="View" value={currentTranslation ? "Bilingual" : "Original"} />
-            </div>
-          </div>
 
-          <div className="flex items-start justify-end">
             <button
               type="button"
               onClick={onOpenAdmin}
@@ -241,177 +230,259 @@ export default function ReaderApp({ onOpenAdmin }: ReaderAppProps) {
               Admin
             </button>
           </div>
-        </section>
+
+          <div className="mt-5 flex flex-wrap items-center gap-2 text-sm text-ink/60">
+            {breadcrumbs.map((crumb, index) => (
+              <div key={`${crumb.label}-${index}`} className="flex items-center gap-2">
+                {index > 0 ? <span className="text-ink/35">/</span> : null}
+                {crumb.isCurrent ? (
+                  <span className="font-semibold text-ink">{crumb.label}</span>
+                ) : (
+                  <button type="button" onClick={crumb.onClick} className="transition hover:text-ink">
+                    {crumb.label}
+                  </button>
+                )}
+              </div>
+            ))}
+          </div>
+        </header>
 
         {error ? <StatusPanel title="Error" body={error} /> : null}
 
-        <section className="grid gap-6 xl:grid-cols-[300px_340px_1fr]">
-          <aside className="space-y-6">
-            <ReaderPanel title="Library">
-              {isLoadingBooks ? (
-                <p className="text-sm text-ink/65">Loading books...</p>
-              ) : books.length === 0 ? (
-                <p className="text-sm leading-7 text-ink/65">No published books are available yet.</p>
-              ) : (
-                <div className="space-y-3">
-                  {books.map((book) => (
+        {screen === "books" ? (
+          <StagePanel title="Books" subtitle="Choose a published work to see the translations available for it.">
+            {isLoadingBooks ? (
+              <EmptyState body="Loading books..." />
+            ) : books.length === 0 ? (
+              <EmptyState body="No books are public yet. A book becomes visible once it has a published translation." />
+            ) : (
+              <div className="grid gap-5 md:grid-cols-2 xl:grid-cols-3">
+                {books.map((book) => (
+                  <button
+                    key={book.id}
+                    type="button"
+                    onClick={() => openBook(book.slug)}
+                    className="rounded-[28px] border border-border/70 bg-paper/72 p-6 text-left transition hover:border-accent/50 hover:bg-white"
+                  >
+                    <p className="text-xs font-semibold uppercase tracking-[0.18em] text-accent">
+                      {book.originalLanguage || "Original"}
+                    </p>
+                    <h2 className="mt-3 font-display text-4xl text-ink">{book.title}</h2>
+                    <p className="mt-3 text-sm text-ink/68">{book.author || "Unknown author"}</p>
+                    <p className="mt-5 text-sm leading-7 text-ink/74">
+                      {book.description || "Published without a description."}
+                    </p>
+                  </button>
+                ))}
+              </div>
+            )}
+          </StagePanel>
+        ) : null}
+
+        {screen === "translations" ? (
+          <StagePanel
+            title={selectedBook?.title ?? "Translations"}
+            subtitle="Choose a published translation for this book."
+            backLabel="Back To Books"
+            onBack={() => setScreen("books")}
+          >
+            {isLoadingBook ? (
+              <EmptyState body="Loading translations..." />
+            ) : selectedBook == null ? (
+              <EmptyState body="Choose a book from the library first." />
+            ) : selectedBook.translations.length === 0 ? (
+              <EmptyState body="This book does not have any published translations yet." />
+            ) : (
+              <div className="space-y-6">
+                <div className="max-w-3xl rounded-[28px] border border-border/70 bg-paper/68 p-6">
+                  <p className="text-sm text-ink/68">{selectedBook.author || "Unknown author"}</p>
+                  <p className="mt-4 text-base leading-8 text-ink/74">
+                    {selectedBook.description || "Published without a description."}
+                  </p>
+                </div>
+
+                <div className="grid gap-5 lg:grid-cols-2">
+                  {selectedBook.translations.map((translation) => (
+                    <TranslationCard
+                      key={translation.id}
+                      translation={translation}
+                      onOpen={() => openTranslation(translation.slug)}
+                    />
+                  ))}
+                </div>
+              </div>
+            )}
+          </StagePanel>
+        ) : null}
+
+        {screen === "chapters" ? (
+          <StagePanel
+            title={selectedTranslation?.name ?? "Chapters"}
+            subtitle="Choose a chapter to open the aligned bilingual reader."
+            backLabel="Back To Translations"
+            onBack={() => setScreen("translations")}
+          >
+            {isLoadingBook ? (
+              <EmptyState body="Loading chapters..." />
+            ) : selectedBook == null || selectedTranslation == null ? (
+              <EmptyState body="Choose a book and translation first." />
+            ) : selectedBook.chapters.length === 0 ? (
+              <EmptyState body="No published chapters are available for this book yet." />
+            ) : (
+              <div className="space-y-6">
+                <div className="max-w-3xl rounded-[28px] border border-border/70 bg-paper/68 p-6">
+                  <p className="text-xs font-semibold uppercase tracking-[0.18em] text-accent">{selectedBook.title}</p>
+                  <h2 className="mt-3 font-display text-4xl text-ink">{selectedTranslation.name}</h2>
+                  <p className="mt-4 text-base leading-8 text-ink/74">
+                    {selectedTranslation.description || "Published without a description."}
+                  </p>
+                </div>
+
+                <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+                  {selectedBook.chapters.map((chapter) => (
                     <button
-                      key={book.id}
+                      key={chapter.id}
                       type="button"
-                      onClick={() => setSelectedBookSlug(book.slug)}
-                      className={`w-full rounded-[24px] border p-4 text-left transition ${
-                        selectedBookSlug === book.slug
-                          ? "border-accent/60 bg-white"
-                          : "border-border/70 bg-paper/70 hover:border-accent/40 hover:bg-white"
-                      }`}
+                      onClick={() => openChapter(chapter.slug)}
+                      className="rounded-[24px] border border-border/70 bg-paper/72 p-5 text-left transition hover:border-accent/50 hover:bg-white"
                     >
                       <p className="text-xs font-semibold uppercase tracking-[0.18em] text-accent">
-                        {book.originalLanguage || "Original"}
+                        Chapter {chapter.position}
                       </p>
-                      <h2 className="mt-2 font-display text-3xl text-ink">{book.title}</h2>
-                      <p className="mt-2 text-sm text-ink/68">{book.author || "Unknown author"}</p>
+                      <h3 className="mt-2 text-lg font-semibold text-ink">{chapter.title}</h3>
                     </button>
                   ))}
                 </div>
-              )}
-            </ReaderPanel>
-          </aside>
+              </div>
+            )}
+          </StagePanel>
+        ) : null}
 
-          <aside className="space-y-6">
-            <ReaderPanel title="Reading Plan">
-              {selectedBook ? (
-                <div className="space-y-5">
-                  <div>
-                    <h2 className="font-display text-4xl text-ink">{selectedBook.title}</h2>
-                    <p className="mt-2 text-sm text-ink/68">{selectedBook.author || "Unknown author"}</p>
-                    <p className="mt-4 text-sm leading-7 text-ink/72">
-                      {selectedBook.description || "Published without a description."}
-                    </p>
+        {screen === "reader" ? (
+          <StagePanel
+            title={activeChapterTitle}
+            subtitle="Each row pairs the source chunk with the translated chunk so the mapping stays visible while reading."
+            backLabel="Back To Chapters"
+            onBack={() => setScreen("chapters")}
+          >
+            {selectedBook == null || selectedTranslation == null || selectedChapter == null ? (
+              <EmptyState body="Choose a book, translation, and chapter first." />
+            ) : isLoadingReader ? (
+              <EmptyState body="Loading bilingual reader..." />
+            ) : chapterPayload == null || translationPayload == null ? (
+              <EmptyState body="The bilingual reader for this chapter could not be loaded." />
+            ) : (
+              <div className="space-y-6">
+                <div className="rounded-[28px] border border-border/70 bg-paper/68 p-6">
+                  <div className="flex flex-wrap items-center gap-3 text-sm text-ink/62">
+                    <span>{selectedBook.title}</span>
+                    <span>/</span>
+                    <span>{selectedTranslation.name}</span>
+                    <span>/</span>
+                    <span>{activeChapterTitle}</span>
                   </div>
-
-                  <div>
-                    <p className="text-xs font-semibold uppercase tracking-[0.18em] text-accent">Translations</p>
-                    <div className="mt-3 flex flex-wrap gap-2">
-                      <TranslationPill
-                        label="Original Only"
-                        isActive={selectedTranslationSlug == null}
-                        onClick={() => setSelectedTranslationSlug(null)}
-                      />
-                      {selectedBook.translations.map((translation) => (
-                        <TranslationPill
-                          key={translation.id}
-                          label={translation.name}
-                          isActive={translation.slug === selectedTranslationSlug}
-                          onClick={() => setSelectedTranslationSlug(translation.slug)}
-                        />
-                      ))}
-                    </div>
-                  </div>
-
-                  <div>
-                    <p className="text-xs font-semibold uppercase tracking-[0.18em] text-accent">Chapters</p>
-                    <div className="mt-3 space-y-2">
-                      {selectedBook.chapters.map((chapter) => (
-                        <button
-                          key={chapter.id}
-                          type="button"
-                          onClick={() => setSelectedChapterSlug(chapter.slug)}
-                          className={`w-full rounded-2xl border px-4 py-3 text-left transition ${
-                            chapter.slug === selectedChapterSlug
-                              ? "border-accent/60 bg-white"
-                              : "border-border/70 bg-paper/72 hover:border-accent/40 hover:bg-white"
-                          }`}
-                        >
-                          <p className="text-xs font-semibold uppercase tracking-[0.16em] text-accent">
-                            Chapter {chapter.position}
-                          </p>
-                          <p className="mt-1 text-sm font-semibold text-ink">{chapter.title}</p>
-                        </button>
-                      ))}
-                    </div>
-                  </div>
+                  {selectedTranslation.description ? (
+                    <p className="mt-4 max-w-4xl text-base leading-8 text-ink/74">{selectedTranslation.description}</p>
+                  ) : null}
                 </div>
-              ) : (
-                <p className="text-sm leading-7 text-ink/65">Choose a published book to start reading.</p>
-              )}
-            </ReaderPanel>
-          </aside>
 
-          <section className="space-y-6">
-            <ReaderPanel title="Reader">
-              {selectedBook == null ? (
-                <p className="text-sm leading-7 text-ink/65">Choose a book from the library to open the reader.</p>
-              ) : isLoadingBook || isLoadingChapter ? (
-                <p className="text-sm text-ink/65">Loading chapter...</p>
-              ) : chapterPayload == null ? (
-                <p className="text-sm leading-7 text-ink/65">No published chapter is available for this book.</p>
-              ) : (
-                <div className="space-y-6">
-                  <header className="space-y-3 border-b border-border/60 pb-5">
-                    <div className="flex flex-wrap items-center gap-3">
-                      <p className="text-xs font-semibold uppercase tracking-[0.18em] text-accent">
-                        {selectedBook.title}
-                      </p>
-                      <span className="text-sm text-ink/45">/</span>
-                      <p className="text-sm text-ink/62">{chapterTitle}</p>
-                    </div>
-                    <h2 className="font-display text-4xl text-ink">{chapterTitle}</h2>
-                    <p className="text-sm text-ink/68">
-                      {currentTranslation ? currentTranslation.name : "Original text only"}
-                      {isLoadingTranslation ? " · loading translation..." : null}
-                    </p>
-                    {currentTranslation?.description ? (
-                      <p className="max-w-3xl text-sm leading-7 text-ink/72">{currentTranslation.description}</p>
-                    ) : null}
-                  </header>
-
-                  <div className="grid gap-4 xl:grid-cols-2">
-                    <article className="rounded-[28px] border border-border/70 bg-paper/72 p-5">
+                <section className="overflow-hidden rounded-[32px] border border-border/70 bg-white/85 shadow-panel">
+                  <div className="grid gap-0 border-b border-border/60 bg-paper/65 px-6 py-4 md:grid-cols-2">
+                    <div>
                       <p className="text-xs font-semibold uppercase tracking-[0.18em] text-accent">Original</p>
-                      <div className="mt-4 space-y-4">
-                        {originalRows.map((row) => (
-                          <PassageBlock key={row.id} text={row.originalText} type={row.type} />
-                        ))}
-                      </div>
-                    </article>
-
-                    <article className="rounded-[28px] border border-border/70 bg-white/75 p-5">
+                    </div>
+                    <div className="md:border-l md:border-border/60 md:pl-6">
                       <p className="text-xs font-semibold uppercase tracking-[0.18em] text-accent">
-                        {currentTranslation ? currentTranslation.name : "Notes"}
+                        {selectedTranslation.name}
                       </p>
-                      <div className="mt-4 space-y-4">
-                        {currentTranslation ? (
-                          translationPayload ? (
-                            translationRows.map((row) => (
-                              <PassageBlock key={row.id} text={row.translatedText} type={row.type} isTranslation />
-                            ))
-                          ) : (
-                            <p className="text-sm leading-8 text-ink/68">Loading translation...</p>
-                          )
-                        ) : (
-                          <p className="text-sm leading-8 text-ink/68">
-                            Choose a published translation to compare it against the original text chapter by chapter.
-                          </p>
-                        )}
-                      </div>
-                    </article>
+                    </div>
                   </div>
-                </div>
-              )}
-            </ReaderPanel>
-          </section>
-        </section>
+
+                  <div className="divide-y divide-border/50">
+                    {translationRows.map((chunk) => (
+                      <div key={chunk.id} className="grid gap-0 px-6 py-5 md:grid-cols-2">
+                        <PassageColumn text={chunk.originalText} type={chunk.type} />
+                        <PassageColumn text={chunk.translatedText} type={chunk.type} withBorder />
+                      </div>
+                    ))}
+                  </div>
+                </section>
+              </div>
+            )}
+          </StagePanel>
+        ) : null}
       </div>
     </main>
   );
 }
 
-function ReaderPanel({ title, children }: { title: string; children: ReactNode }) {
+function StagePanel({
+  title,
+  subtitle,
+  children,
+  backLabel,
+  onBack,
+}: {
+  title: string;
+  subtitle: string;
+  children: ReactNode;
+  backLabel?: string;
+  onBack?: () => void;
+}) {
   return (
-    <section className="rounded-[28px] border border-border/70 bg-white/82 p-5 shadow-panel backdrop-blur">
-      <p className="text-xs font-semibold uppercase tracking-[0.18em] text-accent">{title}</p>
-      <div className="mt-4">{children}</div>
+    <section className="rounded-[32px] border border-border/70 bg-white/82 p-6 shadow-panel backdrop-blur lg:p-8">
+      <div className="flex flex-wrap items-start justify-between gap-4 border-b border-border/60 pb-5">
+        <div className="space-y-3">
+          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-accent">Reader</p>
+          <h2 className="font-display text-4xl text-ink lg:text-5xl">{title}</h2>
+          <p className="max-w-3xl text-base leading-8 text-ink/72">{subtitle}</p>
+        </div>
+        {backLabel && onBack ? (
+          <button
+            type="button"
+            onClick={onBack}
+            className="rounded-full border border-border/70 bg-paper/90 px-4 py-2 text-sm font-semibold transition hover:border-accent/50"
+          >
+            {backLabel}
+          </button>
+        ) : null}
+      </div>
+
+      <div className="mt-6">{children}</div>
     </section>
+  );
+}
+
+function TranslationCard({ translation, onOpen }: { translation: TranslationSummary; onOpen: () => void }) {
+  return (
+    <button
+      type="button"
+      onClick={onOpen}
+      className="rounded-[28px] border border-border/70 bg-paper/72 p-6 text-left transition hover:border-accent/50 hover:bg-white"
+    >
+      <p className="text-xs font-semibold uppercase tracking-[0.18em] text-accent">Translation</p>
+      <h3 className="mt-3 font-display text-4xl text-ink">{translation.name}</h3>
+      <p className="mt-4 text-base leading-8 text-ink/74">
+        {translation.description || "Published without a description."}
+      </p>
+    </button>
+  );
+}
+
+function PassageColumn({
+  text,
+  type,
+  withBorder = false,
+}: {
+  text: string;
+  type: "prose" | "verse";
+  withBorder?: boolean;
+}) {
+  return (
+    <div className={withBorder ? "md:border-l md:border-border/60 md:pl-6" : "md:pr-6"}>
+      <p className="mb-3 text-[11px] font-semibold uppercase tracking-[0.18em] text-accent">{type}</p>
+      <p className="whitespace-pre-wrap text-base leading-8 text-ink/82">{text}</p>
+    </div>
   );
 }
 
@@ -424,52 +495,6 @@ function StatusPanel({ title, body }: { title: string; body: string }) {
   );
 }
 
-function TranslationPill({ label, isActive, onClick }: { label: string; isActive: boolean; onClick: () => void }) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className={`rounded-full border px-4 py-2 text-sm font-semibold transition ${
-        isActive
-          ? "border-accent/60 bg-ink text-paper"
-          : "border-border/70 bg-paper/70 text-ink hover:border-accent/40 hover:bg-white"
-      }`}
-    >
-      {label}
-    </button>
-  );
-}
-
-function PassageBlock({
-  text,
-  type,
-  isTranslation = false,
-}: {
-  text: string;
-  type: "prose" | "verse";
-  isTranslation?: boolean;
-}) {
-  return (
-    <div className={`rounded-2xl border border-border/60 p-4 ${isTranslation ? "bg-paper/45" : "bg-white/65"}`}>
-      <p className="mb-3 text-[11px] font-semibold uppercase tracking-[0.18em] text-accent">{type}</p>
-      <p
-        className={
-          type === "verse"
-            ? "whitespace-pre-wrap text-base leading-8"
-            : "whitespace-pre-wrap text-base leading-8 text-ink/82"
-        }
-      >
-        {text}
-      </p>
-    </div>
-  );
-}
-
-function ReaderStat({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="rounded-full border border-border/70 bg-paper/72 px-4 py-2">
-      <span className="text-xs font-semibold uppercase tracking-[0.18em] text-accent">{label}</span>
-      <span className="ml-2 text-sm font-semibold text-ink">{value}</span>
-    </div>
-  );
+function EmptyState({ body }: { body: string }) {
+  return <p className="text-base leading-8 text-ink/68">{body}</p>;
 }

@@ -117,7 +117,7 @@ function AdminSection() {
 
   return (
     <div className="relative">
-      <div className="fixed right-4 top-4 z-50 flex gap-3">
+      <div className="fixed bottom-4 right-4 z-50 flex flex-wrap justify-end gap-3">
         <button
           type="button"
           onClick={leaveAdmin}

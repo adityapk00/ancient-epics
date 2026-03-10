@@ -64,18 +64,29 @@ app.get("/api/books", async (c) => {
   const results = await c.env.DB.prepare(
     `
       SELECT
-        id,
-        slug,
-        title,
-        author,
-        original_language AS originalLanguage,
-        description,
-        cover_image_url AS coverImageUrl,
-        status,
-        published_at AS publishedAt
+        books.id,
+        books.slug,
+        books.title,
+        books.author,
+        books.original_language AS originalLanguage,
+        books.description,
+        books.cover_image_url AS coverImageUrl,
+        'published' AS status,
+        COALESCE(
+          books.published_at,
+          (
+            SELECT MAX(translations.published_at)
+            FROM translations
+            WHERE translations.book_id = books.id AND translations.status = 'published'
+          )
+        ) AS publishedAt
       FROM books
-      WHERE status = 'published'
-      ORDER BY published_at DESC, title ASC
+      WHERE EXISTS (
+        SELECT 1
+        FROM translations
+        WHERE translations.book_id = books.id AND translations.status = 'published'
+      )
+      ORDER BY publishedAt DESC, books.title ASC
     `,
   ).all<BookSummary>();
 
@@ -87,17 +98,29 @@ app.get("/api/books/:bookSlug", async (c) => {
   const book = await c.env.DB.prepare(
     `
       SELECT
-        id,
-        slug,
-        title,
-        author,
-        original_language AS originalLanguage,
-        description,
-        cover_image_url AS coverImageUrl,
-        status,
-        published_at AS publishedAt
+        books.id,
+        books.slug,
+        books.title,
+        books.author,
+        books.original_language AS originalLanguage,
+        books.description,
+        books.cover_image_url AS coverImageUrl,
+        'published' AS status,
+        COALESCE(
+          books.published_at,
+          (
+            SELECT MAX(translations.published_at)
+            FROM translations
+            WHERE translations.book_id = books.id AND translations.status = 'published'
+          )
+        ) AS publishedAt
       FROM books
-      WHERE slug = ? AND status = 'published'
+      WHERE books.slug = ?
+        AND EXISTS (
+          SELECT 1
+          FROM translations
+          WHERE translations.book_id = books.id AND translations.status = 'published'
+        )
     `,
   )
     .bind(bookSlug)
@@ -169,7 +192,7 @@ app.get("/api/books/:bookSlug/chapters/:chapterSlug", async (c) => {
         books.id AS bookId
       FROM chapters
       JOIN books ON books.id = chapters.book_id
-      WHERE books.slug = ? AND chapters.slug = ? AND books.status = 'published' AND chapters.status = 'published'
+      WHERE books.slug = ? AND chapters.slug = ? AND chapters.status = 'published'
     `,
   )
     .bind(bookSlug, chapterSlug)
@@ -596,7 +619,8 @@ app.put("/api/admin/translations/:translationId", async (c) => {
   await c.env.DB.prepare(
     `
       UPDATE translations
-      SET slug = ?, name = ?, description = ?, ai_system_prompt = ?, output_r2_prefix = ?, status = ?, updated_at = ?
+      SET slug = ?, name = ?, description = ?, ai_system_prompt = ?, output_r2_prefix = ?, status = ?, updated_at = ?,
+          published_at = CASE WHEN ? = 'published' THEN COALESCE(published_at, ?) ELSE published_at END
       WHERE id = ?
     `,
   )
@@ -608,9 +632,33 @@ app.put("/api/admin/translations/:translationId", async (c) => {
       `epics/${existing.bookSlug}/translations/${nextSlug}`,
       nextStatus,
       now,
+      nextStatus,
+      now,
       translationId,
     )
     .run();
+
+  if (nextStatus === "published") {
+    await c.env.DB.prepare(
+      `
+        UPDATE books
+        SET status = 'published', published_at = COALESCE(published_at, ?), updated_at = ?
+        WHERE slug = ?
+      `,
+    )
+      .bind(now, now, existing.bookSlug)
+      .run();
+
+    await c.env.DB.prepare(
+      `
+        UPDATE chapters
+        SET status = 'published', published_at = COALESCE(published_at, ?), updated_at = ?
+        WHERE book_id = (SELECT id FROM books WHERE slug = ?)
+      `,
+    )
+      .bind(now, now, existing.bookSlug)
+      .run();
+  }
 
   if (existing.currentSession) {
     await c.env.DB.prepare(
