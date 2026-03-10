@@ -10,6 +10,8 @@ import {
   type AdminTranslationDetail,
   type AdminTranslationSummary,
   type AdminTranslationValidationPayload,
+  normalizeChapterText,
+  reconstructSourceTextFromChunks,
 } from "@ancient-epics/shared";
 
 import { splitSourceTextIntoChapters, type ChapterSplitMode, type SplitChapterInput } from "./lib/chapter-splitting";
@@ -176,7 +178,7 @@ export default function AdminApp() {
     }
 
     const sourceText = currentWorkspaceChapter.sourceText;
-    const reconstructedText = chapterEditor.chunks.map((chunk) => chunk.originalText).join("");
+    const reconstructedText = reconstructSourceTextFromChunks(chapterEditor.chunks);
 
     return {
       sourceText,
@@ -1880,16 +1882,18 @@ function ChapterSideBySidePreview({
 }) {
   return (
     <div className="divide-y divide-border/35">
+      <div className="grid grid-cols-2 gap-4 py-3 text-xs font-semibold uppercase tracking-[0.18em] text-accent md:gap-8">
+        <div>Source</div>
+        <div>Translation</div>
+      </div>
       {(chapter.translationDocument?.chunks ?? []).map((chunk) => {
         return (
-          <div key={chunk.id} className="grid gap-4 py-4 md:grid-cols-2 md:gap-8">
+          <div key={chunk.id} className="grid grid-cols-2 gap-4 py-4 md:gap-8">
             <div>
-              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-accent">Source</p>
-              <p className="mt-3 whitespace-pre-wrap font-display text-2xl leading-9 text-ink">{chunk.originalText}</p>
+              <p className="whitespace-pre-wrap text-lg leading-8 text-ink/80">{chunk.originalText}</p>
             </div>
             <div>
-              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-accent">Translation · {chunk.id}</p>
-              <p className="mt-3 whitespace-pre-wrap text-lg leading-8 text-ink/80">{chunk.translatedText}</p>
+              <p className="whitespace-pre-wrap text-lg leading-8 text-ink/80">{chunk.translatedText}</p>
             </div>
           </div>
         );
@@ -2383,8 +2387,4 @@ function highlightChangedLine(left: string | undefined, right: string | undefine
     left: leftSegments,
     right: rightSegments,
   };
-}
-
-function normalizeChapterText(value: string): string {
-  return value.replace(/\r\n/g, "\n").trim();
 }
