@@ -1,4 +1,4 @@
-import { GoogleGenAI } from "@google/genai";
+import { GoogleGenAI, type GenerateContentParameters, type ThinkingConfig, ThinkingLevel as GoogleThinkingLevel } from "@google/genai";
 import type { AdminIngestionChapterRecord, AdminIngestionSessionDetail, ThinkingLevel } from "@ancient-epics/shared";
 import { config } from "./config";
 import { generateChapterWithProvider, type ProviderCallResult } from "./translation-generation";
@@ -22,10 +22,11 @@ export async function generateChapterWithGoogle(input: {
     chapter: input.chapter,
     previousChapters: input.previousChapters,
     nextChapters: input.nextChapters,
-    callModel: ({ model, systemPrompt, userPrompt }) =>
+    callModel: ({ model, thinkingLevel, systemPrompt, userPrompt }) =>
       callGoogleGenAi({
         apiKey: input.apiKey,
         model,
+        thinkingLevel,
         systemPrompt,
         userPrompt,
       }),
@@ -36,19 +37,22 @@ export async function generateChapterWithGoogle(input: {
 async function callGoogleGenAi(input: {
   apiKey: string;
   model: string;
+  thinkingLevel: ThinkingLevel | null;
   systemPrompt: string;
   userPrompt: string;
 }): Promise<ProviderCallResult> {
   const client = new GoogleGenAI({ apiKey: input.apiKey });
-  const requestPayload = {
+  const thinkingConfig = buildGoogleThinkingConfig(input.thinkingLevel);
+  const requestPayload: GenerateContentParameters = {
     model: input.model,
     contents: input.userPrompt,
     config: {
       systemInstruction: input.systemPrompt,
       temperature: 0.2,
       responseMimeType: "application/json",
+      ...(thinkingConfig ? { thinkingConfig } : {}),
     },
-  } satisfies Record<string, unknown>;
+  };
 
   const response = await client.models.generateContent(requestPayload);
   const extractedContent = extractGoogleText(response);
@@ -57,11 +61,43 @@ async function callGoogleGenAi(input: {
   }
 
   return {
-    requestPayload,
+    requestPayload: requestPayload as unknown as Record<string, unknown>,
     responseStatus: 200,
     responsePayload: response,
     extractedContent,
   };
+}
+
+function buildGoogleThinkingConfig(thinkingLevel: ThinkingLevel | null): ThinkingConfig | null {
+  if (thinkingLevel === null) {
+    return null;
+  }
+
+  if (thinkingLevel === "none") {
+    return {
+      includeThoughts: false,
+      thinkingBudget: 0,
+    };
+  }
+
+  return {
+    includeThoughts: false,
+    thinkingLevel: mapGoogleThinkingLevel(thinkingLevel),
+  };
+}
+
+function mapGoogleThinkingLevel(thinkingLevel: Exclude<ThinkingLevel, null | "none">): GoogleThinkingLevel {
+  switch (thinkingLevel) {
+    case "minimal":
+      return GoogleThinkingLevel.MINIMAL;
+    case "low":
+      return GoogleThinkingLevel.LOW;
+    case "medium":
+      return GoogleThinkingLevel.MEDIUM;
+    case "high":
+    case "xhigh":
+      return GoogleThinkingLevel.HIGH;
+  }
 }
 
 function extractGoogleText(response: unknown): string {
