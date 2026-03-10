@@ -6,14 +6,6 @@ export function normalizeChapterText(value: string): string {
 
 export function reconstructSourceTextFromChunks(chunks: Array<Pick<TranslationChunk, "originalText">>): string {
   const normalizedChunks = chunks.map((chunk) => normalizeChunkText(chunk.originalText));
-  if (normalizedChunks.length === 0) {
-    return "";
-  }
-
-  if (normalizedChunks.some((chunk) => chunk.includes("\n"))) {
-    return normalizedChunks.flatMap((chunk) => chunk.split("\n")).join("\n");
-  }
-
   return normalizedChunks.join("");
 }
 
@@ -25,5 +17,5 @@ export function originalTextReconstructsSource(
 }
 
 function normalizeChunkText(value: string): string {
-  return value.replace(/\r\n/g, "\n").trim();
+  return value.replace(/\r\n/g, "\n");
 }

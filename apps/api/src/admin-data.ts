@@ -606,7 +606,6 @@ export async function buildChapterInputsFromExistingStory(
           title,
           is_preview AS isPreview,
           source_r2_key AS sourceR2Key,
-          status,
           published_at AS publishedAt
         FROM chapters
         WHERE book_id = ?
@@ -677,7 +676,6 @@ export async function getAdminBookSourcePayload(
           title,
           is_preview AS isPreview,
           source_r2_key AS sourceR2Key,
-          status,
           published_at AS publishedAt
         FROM chapters
         WHERE book_id = ?

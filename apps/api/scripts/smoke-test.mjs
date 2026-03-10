@@ -193,7 +193,7 @@ try {
     assert("book has translations array", Array.isArray(json.data?.translations));
 
     const ch = json.data.chapters?.[0];
-    assert("chapter has status field", typeof ch?.status === "string");
+    assert("chapter has no status field", ch?.status === undefined, "chapter status should not be exposed");
     assert("chapter has NO isPublished field", ch?.isPublished === undefined, "legacy field still present on chapter");
 
     const tr = json.data.translations?.[0];

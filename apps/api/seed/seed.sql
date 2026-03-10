@@ -38,7 +38,6 @@ INSERT INTO chapters (
     title,
     is_preview,
     source_r2_key,
-    status,
     published_at
 ) VALUES (
     'chapter_iliad_book_1',
@@ -48,7 +47,6 @@ INSERT INTO chapters (
     'Book 1: The Rage',
     1,
     'epics/iliad/book-1-the-rage/original.json',
-    'published',
     '2026-03-06T00:00:00.000Z'
 );
 

@@ -2,6 +2,7 @@ import {
   APP_SETTING_KEYS,
   type AiProvider,
   type AdminBookChapterInput,
+  type AdminIngestionSessionDetail,
   buildOriginalChapterKey,
   buildTranslationChapterKey,
   type AdminIngestionBootstrapPayload,
@@ -41,6 +42,79 @@ import { normalizeThinkingLevel } from "./reasoning";
 import { persistGeneratedChapter } from "./translation-generation";
 
 const app = new Hono<AppEnv>();
+
+async function syncBookPublicationStatus(db: D1Database, bookId: string, now: string) {
+  const publishedTranslation = await db
+    .prepare(
+      `
+        SELECT 1
+        FROM translations
+        WHERE book_id = ? AND status = 'published'
+        LIMIT 1
+      `,
+    )
+    .bind(bookId)
+    .first<{ 1: number } | null>();
+
+  await db
+    .prepare(
+      `
+        UPDATE books
+        SET
+          status = ?,
+          published_at = CASE
+            WHEN ? = 'published' AND published_at IS NULL THEN ?
+            WHEN ? = 'draft' THEN NULL
+            ELSE published_at
+          END,
+          updated_at = ?
+        WHERE id = ?
+      `,
+    )
+    .bind(
+      publishedTranslation ? "published" : "draft",
+      publishedTranslation ? "published" : "draft",
+      now,
+      publishedTranslation ? "published" : "draft",
+      now,
+      bookId,
+    )
+    .run();
+}
+
+async function materializeTranslationChaptersForPublish(input: {
+  db: D1Database;
+  bucket: R2Bucket;
+  session: AdminIngestionSessionDetail;
+}) {
+  const warnings: string[] = [];
+
+  for (const chapter of input.session.chapters) {
+    if (!chapter.rawResponse?.trim()) {
+      warnings.push(`Chapter ${chapter.position + 1} "${chapter.title}" has no generated translation to publish.`);
+      continue;
+    }
+
+    const updatedChapter = await persistGeneratedChapter({
+      db: input.db,
+      bucket: input.bucket,
+      session: input.session,
+      chapter,
+      rawResponse: chapter.rawResponse,
+      statusOnSuccess: "saved",
+    });
+
+    if (updatedChapter.status !== "saved") {
+      warnings.push(
+        `Chapter ${chapter.position + 1} "${chapter.title}" failed to save: ${
+          updatedChapter.errorMessage ?? "Unknown save error."
+        }`,
+      );
+    }
+  }
+
+  return warnings;
+}
 
 app.use("/api/*", async (c, next) => {
   const origin = c.env.PUBLIC_APP_URL ?? "http://127.0.0.1:5173";
@@ -140,10 +214,9 @@ app.get("/api/books/:bookSlug", async (c) => {
           title,
           is_preview AS isPreview,
           source_r2_key AS sourceR2Key,
-          status,
           published_at AS publishedAt
         FROM chapters
-        WHERE book_id = ? AND status = 'published'
+        WHERE book_id = ?
         ORDER BY position ASC
       `,
     )
@@ -187,12 +260,11 @@ app.get("/api/books/:bookSlug/chapters/:chapterSlug", async (c) => {
         chapters.title,
         chapters.is_preview AS isPreview,
         chapters.source_r2_key AS sourceR2Key,
-        chapters.status,
         chapters.published_at AS publishedAt,
         books.id AS bookId
       FROM chapters
       JOIN books ON books.id = chapters.book_id
-      WHERE books.slug = ? AND chapters.slug = ? AND chapters.status = 'published'
+      WHERE books.slug = ? AND books.status = 'published' AND chapters.slug = ?
     `,
   )
     .bind(bookSlug, chapterSlug)
@@ -355,7 +427,6 @@ app.get("/api/admin/books/:bookSlug", async (c) => {
           title,
           is_preview AS isPreview,
           source_r2_key AS sourceR2Key,
-          status,
           published_at AS publishedAt
         FROM chapters
         WHERE book_id = ?
@@ -450,8 +521,8 @@ app.post("/api/admin/books", async (c) => {
       await c.env.DB.prepare(
         `
           INSERT INTO chapters (
-            id, book_id, slug, position, title, is_preview, source_r2_key, status, created_at, updated_at, published_at
-          ) VALUES (?, ?, ?, ?, ?, 0, ?, 'draft', ?, ?, NULL)
+            id, book_id, slug, position, title, is_preview, source_r2_key, created_at, updated_at, published_at
+          ) VALUES (?, ?, ?, ?, ?, 0, ?, ?, ?, NULL)
         `,
       )
         .bind(crypto.randomUUID(), bookId, chapter.slug, chapter.position, chapter.title, sourceR2Key, now, now)
@@ -581,7 +652,14 @@ app.put("/api/admin/translations/:translationId", async (c) => {
   }>();
 
   const existing = await getAdminTranslationDetail(c.env.DB, translationId);
+  const translationRow = await c.env.DB
+    .prepare(`SELECT book_id AS bookId FROM translations WHERE id = ?`)
+    .bind(translationId)
+    .first<{ bookId: string }>();
   if (!existing) {
+    return c.json(failure("not_found", "Translation was not found."), 404);
+  }
+  if (!translationRow) {
     return c.json(failure("not_found", "Translation was not found."), 404);
   }
 
@@ -615,6 +693,8 @@ app.put("/api/admin/translations/:translationId", async (c) => {
     typeof body.currentChapterIndex === "number" && body.currentChapterIndex >= 0
       ? body.currentChapterIndex
       : (existing.currentSession?.currentChapterIndex ?? existing.latestSession?.currentChapterIndex ?? 0);
+  const shouldPublish = nextStatus === "published";
+  const persistedStatus = shouldPublish ? existing.status : nextStatus;
 
   await c.env.DB.prepare(
     `
@@ -630,35 +710,13 @@ app.put("/api/admin/translations/:translationId", async (c) => {
       nextDescription,
       nextPrompt || null,
       `epics/${existing.bookSlug}/translations/${nextSlug}`,
-      nextStatus,
+      persistedStatus,
       now,
-      nextStatus,
+      persistedStatus,
       now,
       translationId,
     )
     .run();
-
-  if (nextStatus === "published") {
-    await c.env.DB.prepare(
-      `
-        UPDATE books
-        SET status = 'published', published_at = COALESCE(published_at, ?), updated_at = ?
-        WHERE slug = ?
-      `,
-    )
-      .bind(now, now, existing.bookSlug)
-      .run();
-
-    await c.env.DB.prepare(
-      `
-        UPDATE chapters
-        SET status = 'published', published_at = COALESCE(published_at, ?), updated_at = ?
-        WHERE book_id = (SELECT id FROM books WHERE slug = ?)
-      `,
-    )
-      .bind(now, now, existing.bookSlug)
-      .run();
-  }
 
   if (existing.currentSession) {
     await c.env.DB.prepare(
@@ -682,6 +740,44 @@ app.put("/api/admin/translations/:translationId", async (c) => {
       )
       .run();
   }
+
+  if (shouldPublish) {
+    const publishDetail = await getAdminTranslationDetail(c.env.DB, translationId);
+    if (!publishDetail?.currentSession) {
+      return c.json(
+        failure("bad_request", "A translation needs an active session with chapter content before it can be published."),
+        400,
+      );
+    }
+
+    await materializeTranslationChaptersForPublish({
+      db: c.env.DB,
+      bucket: c.env.CONTENT_BUCKET,
+      session: publishDetail.currentSession,
+    });
+
+    await c.env.DB.prepare(
+      `
+        UPDATE translations
+        SET status = 'published', published_at = COALESCE(published_at, ?), updated_at = ?
+        WHERE id = ?
+      `,
+    )
+      .bind(now, now, translationId)
+      .run();
+
+    await c.env.DB.prepare(
+      `
+        UPDATE books
+        SET status = 'published', published_at = COALESCE(published_at, ?), updated_at = ?
+        WHERE slug = ?
+      `,
+    )
+      .bind(now, now, existing.bookSlug)
+      .run();
+  }
+
+  await syncBookPublicationStatus(c.env.DB, translationRow.bookId, now);
 
   const updated = await getAdminTranslationDetail(c.env.DB, translationId);
   if (!updated) {

@@ -657,8 +657,23 @@ export default function AdminApp() {
     setNotice(null);
 
     try {
-      await saveTranslationSettings({ status });
-      setNotice(status === "ready" ? "Translation marked ready." : "Translation published.");
+      const updated = await saveTranslationSettings({ status });
+      await refreshBootstrap();
+      if (selectedBook) {
+        const refreshedBook = await api.getAdminBookSource(selectedBook.book.slug);
+        setSelectedBook(refreshedBook);
+      }
+      const chapterPublishWarnings =
+        status === "published"
+          ? (updated?.currentSession?.chapters.filter((chapter) => chapter.status === "error").length ?? 0)
+          : 0;
+      setNotice(
+        status === "ready"
+          ? "Translation marked ready."
+          : chapterPublishWarnings > 0
+            ? `Translation published with ${chapterPublishWarnings} chapter warning(s).`
+            : "Translation published.",
+      );
     } catch (statusError) {
       setError(statusError instanceof Error ? statusError.message : "Failed to update draft status.");
     } finally {
@@ -1294,6 +1309,12 @@ export default function AdminApp() {
               <p className="text-sm font-semibold uppercase tracking-[0.18em] text-accent">
                 {validation.isValid ? "Ready for finish line" : "Issues found"}
               </p>
+              {!validation.isValid ? (
+                <p className="mt-3 text-sm leading-6 text-ink/70">
+                  Validation issues are non-blocking. You can review them here and still mark this translation ready or
+                  publish it.
+                </p>
+              ) : null}
               <div className="mt-4 grid grid-cols-2 gap-3 text-sm text-ink/70">
                 <Metric label="Chapters" value={String(validation.chapters.length)} />
                 <Metric
@@ -1312,12 +1333,12 @@ export default function AdminApp() {
                   label="Mark Ready"
                   onClick={() => void markTranslationStatus("ready")}
                   tone="accent"
-                  disabled={!validation.isValid || isBusy}
+                  disabled={isBusy}
                 />
                 <ActionButton
                   label="Publish Translation"
                   onClick={() => void markTranslationStatus("published")}
-                  disabled={!validation.isValid || isBusy}
+                  disabled={isBusy}
                 />
                 <ActionButton label="Export Translation JSON" onClick={exportTranslationJson} />
               </div>

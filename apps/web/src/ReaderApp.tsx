@@ -29,6 +29,7 @@ export default function ReaderApp({ onOpenAdmin }: ReaderAppProps) {
   const [isLoadingBook, setIsLoadingBook] = useState(false);
   const [isLoadingReader, setIsLoadingReader] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [translationUnavailableMessage, setTranslationUnavailableMessage] = useState<string | null>(null);
 
   useEffect(() => {
     let isCancelled = false;
@@ -104,6 +105,7 @@ export default function ReaderApp({ onOpenAdmin }: ReaderAppProps) {
     if (!selectedBook || !selectedTranslationSlug || !selectedChapterSlug) {
       setChapterPayload(null);
       setTranslationPayload(null);
+      setTranslationUnavailableMessage(null);
       return;
     }
 
@@ -117,17 +119,32 @@ export default function ReaderApp({ onOpenAdmin }: ReaderAppProps) {
       setError(null);
       setChapterPayload(null);
       setTranslationPayload(null);
+      setTranslationUnavailableMessage(null);
 
       try {
-        const [chapter, translation] = await Promise.all([
-          api.getChapter(bookSlug, chapterSlug),
-          api.getTranslation(bookSlug, chapterSlug, translationSlug),
-        ]);
+        const chapter = await api.getChapter(bookSlug, chapterSlug);
         if (isCancelled) {
           return;
         }
         setChapterPayload(chapter);
-        setTranslationPayload(translation);
+
+        try {
+          const translation = await api.getTranslation(bookSlug, chapterSlug, translationSlug);
+          if (isCancelled) {
+            return;
+          }
+          setTranslationPayload(translation);
+        } catch (translationError) {
+          if (isCancelled) {
+            return;
+          }
+          setTranslationPayload(null);
+          setTranslationUnavailableMessage(
+            translationError instanceof Error
+              ? translationError.message
+              : "This translation is not available for the selected chapter yet.",
+          );
+        }
       } catch (loadError) {
         if (!isCancelled) {
           setError(loadError instanceof Error ? loadError.message : "Failed to load reader content.");
@@ -369,7 +386,7 @@ export default function ReaderApp({ onOpenAdmin }: ReaderAppProps) {
               <EmptyState body="Choose a book, translation, and chapter first." />
             ) : isLoadingReader ? (
               <EmptyState body="Loading bilingual reader..." />
-            ) : chapterPayload == null || translationPayload == null ? (
+            ) : chapterPayload == null ? (
               <EmptyState body="The bilingual reader for this chapter could not be loaded." />
             ) : (
               <div className="space-y-6">
@@ -386,25 +403,44 @@ export default function ReaderApp({ onOpenAdmin }: ReaderAppProps) {
                   ) : null}
                 </div>
 
+                {translationPayload == null ? (
+                  <div className="rounded-[24px] border border-amber-300/70 bg-amber-50 px-5 py-4 text-sm leading-7 text-amber-950">
+                    {translationUnavailableMessage ??
+                      "This translation is not available for the selected chapter yet. Showing the original text only."}
+                  </div>
+                ) : null}
+
                 <section className="overflow-hidden rounded-[32px] border border-border/70 bg-white/85 shadow-panel">
-                  <div className="grid gap-0 border-b border-border/60 bg-paper/65 px-6 py-4 md:grid-cols-2">
+                  <div
+                    className={`grid gap-0 border-b border-border/60 bg-paper/65 px-6 py-4 ${
+                      translationPayload ? "md:grid-cols-2" : ""
+                    }`}
+                  >
                     <div>
                       <p className="text-xs font-semibold uppercase tracking-[0.18em] text-accent">Original</p>
                     </div>
-                    <div className="md:border-l md:border-border/60 md:pl-6">
-                      <p className="text-xs font-semibold uppercase tracking-[0.18em] text-accent">
-                        {selectedTranslation.name}
-                      </p>
-                    </div>
+                    {translationPayload ? (
+                      <div className="md:border-l md:border-border/60 md:pl-6">
+                        <p className="text-xs font-semibold uppercase tracking-[0.18em] text-accent">
+                          {selectedTranslation.name}
+                        </p>
+                      </div>
+                    ) : null}
                   </div>
 
                   <div className="divide-y divide-border/50">
-                    {translationRows.map((chunk) => (
-                      <div key={chunk.id} className="grid gap-0 px-6 py-5 md:grid-cols-2">
-                        <PassageColumn text={chunk.originalText} type={chunk.type} />
-                        <PassageColumn text={chunk.translatedText} type={chunk.type} withBorder />
-                      </div>
-                    ))}
+                    {translationPayload
+                      ? translationRows.map((chunk) => (
+                          <div key={chunk.id} className="grid gap-0 px-6 py-5 md:grid-cols-2">
+                            <PassageColumn text={chunk.originalText} type={chunk.type} />
+                            <PassageColumn text={chunk.translatedText} type={chunk.type} withBorder />
+                          </div>
+                        ))
+                      : chapterPayload.original.fullText.split(/\n{2,}/).map((paragraph, index) => (
+                          <div key={`original-${index}`} className="px-6 py-5">
+                            <PassageColumn text={paragraph} type="prose" />
+                          </div>
+                        ))}
                   </div>
                 </section>
               </div>
