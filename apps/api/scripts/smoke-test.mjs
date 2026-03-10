@@ -370,7 +370,10 @@ try {
       "saved chapter has normalized translation chunks",
       saveResult.json.data?.chapter?.translationDocument?.chunks?.length === 1,
     );
-    assert("session advances to the next chapter", saveResult.json.data?.session?.currentChapterIndex === 1);
+    assert(
+      "session stays on the saved chapter",
+      saveResult.json.data?.session?.currentChapterIndex === 0,
+    );
   }
 
   {
