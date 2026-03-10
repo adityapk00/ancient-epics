@@ -1,4 +1,9 @@
-import { GoogleGenAI, type GenerateContentParameters, type ThinkingConfig, ThinkingLevel as GoogleThinkingLevel } from "@google/genai";
+import {
+  GoogleGenAI,
+  type GenerateContentParameters,
+  type ThinkingConfig,
+  ThinkingLevel as GoogleThinkingLevel,
+} from "@google/genai";
 import type { AdminIngestionChapterRecord, AdminIngestionSessionDetail, ThinkingLevel } from "@ancient-epics/shared";
 import { config } from "./config";
 import { generateChapterWithProvider, type ProviderCallResult } from "./translation-generation";

@@ -11,9 +11,7 @@ export function reconstructSourceTextFromChunks(chunks: Array<Pick<TranslationCh
   }
 
   if (normalizedChunks.some((chunk) => chunk.includes("\n"))) {
-    return normalizedChunks
-      .flatMap((chunk) => chunk.split("\n"))
-      .join("\n");
+    return normalizedChunks.flatMap((chunk) => chunk.split("\n")).join("\n");
   }
 
   return normalizedChunks.join("");
