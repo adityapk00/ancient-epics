@@ -428,6 +428,93 @@ try {
   }
 
   {
+    const { status, json } = await api("POST", "/api/admin/ingestion/sessions", {
+      title: "Smoke Reconstruction Warning Session",
+      sourceMode: "paste",
+      model: "openai/gpt-4o-mini",
+      prompt: "Return JSON only.",
+      chapters: [
+        {
+          position: 0,
+          title: "Warning Chapter",
+          slug: "warning-chapter",
+          sourceText: "Alpha line.\nBeta line.",
+          sourceChapterSlug: null,
+        },
+      ],
+    });
+
+    assert("POST reconstruction warning session returns 201", status === 201);
+    assert("reconstruction warning session has one chapter", json.data?.chapters?.length === 1);
+
+    const sessionId = json.data.id;
+    const mismatchedChunkResponse = JSON.stringify({
+      chapterTitle: "Warning Chapter",
+      chunks: [
+        {
+          originalText: "Alpha line.\n",
+          translatedText: "Alpha translated.\n",
+          type: "verse",
+        },
+        {
+          originalText: "Beta line. Added drift.",
+          translatedText: "Beta translated.",
+          type: "verse",
+        },
+      ],
+    });
+
+    const saveResult = await api("PUT", `/api/admin/ingestion/sessions/${sessionId}/chapters/0/save`, {
+      rawResponse: mismatchedChunkResponse,
+    });
+    assert("saving reconstruction warning chapter returns 200", saveResult.status === 200);
+    assert("reconstruction warning chapter is still marked saved", saveResult.json.data?.chapter?.status === "saved");
+    assert(
+      "reconstruction warning chapter does not surface a save error",
+      saveResult.json.data?.chapter?.errorMessage === null,
+    );
+
+    const createTranslationResult = await api("POST", "/api/admin/books/smoke-book/translations", {
+      title: "Smoke Warning Translation",
+      description: "Created for warning validation.",
+      model: "openai/gpt-4o-mini",
+      prompt: "Return JSON only.",
+      contextBeforeChapterCount: 0,
+      contextAfterChapterCount: 0,
+    });
+    assert("POST warning translation returns 201", createTranslationResult.status === 201);
+
+    const translationId = createTranslationResult.json.data?.id;
+    const linkedSessionId = createTranslationResult.json.data?.currentSession?.id;
+    const linkedChapterPosition = createTranslationResult.json.data?.currentSession?.chapters?.[0]?.position;
+    assert("warning translation has id", Boolean(translationId));
+    assert("warning translation has session id", Boolean(linkedSessionId));
+    assert("warning translation has a chapter position", typeof linkedChapterPosition === "number");
+
+    const linkedSaveResult = await api(
+      "PUT",
+      `/api/admin/ingestion/sessions/${linkedSessionId}/chapters/${linkedChapterPosition}/save`,
+      {
+        rawResponse: mismatchedChunkResponse,
+      },
+    );
+    assert("saving linked warning chapter returns 200", linkedSaveResult.status === 200);
+    assert("linked warning chapter is marked saved", linkedSaveResult.json.data?.chapter?.status === "saved");
+
+    const validationResult = await api("GET", `/api/admin/translations/${translationId}/validate`);
+    assert("warning translation validate returns 200", validationResult.status === 200);
+    assert("warning translation remains valid", validationResult.json.data?.isValid === true);
+    assert(
+      "warning translation reports one reconstruction warning",
+      validationResult.json.data?.issues?.some(
+        (issue) =>
+          issue.level === "warning" &&
+          issue.message === "Translation chunk original text does not exactly reconstruct the chapter source text.",
+      ) === true,
+    );
+  }
+
+  {
     const createTranslationResult = await api("POST", "/api/admin/books/iliad/translations", {
       title: "Smoke Iliad Translation",
       description: "Created during smoke validation.",

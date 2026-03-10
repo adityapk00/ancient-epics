@@ -167,6 +167,15 @@ export default function ReaderApp({ onOpenAdmin }: ReaderAppProps) {
   const selectedChapter = selectedBook?.chapters.find((chapter) => chapter.slug === selectedChapterSlug) ?? null;
   const translationRows = translationPayload?.content.chunks ?? [];
   const activeChapterTitle = chapterPayload?.chapter.title ?? selectedChapter?.title ?? "Chapter";
+  const chapterIndex =
+    selectedBook && selectedChapter
+      ? selectedBook.chapters.findIndex((chapter) => chapter.slug === selectedChapter.slug)
+      : -1;
+  const previousChapter = chapterIndex > 0 && selectedBook ? (selectedBook.chapters[chapterIndex - 1] ?? null) : null;
+  const nextChapter =
+    chapterIndex >= 0 && selectedBook && chapterIndex < selectedBook.chapters.length - 1
+      ? (selectedBook.chapters[chapterIndex + 1] ?? null)
+      : null;
 
   function openBook(bookSlug: string) {
     setSelectedBookSlug(bookSlug);
@@ -226,48 +235,25 @@ export default function ReaderApp({ onOpenAdmin }: ReaderAppProps) {
   return (
     <main className="min-h-screen bg-paper px-6 py-8 text-ink lg:px-10">
       <div className="mx-auto flex max-w-[1400px] flex-col gap-8">
-        <header className="rounded-[32px] border border-border/70 bg-white/82 p-6 shadow-panel backdrop-blur lg:p-8">
-          <div className="flex flex-wrap items-start justify-between gap-4">
-            <div className="space-y-3">
-              <p className="text-xs font-semibold uppercase tracking-[0.22em] text-accent">Ancient Epics</p>
-              <h1 className="font-display text-5xl leading-tight text-ink lg:text-6xl">
-                Published books, translations, and aligned bilingual reading.
-              </h1>
-              <p className="max-w-3xl text-base leading-8 text-ink/72">
-                Move from book to translation to chapter, then read each original chunk directly beside its matching
-                translation.
-              </p>
-            </div>
-
-            <button
-              type="button"
-              onClick={onOpenAdmin}
-              className="rounded-full border border-border/70 bg-paper/90 px-4 py-2 text-sm font-semibold transition hover:border-accent/50"
-            >
-              Admin
-            </button>
-          </div>
-
-          <div className="mt-5 flex flex-wrap items-center gap-2 text-sm text-ink/60">
-            {breadcrumbs.map((crumb, index) => (
-              <div key={`${crumb.label}-${index}`} className="flex items-center gap-2">
-                {index > 0 ? <span className="text-ink/35">/</span> : null}
-                {crumb.isCurrent ? (
-                  <span className="font-semibold text-ink">{crumb.label}</span>
-                ) : (
-                  <button type="button" onClick={crumb.onClick} className="transition hover:text-ink">
-                    {crumb.label}
-                  </button>
-                )}
-              </div>
-            ))}
-          </div>
+        <header className="flex items-center justify-between gap-4 rounded-full border border-border/70 bg-white/82 px-5 py-3 shadow-panel backdrop-blur">
+          <p className="text-sm font-semibold uppercase tracking-[0.22em] text-accent">Ancient Epics</p>
+          <button
+            type="button"
+            onClick={onOpenAdmin}
+            className="rounded-full border border-border/70 bg-paper/90 px-4 py-2 text-sm font-semibold transition hover:border-accent/50"
+          >
+            Admin
+          </button>
         </header>
 
         {error ? <StatusPanel title="Error" body={error} /> : null}
 
         {screen === "books" ? (
-          <StagePanel title="Books" subtitle="Choose a published work to see the translations available for it.">
+          <StagePanel
+            title="Books"
+            subtitle="Choose a published work to see the translations available for it."
+            breadcrumbs={breadcrumbs}
+          >
             {isLoadingBooks ? (
               <EmptyState body="Loading books..." />
             ) : books.length === 0 ? (
@@ -302,6 +288,7 @@ export default function ReaderApp({ onOpenAdmin }: ReaderAppProps) {
             subtitle="Choose a published translation for this book."
             backLabel="Back To Books"
             onBack={() => setScreen("books")}
+            breadcrumbs={breadcrumbs}
           >
             {isLoadingBook ? (
               <EmptyState body="Loading translations..." />
@@ -338,6 +325,7 @@ export default function ReaderApp({ onOpenAdmin }: ReaderAppProps) {
             subtitle="Choose a chapter to open the aligned bilingual reader."
             backLabel="Back To Translations"
             onBack={() => setScreen("translations")}
+            breadcrumbs={breadcrumbs}
           >
             {isLoadingBook ? (
               <EmptyState body="Loading chapters..." />
@@ -378,9 +366,10 @@ export default function ReaderApp({ onOpenAdmin }: ReaderAppProps) {
         {screen === "reader" ? (
           <StagePanel
             title={activeChapterTitle}
-            subtitle="Each row pairs the source chunk with the translated chunk so the mapping stays visible while reading."
+            subtitle=""
             backLabel="Back To Chapters"
             onBack={() => setScreen("chapters")}
+            breadcrumbs={breadcrumbs}
           >
             {selectedBook == null || selectedTranslation == null || selectedChapter == null ? (
               <EmptyState body="Choose a book, translation, and chapter first." />
@@ -390,19 +379,6 @@ export default function ReaderApp({ onOpenAdmin }: ReaderAppProps) {
               <EmptyState body="The bilingual reader for this chapter could not be loaded." />
             ) : (
               <div className="space-y-6">
-                <div className="rounded-[28px] border border-border/70 bg-paper/68 p-6">
-                  <div className="flex flex-wrap items-center gap-3 text-sm text-ink/62">
-                    <span>{selectedBook.title}</span>
-                    <span>/</span>
-                    <span>{selectedTranslation.name}</span>
-                    <span>/</span>
-                    <span>{activeChapterTitle}</span>
-                  </div>
-                  {selectedTranslation.description ? (
-                    <p className="mt-4 max-w-4xl text-base leading-8 text-ink/74">{selectedTranslation.description}</p>
-                  ) : null}
-                </div>
-
                 {translationPayload == null ? (
                   <div className="rounded-[24px] border border-amber-300/70 bg-amber-50 px-5 py-4 text-sm leading-7 text-amber-950">
                     {translationUnavailableMessage ??
@@ -428,21 +404,25 @@ export default function ReaderApp({ onOpenAdmin }: ReaderAppProps) {
                     ) : null}
                   </div>
 
-                  <div className="divide-y divide-border/50">
+                  <div className="space-y-1">
                     {translationPayload
                       ? translationRows.map((chunk) => (
                           <div key={chunk.id} className="grid gap-0 px-6 py-5 md:grid-cols-2">
-                            <PassageColumn text={chunk.originalText} type={chunk.type} />
-                            <PassageColumn text={chunk.translatedText} type={chunk.type} withBorder />
+                            <PassageColumn text={chunk.originalText} />
+                            <PassageColumn text={chunk.translatedText} withBorder />
                           </div>
                         ))
                       : chapterPayload.original.fullText.split(/\n{2,}/).map((paragraph, index) => (
                           <div key={`original-${index}`} className="px-6 py-5">
-                            <PassageColumn text={paragraph} type="prose" />
+                            <PassageColumn text={paragraph} />
                           </div>
                         ))}
                   </div>
                 </section>
+
+                <div className="flex justify-end">
+                  <ChapterNav previousChapter={previousChapter} nextChapter={nextChapter} onOpenChapter={openChapter} />
+                </div>
               </div>
             )}
           </StagePanel>
@@ -458,18 +438,33 @@ function StagePanel({
   children,
   backLabel,
   onBack,
+  breadcrumbs,
 }: {
   title: string;
   subtitle: string;
   children: ReactNode;
   backLabel?: string;
   onBack?: () => void;
+  breadcrumbs: Array<{ label: string; isCurrent: boolean; onClick: () => void }>;
 }) {
   return (
     <section className="rounded-[32px] border border-border/70 bg-white/82 p-6 shadow-panel backdrop-blur lg:p-8">
       <div className="flex flex-wrap items-start justify-between gap-4 border-b border-border/60 pb-5">
         <div className="space-y-3">
-          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-accent">Reader</p>
+          <div className="flex flex-wrap items-center gap-2 text-sm text-ink/60">
+            {breadcrumbs.map((crumb, index) => (
+              <div key={`${crumb.label}-${index}`} className="flex items-center gap-2">
+                {index > 0 ? <span className="text-ink/35">/</span> : null}
+                {crumb.isCurrent ? (
+                  <span className="font-semibold text-ink">{crumb.label}</span>
+                ) : (
+                  <button type="button" onClick={crumb.onClick} className="transition hover:text-ink">
+                    {crumb.label}
+                  </button>
+                )}
+              </div>
+            ))}
+          </div>
           <h2 className="font-display text-4xl text-ink lg:text-5xl">{title}</h2>
           <p className="max-w-3xl text-base leading-8 text-ink/72">{subtitle}</p>
         </div>
@@ -505,19 +500,41 @@ function TranslationCard({ translation, onOpen }: { translation: TranslationSumm
   );
 }
 
-function PassageColumn({
-  text,
-  type,
-  withBorder = false,
-}: {
-  text: string;
-  type: "prose" | "verse";
-  withBorder?: boolean;
-}) {
+function PassageColumn({ text, withBorder = false }: { text: string; withBorder?: boolean }) {
   return (
     <div className={withBorder ? "md:border-l md:border-border/60 md:pl-6" : "md:pr-6"}>
-      <p className="mb-3 text-[11px] font-semibold uppercase tracking-[0.18em] text-accent">{type}</p>
       <p className="whitespace-pre-wrap text-base leading-8 text-ink/82">{text}</p>
+    </div>
+  );
+}
+
+function ChapterNav({
+  previousChapter,
+  nextChapter,
+  onOpenChapter,
+}: {
+  previousChapter: BookDetail["chapters"][number] | null;
+  nextChapter: BookDetail["chapters"][number] | null;
+  onOpenChapter: (chapterSlug: string) => void;
+}) {
+  return (
+    <div className="flex flex-wrap items-center gap-3">
+      <button
+        type="button"
+        onClick={() => previousChapter && onOpenChapter(previousChapter.slug)}
+        disabled={previousChapter == null}
+        className="rounded-full border border-border/70 bg-white/70 px-4 py-2 text-sm font-semibold transition hover:border-accent/50 disabled:cursor-not-allowed disabled:opacity-45"
+      >
+        Prev
+      </button>
+      <button
+        type="button"
+        onClick={() => nextChapter && onOpenChapter(nextChapter.slug)}
+        disabled={nextChapter == null}
+        className="rounded-full border border-border/70 bg-white/70 px-4 py-2 text-sm font-semibold transition hover:border-accent/50 disabled:cursor-not-allowed disabled:opacity-45"
+      >
+        Next
+      </button>
     </div>
   );
 }

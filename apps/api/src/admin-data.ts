@@ -890,7 +890,7 @@ export async function validateTranslation(
       normalizeChapterText(originalFullText) !== normalizeChapterText(reconstructedOriginalText)
     ) {
       issues.push({
-        level: "error",
+        level: "warning",
         message: "Translation chunk original text does not exactly reconstruct the chapter source text.",
         chapterPosition: chapter.position,
         chapterSlug: chapter.slug,

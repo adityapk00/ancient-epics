@@ -7,7 +7,6 @@ import {
   type OriginalChapterDocument,
   type ThinkingLevel,
   type TranslationChapterDocument,
-  originalTextReconstructsSource,
 } from "@ancient-epics/shared";
 import { slugify, writeObjectJson } from "./http";
 
@@ -340,10 +339,6 @@ function normalizeGeneratedChapter(input: {
       ordinal: index + 1,
     })),
   };
-
-  if (!originalTextReconstructsSource(originalDocument.fullText, translationDocument.chunks)) {
-    throw new Error("Chunked originalText must exactly reconstruct the chapter source text.");
-  }
 
   return {
     originalDocument,
