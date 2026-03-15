@@ -101,11 +101,15 @@ async function stopServer() {
 
 async function startServer() {
   console.log(`🚀  Starting Wrangler dev server on port ${PORT}…`);
-  server = spawn("pnpm", ["exec", "wrangler", "dev", "--port", String(PORT), "--persist-to", smokePersistTo], {
-    cwd: apiRoot,
-    env: smokeEnv,
-    stdio: "pipe",
-  });
+  server = spawn(
+    "pnpm",
+    ["exec", "wrangler", "dev", "--port", String(PORT), "--persist-to", smokePersistTo, "--ip", "127.0.0.1"],
+    {
+      cwd: apiRoot,
+      env: smokeEnv,
+      stdio: "pipe",
+    },
+  );
 
   let ready = false;
 
