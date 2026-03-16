@@ -10,6 +10,8 @@
     "build": "pnpm -r build",
     "lint": "pnpm -r lint",
     "test": "pnpm --filter @ancient-epics/api test",
+    "test:ui": "node ./scripts/test-ui.mjs",
+    "test:ui:server": "node ./scripts/ui-test-server.mjs",
     "typecheck": "pnpm -r typecheck",
     "format": "prettier . --write",
     "format:check": "prettier . --check",
