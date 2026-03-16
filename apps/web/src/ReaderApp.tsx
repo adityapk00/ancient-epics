@@ -1,11 +1,23 @@
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useState, type FormEvent, type ReactNode } from "react";
 
-import type { BookDetail, BookSummary, ReaderChapterPayload, TranslationSummary } from "@ancient-epics/shared";
+import type {
+  AccessLevel,
+  AuthUser,
+  BookDetail,
+  BookSummary,
+  ReaderChapterPayload,
+  TranslationSummary,
+} from "@ancient-epics/shared";
 
-import { api } from "./lib/api";
+import { api, ApiError } from "./lib/api";
 
 type ReaderScreen = "books" | "translations" | "reader";
 type ReaderLoadState = "idle" | "loading" | "ready" | "error";
+type AuthMode = "signup" | "login";
+type ProtectedIntent =
+  | { kind: "book"; bookSlug: string }
+  | { kind: "translation"; bookSlug: string; translationSlug: string }
+  | null;
 
 function buildLastReadStorageKey(bookSlug: string, translationSlug: string): string {
   return `ancient-epics:last-read:${bookSlug}:${translationSlug}`;
@@ -30,6 +42,20 @@ function setStoredLastReadChapter(bookSlug: string, translationSlug: string, cha
 export default function ReaderApp() {
   const [screen, setScreen] = useState<ReaderScreen>("books");
   const [books, setBooks] = useState<BookSummary[]>([]);
+  const [authUser, setAuthUser] = useState<AuthUser | null>(null);
+  const [isLoadingSession, setIsLoadingSession] = useState(true);
+  const [authMode, setAuthMode] = useState<AuthMode>("signup");
+  const [isAuthDialogOpen, setIsAuthDialogOpen] = useState(false);
+  const [authEmail, setAuthEmail] = useState("");
+  const [authPassword, setAuthPassword] = useState("");
+  const [isSubmittingAuth, setIsSubmittingAuth] = useState(false);
+  const [authError, setAuthError] = useState<string | null>(null);
+  const [authPromptMessage, setAuthPromptMessage] = useState<string | null>(null);
+  const [pendingProtectedIntent, setPendingProtectedIntent] = useState<ProtectedIntent>(null);
+  const [pendingTranslationAfterAuth, setPendingTranslationAfterAuth] = useState<{
+    bookSlug: string;
+    translationSlug: string;
+  } | null>(null);
   const [selectedBookSlug, setSelectedBookSlug] = useState<string | null>(null);
   const [selectedBook, setSelectedBook] = useState<BookDetail | null>(null);
   const [selectedTranslationSlug, setSelectedTranslationSlug] = useState<string | null>(null);
@@ -41,6 +67,34 @@ export default function ReaderApp() {
   const [readerLoadState, setReaderLoadState] = useState<ReaderLoadState>("idle");
   const [error, setError] = useState<string | null>(null);
   const [translationUnavailableMessage, setTranslationUnavailableMessage] = useState<string | null>(null);
+
+  useEffect(() => {
+    let isCancelled = false;
+
+    async function loadAuthSession() {
+      try {
+        const payload = await api.getAuthSession();
+        if (isCancelled) {
+          return;
+        }
+
+        setAuthUser(payload.user);
+      } catch (loadError) {
+        if (!isCancelled) {
+          setError(loadError instanceof Error ? loadError.message : "Failed to load session.");
+        }
+      } finally {
+        if (!isCancelled) {
+          setIsLoadingSession(false);
+        }
+      }
+    }
+
+    void loadAuthSession();
+    return () => {
+      isCancelled = true;
+    };
+  }, []);
 
   useEffect(() => {
     let isCancelled = false;
@@ -141,6 +195,16 @@ export default function ReaderApp() {
         setReaderLoadState("ready");
       } catch (loadError) {
         if (!isCancelled) {
+          if (loadError instanceof ApiError && loadError.code === "auth_required") {
+            setReaderLoadState("idle");
+            openAuthDialog({
+              mode: "signup",
+              message: "Sign up for free to unlock this translation.",
+              intent: { kind: "translation", bookSlug, translationSlug },
+            });
+            return;
+          }
+
           setError(loadError instanceof Error ? loadError.message : "Failed to load reader content.");
           setReaderLoadState("error");
         }
@@ -156,6 +220,27 @@ export default function ReaderApp() {
       isCancelled = true;
     };
   }, [selectedBook, selectedTranslationSlug, selectedChapterSlug]);
+
+  useEffect(() => {
+    if (!authUser || !pendingTranslationAfterAuth || selectedBook?.slug !== pendingTranslationAfterAuth.bookSlug) {
+      return;
+    }
+
+    const translationSlug = pendingTranslationAfterAuth.translationSlug;
+    const firstChapterSlug = selectedBook.chapters[0]?.slug ?? null;
+    const storedChapterSlug = getStoredLastReadChapter(selectedBook.slug, translationSlug);
+    const preferredChapterSlug =
+      storedChapterSlug != null && selectedBook.chapters.some((chapter) => chapter.slug === storedChapterSlug)
+        ? storedChapterSlug
+        : firstChapterSlug;
+
+    setPendingTranslationAfterAuth(null);
+    setSelectedTranslationSlug(translationSlug);
+    setSelectedChapterSlug(preferredChapterSlug);
+    setChapterPayload(null);
+    setReaderLoadState(preferredChapterSlug ? "loading" : "idle");
+    setScreen("reader");
+  }, [authUser, pendingTranslationAfterAuth, selectedBook]);
 
   useEffect(() => {
     if (!selectedBook || !selectedTranslationSlug || !selectedChapterSlug) {
@@ -181,6 +266,87 @@ export default function ReaderApp() {
     chapterIndex >= 0 && selectedBook && chapterIndex < selectedBook.chapters.length - 1
       ? (selectedBook.chapters[chapterIndex + 1] ?? null)
       : null;
+
+  const hasLockedTranslations = selectedBook?.translations.some(
+    (translation) => translation.accessLevel === "loggedin",
+  );
+
+  function openAuthDialog(input?: { mode?: AuthMode; message?: string | null; intent?: ProtectedIntent }) {
+    setAuthMode(input?.mode ?? "signup");
+    setAuthPromptMessage(input?.message ?? null);
+    setPendingProtectedIntent(input?.intent ?? null);
+    setAuthError(null);
+    setIsAuthDialogOpen(true);
+  }
+
+  function closeAuthDialog() {
+    setIsAuthDialogOpen(false);
+    setAuthError(null);
+    setAuthPromptMessage(null);
+    setPendingProtectedIntent(null);
+  }
+
+  async function submitAuth(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setIsSubmittingAuth(true);
+    setAuthError(null);
+
+    try {
+      const payload =
+        authMode === "signup"
+          ? await api.signup({ email: authEmail, password: authPassword })
+          : await api.login({ email: authEmail, password: authPassword });
+
+      setAuthUser(payload.user);
+      setAuthPassword("");
+      setIsAuthDialogOpen(false);
+      setAuthPromptMessage(null);
+      setAuthError(null);
+
+      const intent = pendingProtectedIntent;
+      setPendingProtectedIntent(null);
+
+      if (!intent) {
+        return;
+      }
+
+      if (intent.kind === "book") {
+        openBook(intent.bookSlug);
+        return;
+      }
+
+      if (selectedBook?.slug === intent.bookSlug) {
+        openTranslation(intent.translationSlug);
+        return;
+      }
+
+      setPendingTranslationAfterAuth({
+        bookSlug: intent.bookSlug,
+        translationSlug: intent.translationSlug,
+      });
+      openBook(intent.bookSlug);
+    } catch (submitError) {
+      setAuthError(submitError instanceof Error ? submitError.message : "Authentication failed.");
+    } finally {
+      setIsSubmittingAuth(false);
+    }
+  }
+
+  async function logout() {
+    try {
+      await api.logout();
+      setAuthUser(null);
+      setSelectedBookSlug(null);
+      setSelectedBook(null);
+      setSelectedTranslationSlug(null);
+      setSelectedChapterSlug(null);
+      setChapterPayload(null);
+      setReaderLoadState("idle");
+      setScreen("books");
+    } catch (logoutError) {
+      setError(logoutError instanceof Error ? logoutError.message : "Failed to log out.");
+    }
+  }
 
   function openBook(bookSlug: string) {
     setSelectedBookSlug(bookSlug);
@@ -210,6 +376,36 @@ export default function ReaderApp() {
     setSelectedChapterSlug(chapterSlug);
     setReaderLoadState("loading");
     setScreen("reader");
+  }
+
+  function handleOpenBook(book: BookSummary) {
+    if (!authUser && book.accessLevel === "loggedin") {
+      openAuthDialog({
+        mode: "signup",
+        message: "Sign up for free to unlock this book.",
+        intent: { kind: "book", bookSlug: book.slug },
+      });
+      return;
+    }
+
+    openBook(book.slug);
+  }
+
+  function handleOpenTranslation(translation: TranslationSummary) {
+    if (!authUser && translation.accessLevel === "loggedin" && selectedBook) {
+      openAuthDialog({
+        mode: "signup",
+        message: "Sign up for free to read this translation.",
+        intent: {
+          kind: "translation",
+          bookSlug: selectedBook.slug,
+          translationSlug: translation.slug,
+        },
+      });
+      return;
+    }
+
+    openTranslation(translation.slug);
   }
 
   const breadcrumbs = useMemo(
@@ -250,6 +446,39 @@ export default function ReaderApp() {
       <div className="mx-auto flex max-w-[1400px] flex-col gap-8">
         <header className="flex items-center justify-between gap-4 rounded-full border border-border/70 bg-white/82 px-5 py-3 shadow-panel backdrop-blur">
           <p className="text-sm font-semibold uppercase tracking-[0.22em] text-accent">Ancient Epics</p>
+          <div className="flex flex-wrap items-center justify-end gap-2">
+            {isLoadingSession ? null : authUser ? (
+              <>
+                <span className="rounded-full border border-border/70 bg-paper/85 px-4 py-2 text-sm text-ink/72">
+                  {authUser.email}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => void logout()}
+                  className="rounded-full border border-border/70 bg-paper/90 px-4 py-2 text-sm font-semibold transition hover:border-accent/50"
+                >
+                  Log Out
+                </button>
+              </>
+            ) : (
+              <>
+                <button
+                  type="button"
+                  onClick={() => openAuthDialog({ mode: "login" })}
+                  className="rounded-full border border-border/70 bg-paper/90 px-4 py-2 text-sm font-semibold transition hover:border-accent/50"
+                >
+                  Log In
+                </button>
+                <button
+                  type="button"
+                  onClick={() => openAuthDialog({ mode: "signup" })}
+                  className="rounded-full bg-ink px-4 py-2 text-sm font-semibold text-paper transition hover:bg-accent"
+                >
+                  Sign Up
+                </button>
+              </>
+            )}
+          </div>
         </header>
 
         {error ? <StatusPanel title="Error" body={error} /> : null}
@@ -257,7 +486,7 @@ export default function ReaderApp() {
         {screen === "books" ? (
           <StagePanel
             title="Books"
-            subtitle="Choose a published work to see the translations available for it."
+            subtitle="Choose a published work. Free titles open immediately, and account-required titles will ask you to sign up."
             breadcrumbs={breadcrumbs}
           >
             {isLoadingBooks ? (
@@ -270,17 +499,23 @@ export default function ReaderApp() {
                   <button
                     key={book.id}
                     type="button"
-                    onClick={() => openBook(book.slug)}
+                    onClick={() => handleOpenBook(book)}
                     className="rounded-[28px] border border-border/70 bg-paper/72 p-6 text-left transition hover:border-accent/50 hover:bg-white"
                   >
-                    <p className="text-xs font-semibold uppercase tracking-[0.18em] text-accent">
-                      {book.originalLanguage || "Original"}
-                    </p>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <p className="text-xs font-semibold uppercase tracking-[0.18em] text-accent">
+                        {book.originalLanguage || "Original"}
+                      </p>
+                      <AccessBadge accessLevel={book.accessLevel} />
+                    </div>
                     <h2 className="mt-3 font-display text-4xl text-ink">{book.title}</h2>
                     <p className="mt-3 text-sm text-ink/68">{book.author || "Unknown author"}</p>
                     <p className="mt-5 text-sm leading-7 text-ink/74">
                       {book.description || "Published without a description."}
                     </p>
+                    {!authUser && book.accessLevel === "loggedin" ? (
+                      <p className="mt-4 text-sm font-semibold text-accent">Sign up for free to unlock this book.</p>
+                    ) : null}
                   </button>
                 ))}
               </div>
@@ -311,12 +546,19 @@ export default function ReaderApp() {
                   </p>
                 </div>
 
+                {!authUser && hasLockedTranslations ? (
+                  <div className="rounded-[24px] border border-border/70 bg-paper/68 px-5 py-4 text-sm leading-7 text-ink/72">
+                    Free-to-read translations are available immediately. Create a free account to unlock the rest.
+                  </div>
+                ) : null}
+
                 <div className="grid gap-5 lg:grid-cols-2">
                   {selectedBook.translations.map((translation) => (
                     <TranslationCard
                       key={translation.id}
                       translation={translation}
-                      onOpen={() => openTranslation(translation.slug)}
+                      isGuest={!authUser}
+                      onOpen={() => handleOpenTranslation(translation)}
                     />
                   ))}
                 </div>
@@ -441,6 +683,21 @@ export default function ReaderApp() {
           </StagePanel>
         ) : null}
       </div>
+      {isAuthDialogOpen ? (
+        <AuthDialog
+          authMode={authMode}
+          email={authEmail}
+          password={authPassword}
+          error={authError}
+          isBusy={isSubmittingAuth}
+          promptMessage={authPromptMessage}
+          onClose={closeAuthDialog}
+          onModeChange={setAuthMode}
+          onEmailChange={setAuthEmail}
+          onPasswordChange={setAuthPassword}
+          onSubmit={submitAuth}
+        />
+      ) : null}
     </main>
   );
 }
@@ -497,19 +754,47 @@ function StagePanel({
   );
 }
 
-function TranslationCard({ translation, onOpen }: { translation: TranslationSummary; onOpen: () => void }) {
+function TranslationCard({
+  translation,
+  isGuest,
+  onOpen,
+}: {
+  translation: TranslationSummary;
+  isGuest: boolean;
+  onOpen: () => void;
+}) {
   return (
     <button
       type="button"
       onClick={onOpen}
       className="rounded-[28px] border border-border/70 bg-paper/72 p-6 text-left transition hover:border-accent/50 hover:bg-white"
     >
-      <p className="text-xs font-semibold uppercase tracking-[0.18em] text-accent">Translation</p>
+      <div className="flex flex-wrap items-center gap-2">
+        <p className="text-xs font-semibold uppercase tracking-[0.18em] text-accent">Translation</p>
+        <AccessBadge accessLevel={translation.accessLevel} />
+      </div>
       <h3 className="mt-3 font-display text-4xl text-ink">{translation.name}</h3>
       <p className="mt-4 text-base leading-8 text-ink/74">
         {translation.description || "Published without a description."}
       </p>
+      {isGuest && translation.accessLevel === "loggedin" ? (
+        <p className="mt-4 text-sm font-semibold text-accent">Sign up for free to read this translation.</p>
+      ) : null}
     </button>
+  );
+}
+
+function AccessBadge({ accessLevel }: { accessLevel: AccessLevel }) {
+  return (
+    <span
+      className={`rounded-full px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.16em] ${
+        accessLevel === "public"
+          ? "border border-emerald-200 bg-emerald-50 text-emerald-800"
+          : "border border-border/70 bg-white/75 text-ink/65"
+      }`}
+    >
+      {accessLevel === "public" ? "Free To Read" : "Free Account"}
+    </span>
   );
 }
 
@@ -563,4 +848,115 @@ function StatusPanel({ title, body }: { title: string; body: string }) {
 
 function EmptyState({ body }: { body: string }) {
   return <p className="text-base leading-8 text-ink/68">{body}</p>;
+}
+
+function AuthDialog({
+  authMode,
+  email,
+  password,
+  error,
+  isBusy,
+  promptMessage,
+  onClose,
+  onModeChange,
+  onEmailChange,
+  onPasswordChange,
+  onSubmit,
+}: {
+  authMode: AuthMode;
+  email: string;
+  password: string;
+  error: string | null;
+  isBusy: boolean;
+  promptMessage: string | null;
+  onClose: () => void;
+  onModeChange: (mode: AuthMode) => void;
+  onEmailChange: (value: string) => void;
+  onPasswordChange: (value: string) => void;
+  onSubmit: (event: FormEvent<HTMLFormElement>) => void;
+}) {
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-ink/28 px-6 py-8 backdrop-blur-sm">
+      <div className="w-full max-w-[560px] rounded-[32px] border border-border/70 bg-white/95 p-6 shadow-panel lg:p-8">
+        <div className="flex items-start justify-between gap-4">
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-accent">Ancient Epics</p>
+            <h2 className="mt-3 font-display text-4xl text-ink">
+              {authMode === "signup" ? "Create Your Free Account" : "Log In"}
+            </h2>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            className="rounded-full border border-border/70 bg-paper/90 px-4 py-2 text-sm font-semibold transition hover:border-accent/50"
+          >
+            Close
+          </button>
+        </div>
+
+        <div className="mt-5 flex gap-2">
+          <button
+            type="button"
+            onClick={() => onModeChange("signup")}
+            className={`rounded-full px-4 py-2 text-sm font-semibold transition ${
+              authMode === "signup" ? "bg-ink text-paper" : "border border-border/70 bg-paper/80 text-ink/72"
+            }`}
+          >
+            Sign Up
+          </button>
+          <button
+            type="button"
+            onClick={() => onModeChange("login")}
+            className={`rounded-full px-4 py-2 text-sm font-semibold transition ${
+              authMode === "login" ? "bg-ink text-paper" : "border border-border/70 bg-paper/80 text-ink/72"
+            }`}
+          >
+            Log In
+          </button>
+        </div>
+
+        {promptMessage ? (
+          <div className="mt-5 rounded-[24px] border border-border/70 bg-paper/68 px-5 py-4 text-sm leading-7 text-ink/74">
+            {promptMessage}
+          </div>
+        ) : null}
+
+        <form onSubmit={onSubmit} className="mt-6 space-y-4">
+          <label className="grid gap-2">
+            <span className="text-xs font-semibold uppercase tracking-[0.18em] text-accent">Email</span>
+            <input
+              type="email"
+              value={email}
+              onChange={(event) => onEmailChange(event.target.value)}
+              className="rounded-2xl border border-border/70 bg-paper/70 px-4 py-3 text-base text-ink outline-none transition focus:border-accent"
+              autoComplete="email"
+              placeholder="you@example.com"
+            />
+          </label>
+
+          <label className="grid gap-2">
+            <span className="text-xs font-semibold uppercase tracking-[0.18em] text-accent">Password</span>
+            <input
+              type="password"
+              value={password}
+              onChange={(event) => onPasswordChange(event.target.value)}
+              className="rounded-2xl border border-border/70 bg-paper/70 px-4 py-3 text-base text-ink outline-none transition focus:border-accent"
+              autoComplete={authMode === "signup" ? "new-password" : "current-password"}
+              placeholder="At least 8 characters"
+            />
+          </label>
+
+          {error ? <p className="text-sm text-red-700">{error}</p> : null}
+
+          <button
+            type="submit"
+            disabled={isBusy}
+            className="w-full rounded-full bg-ink px-4 py-3 text-sm font-semibold text-paper transition hover:bg-accent disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            {isBusy ? "Working..." : authMode === "signup" ? "Sign Up For Free" : "Log In"}
+          </button>
+        </form>
+      </div>
+    </div>
+  );
 }

@@ -28,6 +28,7 @@ type BookRow = {
   originalLanguage: string | null;
   description: string | null;
   coverImageUrl: string | null;
+  accessLevel: BookSummary["accessLevel"];
   publishedAt: string | null;
   updatedAt?: string;
 };
@@ -47,6 +48,7 @@ type TranslationRow = {
   slug: string;
   name: string;
   description: string | null;
+  accessLevel: TranslationSummary["accessLevel"];
   provider: AdminTranslationSummary["provider"];
   model: string;
   thinkingLevel: AdminTranslationSummary["thinkingLevel"];
@@ -116,6 +118,10 @@ export async function listPublicBooks(db: D1Database): Promise<BookSummary[]> {
           books.original_language AS originalLanguage,
           books.description,
           books.cover_image_url AS coverImageUrl,
+          CASE
+            WHEN COUNT(DISTINCT CASE WHEN translations.access_level = 'public' THEN translations.id END) > 0 THEN 'public'
+            ELSE 'loggedin'
+          END AS accessLevel,
           MAX(translations.published_at) AS publishedAt
         FROM books
         JOIN translations
@@ -142,6 +148,10 @@ export async function getPublicBookDetail(db: D1Database, bookSlug: string): Pro
           books.original_language AS originalLanguage,
           books.description,
           books.cover_image_url AS coverImageUrl,
+          CASE
+            WHEN COUNT(DISTINCT CASE WHEN translations.access_level = 'public' THEN translations.id END) > 0 THEN 'public'
+            ELSE 'loggedin'
+          END AS accessLevel,
           MAX(translations.published_at) AS publishedAt
         FROM books
         JOIN translations
@@ -269,6 +279,7 @@ export async function getPublishedTranslationPayload(
           translations.slug,
           translations.name,
           translations.description,
+          translations.access_level AS accessLevel,
           translations.status,
           translations.published_at AS publishedAt,
           translations.updated_at AS updatedAt
@@ -311,6 +322,11 @@ export async function listAdminBookSummaries(db: D1Database): Promise<AdminBookS
           books.original_language AS originalLanguage,
           books.description,
           books.cover_image_url AS coverImageUrl,
+          CASE
+            WHEN COUNT(DISTINCT CASE WHEN translations.status = 'published' AND translations.access_level = 'public' THEN translations.id END) > 0 THEN 'public'
+            WHEN COUNT(DISTINCT CASE WHEN translations.status = 'published' THEN translations.id END) > 0 THEN 'loggedin'
+            ELSE 'public'
+          END AS accessLevel,
           MAX(translations.published_at) AS publishedAt,
           books.updated_at AS updatedAt,
           COUNT(DISTINCT chapters.id) AS chapterCount,
@@ -355,6 +371,19 @@ export async function getAdminBookSourcePayload(
           original_language AS originalLanguage,
           description,
           cover_image_url AS coverImageUrl,
+          COALESCE(
+            (
+              SELECT
+                CASE
+                  WHEN COUNT(CASE WHEN access_level = 'public' THEN 1 END) > 0 THEN 'public'
+                  ELSE 'loggedin'
+                END
+              FROM translations
+              WHERE translations.book_id = books.id
+                AND translations.status = 'published'
+            ),
+            'public'
+          ) AS accessLevel,
           (
             SELECT MAX(published_at)
             FROM translations
@@ -399,6 +428,7 @@ export async function listAdminTranslations(db: D1Database, bookSlug: string): P
           translations.slug,
           translations.name,
           translations.description,
+          translations.access_level AS accessLevel,
           translations.provider,
           translations.model,
           translations.thinking_level AS thinkingLevel,
@@ -444,6 +474,7 @@ export async function getAdminTranslationDetail(
           translations.slug,
           translations.name,
           translations.description,
+          translations.access_level AS accessLevel,
           translations.provider,
           translations.model,
           translations.thinking_level AS thinkingLevel,
@@ -662,6 +693,7 @@ export async function listTranslationsForBook(
           slug,
           name,
           description,
+          access_level AS accessLevel,
           status,
           published_at AS publishedAt,
           updated_at AS updatedAt
@@ -675,6 +707,64 @@ export async function listTranslationsForBook(
     .all<TranslationSummary>();
 
   return results.results ?? [];
+}
+
+export async function getPublishedTranslationSummary(
+  db: D1Database,
+  input: { bookSlug: string; translationSlug: string },
+): Promise<TranslationSummary | null> {
+  return (
+    (await db
+      .prepare(
+        `
+          SELECT
+            translations.id,
+            translations.slug,
+            translations.name,
+            translations.description,
+            translations.access_level AS accessLevel,
+            translations.status,
+            translations.published_at AS publishedAt,
+            translations.updated_at AS updatedAt
+          FROM translations
+          JOIN books
+            ON books.id = translations.book_id
+          WHERE books.slug = ?
+            AND translations.slug = ?
+            AND translations.status = 'published'
+          LIMIT 1
+        `,
+      )
+      .bind(input.bookSlug, input.translationSlug)
+      .first<TranslationSummary>()) ?? null
+  );
+}
+
+export async function getPublishedBookAccessLevel(
+  db: D1Database,
+  bookSlug: string,
+): Promise<BookSummary["accessLevel"] | null> {
+  return (
+    (await db
+      .prepare(
+        `
+          SELECT
+            CASE
+              WHEN COUNT(CASE WHEN translations.access_level = 'public' THEN 1 END) > 0 THEN 'public'
+              ELSE 'loggedin'
+            END AS accessLevel
+          FROM books
+          JOIN translations
+            ON translations.book_id = books.id
+           AND translations.status = 'published'
+          WHERE books.slug = ?
+          GROUP BY books.id
+          LIMIT 1
+        `,
+      )
+      .bind(bookSlug)
+      .first<BookSummary["accessLevel"]>("accessLevel")) ?? null
+  );
 }
 
 async function mapTranslationChapterDraft(
@@ -719,6 +809,7 @@ function mapBookSummary(row: BookRow): BookSummary {
     originalLanguage: row.originalLanguage,
     description: row.description,
     coverImageUrl: row.coverImageUrl,
+    accessLevel: row.accessLevel,
     publishedAt: row.publishedAt,
   };
 }
@@ -730,6 +821,7 @@ function mapAdminTranslationSummary(row: TranslationRow): AdminTranslationSummar
     slug: row.slug,
     name: row.name,
     description: row.description,
+    accessLevel: row.accessLevel,
     provider: row.provider,
     model: row.model,
     thinkingLevel: row.thinkingLevel,

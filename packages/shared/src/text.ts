@@ -1,4 +1,4 @@
-import type { AiProvider, ThinkingLevel, TranslationChunk } from "./types";
+import type { AccessLevel, AiProvider, ThinkingLevel, TranslationChunk } from "./types";
 
 export function normalizeChapterText(value: string): string {
   return value.replace(/\r\n/g, "\n").trim();
@@ -38,6 +38,10 @@ export function normalizeThinkingLevel(value: ThinkingLevel | string | null | un
   }
 
   return ["none", "minimal", "low", "medium", "high", "xhigh"].includes(value) ? (value as ThinkingLevel) : null;
+}
+
+export function normalizeAccessLevel(value: AccessLevel | string | null | undefined): AccessLevel {
+  return value === "loggedin" ? "loggedin" : "public";
 }
 
 function normalizeChunkText(value: string): string {

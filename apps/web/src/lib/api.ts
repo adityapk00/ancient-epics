@@ -1,10 +1,12 @@
 import type {
   AdminBookSourcePayload,
   AdminBootstrapPayload,
+  AdminSessionPayload,
   AdminTranslationDetail,
   AdminTranslationSummary,
   AdminTranslationValidationPayload,
   AiProvider,
+  AuthSessionPayload,
   ApiResponse,
   BookDetail,
   BookSummary,
@@ -16,16 +18,30 @@ import type {
 
 const apiBaseUrl = import.meta.env.VITE_API_BASE_URL ?? "";
 
+export class ApiError extends Error {
+  constructor(
+    message: string,
+    readonly status: number,
+    readonly code: string,
+  ) {
+    super(message);
+    this.name = "ApiError";
+  }
+}
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(`${apiBaseUrl}${path}`, init);
+  const response = await fetch(`${apiBaseUrl}${path}`, {
+    credentials: "include",
+    ...init,
+  });
   const payload = (await response.json()) as ApiResponse<T>;
 
   if (!payload.ok) {
-    throw new Error(payload.error.message);
+    throw new ApiError(payload.error.message, response.status, payload.error.code);
   }
 
   if (!response.ok) {
-    throw new Error(`Request failed with status ${response.status}`);
+    throw new ApiError(`Request failed with status ${response.status}`, response.status, "http_error");
   }
 
   return payload.data;
@@ -49,6 +65,15 @@ function requestWithMethod<T>(method: "DELETE" | "POST", path: string): Promise<
 
 export const api = {
   health: () => request<{ environment: string; now: string }>("/api/health"),
+  getAuthSession: () => request<AuthSessionPayload>("/api/auth/session"),
+  signup: (body: { email: string; password: string }) =>
+    requestJson<AuthSessionPayload>("POST", "/api/auth/signup", body),
+  login: (body: { email: string; password: string }) =>
+    requestJson<AuthSessionPayload>("POST", "/api/auth/login", body),
+  logout: () => requestWithMethod<AuthSessionPayload>("POST", "/api/auth/logout"),
+  getAdminSession: () => request<AdminSessionPayload>("/api/admin/session"),
+  loginAdmin: (body: { password: string }) => requestJson<AdminSessionPayload>("POST", "/api/admin/login", body),
+  logoutAdmin: () => requestWithMethod<AdminSessionPayload>("POST", "/api/admin/logout"),
   listBooks: () => request<{ books: BookSummary[] }>("/api/books"),
   getBook: (bookSlug: string) => request<BookDetail>(`/api/books/${bookSlug}`),
   getChapter: (bookSlug: string, chapterSlug: string, translationSlug?: string | null) =>
@@ -90,6 +115,7 @@ export const api = {
     body: {
       title: string;
       description?: string;
+      accessLevel?: "public" | "loggedin";
       provider: AiProvider;
       model: string;
       thinkingLevel?: ThinkingLevel | null;
@@ -108,6 +134,7 @@ export const api = {
       name?: string;
       slug?: string;
       description?: string;
+      accessLevel?: "public" | "loggedin";
       provider?: AiProvider;
       model?: string;
       thinkingLevel?: ThinkingLevel | null;

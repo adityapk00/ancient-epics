@@ -1,7 +1,9 @@
 import type {
   AdminBookSourcePayload,
+  AdminSessionPayload,
   AdminTranslationDetail,
   AdminTranslationValidationPayload,
+  AuthSessionPayload,
   ApiFailure,
   ApiResponse,
   ApiSuccess,
@@ -18,6 +20,7 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it } from "vitest";
+import { hashPasswordForStorage } from "../src/auth";
 import { createApiTestContext, type ApiTestContext } from "./support/api-test-harness";
 
 const contexts: ApiTestContext[] = [];
@@ -34,6 +37,7 @@ afterEach(() => {
 describe("Ancient Epics API", () => {
   it("serves the seeded public and admin read APIs with the expected data", async () => {
     const ctx = await setupContext();
+    const adminCookie = await loginAdmin(ctx);
 
     const health = expectSuccess(await api<{ environment: string; now: string }>(ctx, "GET", "/api/health"));
     expect(health.environment).toBe("test");
@@ -45,6 +49,7 @@ describe("Ancient Epics API", () => {
         slug: "iliad",
         title: "The Iliad",
         author: "Attributed to Homer",
+        accessLevel: "public",
       }),
     ]);
 
@@ -54,6 +59,7 @@ describe("Ancient Epics API", () => {
     expect(bookDetail.translations).toEqual([
       expect.objectContaining({
         slug: "verse-meaning",
+        accessLevel: "public",
         status: "published",
       }),
     ]);
@@ -71,6 +77,7 @@ describe("Ancient Epics API", () => {
     expect(chapterDetail.availableTranslations).toEqual([
       expect.objectContaining({
         slug: "verse-meaning",
+        accessLevel: "public",
         status: "published",
       }),
     ]);
@@ -82,16 +89,21 @@ describe("Ancient Epics API", () => {
     expect(translationDetail.translation).toEqual(
       expect.objectContaining({
         slug: "verse-meaning",
+        accessLevel: "public",
         name: "Verse / Preserve Meaning",
         status: "published",
       }),
     );
     expect(translationDetail.content).toEqual(expectedTranslation);
 
-    const adminBooks = expectSuccess<{ books: BookSummary[] }>(await api(ctx, "GET", "/api/admin/books"));
+    const adminBooks = expectSuccess<{ books: BookSummary[] }>(
+      await adminApi(ctx, adminCookie, "GET", "/api/admin/books"),
+    );
     expect(adminBooks.books.some((book) => book.slug === "iliad")).toBe(true);
 
-    const adminBook = expectSuccess<AdminBookSourcePayload>(await api(ctx, "GET", "/api/admin/books/iliad"));
+    const adminBook = expectSuccess<AdminBookSourcePayload>(
+      await adminApi(ctx, adminCookie, "GET", "/api/admin/books/iliad"),
+    );
     expect(adminBook.book.slug).toBe("iliad");
     expect(adminBook.book.translations).toHaveLength(1);
     expect(adminBook.chapters).toEqual([
@@ -102,21 +114,226 @@ describe("Ancient Epics API", () => {
     ]);
 
     const adminTranslations = expectSuccess<{ translations: TranslationSummary[] }>(
-      await api(ctx, "GET", "/api/admin/books/iliad/translations"),
+      await adminApi(ctx, adminCookie, "GET", "/api/admin/books/iliad/translations"),
     );
     expect(adminTranslations.translations).toEqual([
       expect.objectContaining({
         slug: "verse-meaning",
+        accessLevel: "public",
         status: "published",
       }),
     ]);
   });
 
+  it("supports signup, login, logout, and enforces public versus logged-in reader access", async () => {
+    const ctx = await setupContext();
+    const unauthorizedAdmin = expectFailure(await api(ctx, "GET", "/api/admin/books"), 401);
+    expect(unauthorizedAdmin.code).toBe("admin_auth_required");
+    const adminCookie = await loginAdmin(ctx);
+
+    expectSuccess<AdminBookSourcePayload>(
+      await adminApi(ctx, adminCookie, "POST", "/api/admin/books", {
+        title: "Access Book",
+        author: "Access Author",
+        originalLanguage: "Greek",
+        description: "Used to test free and account-required translations.",
+        chapters: [
+          {
+            position: 1,
+            title: "Chapter One",
+            slug: "chapter-one",
+            sourceText: "Access source text.",
+          },
+        ],
+      }),
+      201,
+    );
+
+    const publicTranslation = expectSuccess<AdminTranslationDetail>(
+      await adminApi(ctx, adminCookie, "POST", "/api/admin/books/access-book/translations", {
+        title: "Free Translation",
+        description: "Free to read.",
+        accessLevel: "public",
+        provider: "google",
+        model: "test-model-free",
+        prompt: "Return JSON only.",
+        contextBeforeChapterCount: 0,
+        contextAfterChapterCount: 0,
+      }),
+      201,
+    );
+
+    await saveTranslationChapters(ctx, adminCookie, publicTranslation, {
+      "chapter-one": "Public translation text.",
+    });
+    expectSuccess<AdminTranslationDetail>(
+      await adminApi(ctx, adminCookie, "POST", `/api/admin/translations/${publicTranslation.id}/publish`, {}),
+    );
+
+    const premiumTranslation = expectSuccess<AdminTranslationDetail>(
+      await adminApi(ctx, adminCookie, "POST", "/api/admin/books/access-book/translations", {
+        title: "Members Translation",
+        description: "Requires a free account.",
+        accessLevel: "loggedin",
+        provider: "google",
+        model: "test-model-members",
+        prompt: "Return JSON only.",
+        contextBeforeChapterCount: 0,
+        contextAfterChapterCount: 0,
+      }),
+      201,
+    );
+
+    await saveTranslationChapters(ctx, adminCookie, premiumTranslation, {
+      "chapter-one": "Members-only translation text.",
+    });
+    expectSuccess<AdminTranslationDetail>(
+      await adminApi(ctx, adminCookie, "POST", `/api/admin/translations/${premiumTranslation.id}/publish`, {}),
+    );
+
+    expectSuccess<AdminBookSourcePayload>(
+      await adminApi(ctx, adminCookie, "POST", "/api/admin/books", {
+        title: "Members Book",
+        author: "Premium Author",
+        originalLanguage: "Latin",
+        description: "All translations require an account.",
+        chapters: [
+          {
+            position: 1,
+            title: "Locked Chapter",
+            slug: "locked-chapter",
+            sourceText: "Members-only source text.",
+          },
+        ],
+      }),
+      201,
+    );
+
+    const membersBookTranslation = expectSuccess<AdminTranslationDetail>(
+      await adminApi(ctx, adminCookie, "POST", "/api/admin/books/members-book/translations", {
+        title: "Locked Translation",
+        description: "Requires login.",
+        accessLevel: "loggedin",
+        provider: "google",
+        model: "test-model-locked",
+        prompt: "Return JSON only.",
+        contextBeforeChapterCount: 0,
+        contextAfterChapterCount: 0,
+      }),
+      201,
+    );
+
+    await saveTranslationChapters(ctx, adminCookie, membersBookTranslation, {
+      "locked-chapter": "Locked translation text.",
+    });
+    expectSuccess<AdminTranslationDetail>(
+      await adminApi(ctx, adminCookie, "POST", `/api/admin/translations/${membersBookTranslation.id}/publish`, {}),
+    );
+
+    const guestBooks = expectSuccess<{ books: BookSummary[] }>(await api(ctx, "GET", "/api/books"));
+    expect(guestBooks.books).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ slug: "access-book", accessLevel: "public" }),
+        expect.objectContaining({ slug: "members-book", accessLevel: "loggedin" }),
+      ]),
+    );
+
+    const guestBook = expectSuccess<BookDetail>(await api(ctx, "GET", "/api/books/access-book"));
+    expect(guestBook.accessLevel).toBe("public");
+    expect(guestBook.translations).toEqual([
+      expect.objectContaining({ slug: "free-translation", accessLevel: "public" }),
+      expect.objectContaining({ slug: "members-translation", accessLevel: "loggedin" }),
+    ]);
+
+    const guestMembersBook = expectSuccess<BookDetail>(await api(ctx, "GET", "/api/books/members-book"));
+    expect(guestMembersBook.accessLevel).toBe("loggedin");
+    expect(guestMembersBook.translations).toEqual([
+      expect.objectContaining({ slug: "locked-translation", accessLevel: "loggedin" }),
+    ]);
+
+    const guestPublicChapter = expectSuccess<ReaderChapterPayload>(
+      await api(ctx, "GET", "/api/books/access-book/chapters/chapter-one?translation=free-translation"),
+    );
+    expect(guestPublicChapter.translation?.translation.accessLevel).toBe("public");
+
+    const guestLockedChapter = expectFailure(
+      await api(ctx, "GET", "/api/books/access-book/chapters/chapter-one?translation=members-translation"),
+      401,
+    );
+    expect(guestLockedChapter.code).toBe("auth_required");
+
+    const guestLockedTranslation = expectFailure(
+      await api(ctx, "GET", "/api/books/members-book/chapters/locked-chapter/translations/locked-translation"),
+      401,
+    );
+    expect(guestLockedTranslation.code).toBe("auth_required");
+
+    const guestLockedOriginal = expectFailure(
+      await api(ctx, "GET", "/api/books/members-book/chapters/locked-chapter"),
+      401,
+    );
+    expect(guestLockedOriginal.code).toBe("auth_required");
+
+    const signupResponse = await api<AuthSessionPayload>(ctx, "POST", "/api/auth/signup", {
+      email: "reader@example.com",
+      password: "strong-password-123",
+    });
+    const signupPayload = expectSuccess<AuthSessionPayload>(signupResponse, 201);
+    expect(signupPayload.user?.email).toBe("reader@example.com");
+
+    const authCookie = extractCookieHeader(signupResponse.headers);
+    expect(authCookie).toContain("ancient_epics_session=");
+
+    const currentSession = expectSuccess<AuthSessionPayload>(
+      await api(ctx, "GET", "/api/auth/session", undefined, { headers: { Cookie: authCookie } }),
+    );
+    expect(currentSession.user?.email).toBe("reader@example.com");
+
+    const authenticatedLockedChapter = expectSuccess<ReaderChapterPayload>(
+      await api(ctx, "GET", "/api/books/access-book/chapters/chapter-one?translation=members-translation", undefined, {
+        headers: { Cookie: authCookie },
+      }),
+    );
+    expect(authenticatedLockedChapter.translation?.content.chunks[0]?.translatedText).toBe(
+      "Members-only translation text.",
+    );
+
+    const authenticatedLockedTranslation = expectSuccess<TranslationPayload>(
+      await api(
+        ctx,
+        "GET",
+        "/api/books/members-book/chapters/locked-chapter/translations/locked-translation",
+        undefined,
+        {
+          headers: { Cookie: authCookie },
+        },
+      ),
+    );
+    expect(authenticatedLockedTranslation.translation.accessLevel).toBe("loggedin");
+
+    const logoutResponse = await api<AuthSessionPayload>(ctx, "POST", "/api/auth/logout", undefined, {
+      headers: { Cookie: authCookie },
+    });
+    const logoutPayload = expectSuccess<AuthSessionPayload>(logoutResponse);
+    expect(logoutPayload.user).toBeNull();
+
+    const loginResponse = await api<AuthSessionPayload>(ctx, "POST", "/api/auth/login", {
+      email: "reader@example.com",
+      password: "strong-password-123",
+    });
+    const loginPayload = expectSuccess<AuthSessionPayload>(loginResponse);
+    expect(loginPayload.user?.email).toBe("reader@example.com");
+
+    const loginCookie = extractCookieHeader(loginResponse.headers);
+    expect(loginCookie).toContain("ancient_epics_session=");
+  });
+
   it("supports book CRUD and translation save, publish, and unpublish through the API", async () => {
     const ctx = await setupContext();
+    const adminCookie = await loginAdmin(ctx);
 
     const createdBook = expectSuccess<AdminBookSourcePayload>(
-      await api(ctx, "POST", "/api/admin/books", {
+      await adminApi(ctx, adminCookie, "POST", "/api/admin/books", {
         title: "Lifecycle Book",
         author: "Test Author",
         originalLanguage: "Akkadian",
@@ -143,7 +360,7 @@ describe("Ancient Epics API", () => {
     expect(createdBook.chapters).toHaveLength(2);
 
     const updatedBook = expectSuccess<AdminBookSourcePayload>(
-      await api(ctx, "PUT", "/api/admin/books/lifecycle-book", {
+      await adminApi(ctx, adminCookie, "PUT", "/api/admin/books/lifecycle-book", {
         title: "Lifecycle Book Revised",
         author: "Edited Author",
         originalLanguage: "Sumerian",
@@ -161,9 +378,10 @@ describe("Ancient Epics API", () => {
     );
 
     const createdTranslation = expectSuccess<AdminTranslationDetail>(
-      await api(ctx, "POST", "/api/admin/books/lifecycle-book/translations", {
+      await adminApi(ctx, adminCookie, "POST", "/api/admin/books/lifecycle-book/translations", {
         title: "Working Translation",
         description: "Initial translation draft.",
+        accessLevel: "public",
         provider: "google",
         model: "test-model-v1",
         prompt: "Return JSON only.",
@@ -176,7 +394,7 @@ describe("Ancient Epics API", () => {
     expect(createdTranslation.status).toBe("draft");
     expect(createdTranslation.chapters).toHaveLength(2);
 
-    const savedTranslation = await saveTranslationChapters(ctx, createdTranslation, {
+    const savedTranslation = await saveTranslationChapters(ctx, adminCookie, createdTranslation, {
       "tablet-one": "Translated tablet one.\nKept as verse.",
       "tablet-two": "Translated tablet two.",
     });
@@ -184,16 +402,17 @@ describe("Ancient Epics API", () => {
     expect(savedTranslation.chapters.every((chapter) => chapter.status === "saved")).toBe(true);
 
     const validation = expectSuccess<AdminTranslationValidationPayload>(
-      await api(ctx, "GET", `/api/admin/translations/${createdTranslation.id}/validate`),
+      await adminApi(ctx, adminCookie, "GET", `/api/admin/translations/${createdTranslation.id}/validate`),
     );
     expect(validation.isValid).toBe(true);
     expect(validation.issues).toEqual([]);
 
     const editedTranslation = expectSuccess<AdminTranslationDetail>(
-      await api(ctx, "PUT", `/api/admin/translations/${createdTranslation.id}`, {
+      await adminApi(ctx, adminCookie, "PUT", `/api/admin/translations/${createdTranslation.id}`, {
         name: "Annotated Translation",
         slug: "annotated-translation",
         description: "Edited translation metadata.",
+        accessLevel: "public",
         provider: "openrouter",
         model: "openrouter/test-model-v2",
         thinkingLevel: "medium",
@@ -207,6 +426,7 @@ describe("Ancient Epics API", () => {
         slug: "annotated-translation",
         name: "Annotated Translation",
         description: "Edited translation metadata.",
+        accessLevel: "public",
         provider: "openrouter",
         model: "openrouter/test-model-v2",
         thinkingLevel: "medium",
@@ -217,7 +437,7 @@ describe("Ancient Epics API", () => {
     );
 
     const publishedTranslation = expectSuccess<AdminTranslationDetail>(
-      await api(ctx, "POST", `/api/admin/translations/${createdTranslation.id}/publish`, {}),
+      await adminApi(ctx, adminCookie, "POST", `/api/admin/translations/${createdTranslation.id}/publish`, {}),
     );
     expect(publishedTranslation.status).toBe("published");
 
@@ -264,7 +484,7 @@ describe("Ancient Epics API", () => {
     expect(publicTranslation.translation.status).toBe("published");
 
     const unpublishedTranslation = expectSuccess<AdminTranslationDetail>(
-      await api(ctx, "POST", `/api/admin/translations/${createdTranslation.id}/unpublish`, {}),
+      await adminApi(ctx, adminCookie, "POST", `/api/admin/translations/${createdTranslation.id}/unpublish`, {}),
     );
     expect(unpublishedTranslation.status).toBe("draft");
 
@@ -275,18 +495,21 @@ describe("Ancient Epics API", () => {
     expect(missingBook.code).toBe("not_found");
 
     const deletedBook = expectSuccess<{ deleted: boolean; bookSlug: string }>(
-      await api(ctx, "DELETE", "/api/admin/books/lifecycle-book"),
+      await adminApi(ctx, adminCookie, "DELETE", "/api/admin/books/lifecycle-book"),
     );
     expect(deletedBook).toEqual({
       deleted: true,
       bookSlug: "lifecycle-book",
     });
 
-    const deletedBookLookup = expectFailure(await api(ctx, "GET", "/api/admin/books/lifecycle-book"), 404);
+    const deletedBookLookup = expectFailure(
+      await adminApi(ctx, adminCookie, "GET", "/api/admin/books/lifecycle-book"),
+      404,
+    );
     expect(deletedBookLookup.code).toBe("not_found");
 
     const deletedTranslationLookup = expectFailure(
-      await api(ctx, "GET", `/api/admin/translations/${createdTranslation.id}`),
+      await adminApi(ctx, adminCookie, "GET", `/api/admin/translations/${createdTranslation.id}`),
       404,
     );
     expect(deletedTranslationLookup.code).toBe("not_found");
@@ -294,9 +517,10 @@ describe("Ancient Epics API", () => {
 
   it("imports translations, publishes them, and supports translation deletion", async () => {
     const ctx = await setupContext();
+    const adminCookie = await loginAdmin(ctx);
 
     expectSuccess<AdminBookSourcePayload>(
-      await api(ctx, "POST", "/api/admin/books", {
+      await adminApi(ctx, adminCookie, "POST", "/api/admin/books", {
         title: "Imported Book",
         author: "Import Author",
         originalLanguage: "Latin",
@@ -314,12 +538,12 @@ describe("Ancient Epics API", () => {
     );
 
     const sourcePayload = expectSuccess<AdminBookSourcePayload>(
-      await api(ctx, "GET", "/api/admin/books/imported-book"),
+      await adminApi(ctx, adminCookie, "GET", "/api/admin/books/imported-book"),
     );
     expect(sourcePayload.chapters).toHaveLength(1);
 
     const importedTranslation = expectSuccess<AdminTranslationDetail>(
-      await api(ctx, "POST", "/api/admin/books/imported-book/translations/import", {
+      await adminApi(ctx, adminCookie, "POST", "/api/admin/books/imported-book/translations/import", {
         archive: buildImportedArchive(sourcePayload, {
           "chapter-one": "Imported translation text.",
         }),
@@ -336,12 +560,12 @@ describe("Ancient Epics API", () => {
     ]);
 
     const validation = expectSuccess<AdminTranslationValidationPayload>(
-      await api(ctx, "GET", `/api/admin/translations/${importedTranslation.id}/validate`),
+      await adminApi(ctx, adminCookie, "GET", `/api/admin/translations/${importedTranslation.id}/validate`),
     );
     expect(validation.isValid).toBe(true);
 
     const publishedTranslation = expectSuccess<AdminTranslationDetail>(
-      await api(ctx, "POST", `/api/admin/translations/${importedTranslation.id}/publish`, {}),
+      await adminApi(ctx, adminCookie, "POST", `/api/admin/translations/${importedTranslation.id}/publish`, {}),
     );
     expect(publishedTranslation.status).toBe("published");
 
@@ -370,7 +594,7 @@ describe("Ancient Epics API", () => {
     });
 
     const deletedTranslation = expectSuccess<{ deleted: boolean; translationId: string }>(
-      await api(ctx, "DELETE", `/api/admin/translations/${importedTranslation.id}`),
+      await adminApi(ctx, adminCookie, "DELETE", `/api/admin/translations/${importedTranslation.id}`),
     );
     expect(deletedTranslation).toEqual({
       deleted: true,
@@ -378,17 +602,19 @@ describe("Ancient Epics API", () => {
     });
 
     const translationAfterDelete = expectFailure(
-      await api(ctx, "GET", `/api/admin/translations/${importedTranslation.id}`),
+      await adminApi(ctx, adminCookie, "GET", `/api/admin/translations/${importedTranslation.id}`),
       404,
     );
     expect(translationAfterDelete.code).toBe("not_found");
 
     const adminTranslationsAfterDelete = expectSuccess<{ translations: TranslationSummary[] }>(
-      await api(ctx, "GET", "/api/admin/books/imported-book/translations"),
+      await adminApi(ctx, adminCookie, "GET", "/api/admin/books/imported-book/translations"),
     );
     expect(adminTranslationsAfterDelete.translations).toEqual([]);
 
-    expectSuccess<{ deleted: boolean; bookSlug: string }>(await api(ctx, "DELETE", "/api/admin/books/imported-book"));
+    expectSuccess<{ deleted: boolean; bookSlug: string }>(
+      await adminApi(ctx, adminCookie, "DELETE", "/api/admin/books/imported-book"),
+    );
   });
 });
 
@@ -398,17 +624,34 @@ async function setupContext() {
   return context;
 }
 
-async function api<T>(ctx: ApiTestContext, method: string, urlPath: string, body?: unknown) {
-  return ctx.request<ApiResponse<T>>(method, urlPath, body);
+async function api<T>(
+  ctx: ApiTestContext,
+  method: string,
+  urlPath: string,
+  body?: unknown,
+  options?: { headers?: Record<string, string> },
+) {
+  return ctx.request<ApiResponse<T>>(method, urlPath, body, options);
 }
 
-function expectSuccess<T>(response: { status: number; json: ApiResponse<T> }, expectedStatus = 200) {
+async function adminApi<T>(ctx: ApiTestContext, adminCookie: string, method: string, urlPath: string, body?: unknown) {
+  return api<T>(ctx, method, urlPath, body, {
+    headers: {
+      Cookie: adminCookie,
+    },
+  });
+}
+
+function expectSuccess<T>(response: { status: number; json: ApiResponse<T>; headers?: Headers }, expectedStatus = 200) {
   expect(response.status).toBe(expectedStatus);
   expect(response.json.ok).toBe(true);
   return (response.json as ApiSuccess<T>).data;
 }
 
-function expectFailure(response: { status: number; json: ApiResponse<never> }, expectedStatus: number) {
+function expectFailure(
+  response: { status: number; json: ApiResponse<never>; headers?: Headers },
+  expectedStatus: number,
+) {
   expect(response.status).toBe(expectedStatus);
   expect(response.json.ok).toBe(false);
   return (response.json as ApiFailure).error;
@@ -433,6 +676,7 @@ function buildChapterRawResponse(
 
 async function saveTranslationChapters(
   ctx: ApiTestContext,
+  adminCookie: string,
   translation: AdminTranslationDetail,
   translatedTextBySlug: Record<string, string>,
 ) {
@@ -443,9 +687,15 @@ async function saveTranslationChapters(
     expect(typeof translatedText).toBe("string");
 
     current = expectSuccess<AdminTranslationDetail>(
-      await api(ctx, "PUT", `/api/admin/translations/${translation.id}/chapters/${chapter.chapterId}`, {
-        rawResponse: buildChapterRawResponse(chapter, translatedText),
-      }),
+      await adminApi(
+        ctx,
+        adminCookie,
+        "PUT",
+        `/api/admin/translations/${translation.id}/chapters/${chapter.chapterId}`,
+        {
+          rawResponse: buildChapterRawResponse(chapter, translatedText),
+        },
+      ),
     );
   }
 
@@ -462,6 +712,7 @@ function buildImportedArchive(sourcePayload: AdminBookSourcePayload, translatedT
       name: "Imported Session",
       slug: "imported-session",
       description: "Imported from test archive.",
+      accessLevel: "public",
       provider: "google",
       model: "test-import-model",
       thinkingLevel: null,
@@ -500,4 +751,36 @@ function buildImportedArchive(sourcePayload: AdminBookSourcePayload, translatedT
 
 function loadSeedJson<T>(relativePath: string) {
   return JSON.parse(readFileSync(path.join(seedRoot, relativePath), "utf8")) as T;
+}
+
+function extractCookieHeader(headers: Headers): string {
+  const cookie = headers.get("set-cookie");
+  if (!cookie) {
+    throw new Error("Missing Set-Cookie header.");
+  }
+
+  return cookie.split(";")[0] ?? cookie;
+}
+
+async function loginAdmin(ctx: ApiTestContext): Promise<string> {
+  const password = "admin-password-123";
+  const passwordHash = await hashPasswordForStorage(password);
+  const now = new Date().toISOString();
+
+  await ctx.env.DB.prepare(
+    `
+        INSERT INTO admin_credentials (id, password_hash, updated_at)
+        VALUES (1, ?, ?)
+        ON CONFLICT(id) DO UPDATE SET
+          password_hash = excluded.password_hash,
+          updated_at = excluded.updated_at
+      `,
+  )
+    .bind(passwordHash, now)
+    .run();
+
+  const response = await api<AdminSessionPayload>(ctx, "POST", "/api/admin/login", { password });
+  const payload = expectSuccess<AdminSessionPayload>(response);
+  expect(payload.authenticated).toBe(true);
+  return extractCookieHeader(response.headers);
 }

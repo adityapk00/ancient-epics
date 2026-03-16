@@ -147,7 +147,12 @@ class TestR2Bucket {
 export type ApiTestContext = {
   close: () => void;
   env: AppEnv["Bindings"];
-  request: <T>(method: string, urlPath: string, body?: unknown) => Promise<{ status: number; json: T }>;
+  request: <T>(
+    method: string,
+    urlPath: string,
+    body?: unknown,
+    options?: { headers?: Record<string, string> },
+  ) => Promise<{ status: number; json: T; headers: Headers }>;
 };
 
 const __filename = fileURLToPath(import.meta.url);
@@ -185,11 +190,21 @@ export async function createApiTestContext(): Promise<ApiTestContext> {
   return {
     close: () => sqlite.close(),
     env,
-    request: async <T>(method: string, urlPath: string, body?: unknown) => {
+    request: async <T>(
+      method: string,
+      urlPath: string,
+      body?: unknown,
+      options?: { headers?: Record<string, string> },
+    ) => {
+      const headers = new Headers(options?.headers);
+      if (body !== undefined && !headers.has("Content-Type")) {
+        headers.set("Content-Type", "application/json");
+      }
+
       const response = await app.fetch(
         new Request(`http://localhost${urlPath}`, {
           method,
-          headers: body === undefined ? undefined : { "Content-Type": "application/json" },
+          headers,
           body: body === undefined ? undefined : JSON.stringify(body),
         }),
         env,
@@ -202,6 +217,7 @@ export async function createApiTestContext(): Promise<ApiTestContext> {
       return {
         status: response.status,
         json: (await response.json()) as T,
+        headers: response.headers,
       };
     },
   };

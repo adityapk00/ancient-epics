@@ -1,0 +1,3 @@
+- Always run `pnpm format` after code changes to main formatting
+- Use `pnpm` for repo operations, never `yarn` or `npm`
+- Run `pnpm smoke` for a quick smoke test, please run `pnpm test` for the full test suite

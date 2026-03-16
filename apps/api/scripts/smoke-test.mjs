@@ -16,6 +16,7 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const apiRoot = path.resolve(__dirname, "..");
 const PORT = 8688;
+const SMOKE_ADMIN_PASSWORD = process.env.SMOKE_ADMIN_PASSWORD?.trim() || "smoke-admin-password";
 const smokePersistOverride = process.env.SMOKE_PERSIST_TO?.trim();
 const smokePersistTo = smokePersistOverride
   ? path.resolve(smokePersistOverride)
@@ -41,19 +42,25 @@ function assert(label, condition, detail) {
   console.log(`  ❌  ${message}`);
 }
 
-async function api(method, urlPath, body) {
+async function api(method, urlPath, body, options = {}) {
   const url = `http://127.0.0.1:${PORT}${urlPath}`;
+  const headers = new Headers(options.headers);
+
+  if (body !== undefined && !headers.has("Content-Type")) {
+    headers.set("Content-Type", "application/json");
+  }
+
   const response = await fetch(url, {
     method,
-    headers: body === undefined ? undefined : { "Content-Type": "application/json" },
+    headers,
     body: body === undefined ? undefined : JSON.stringify(body),
   });
   const json = await response.json();
-  return { status: response.status, json };
+  return { status: response.status, json, headers: response.headers };
 }
 
-function runNodeScript(scriptName, label) {
-  const result = spawnSync("node", [path.join(apiRoot, "scripts", scriptName)], {
+function runNodeScript(scriptName, label, args = []) {
+  const result = spawnSync("node", [path.join(apiRoot, "scripts", scriptName), ...args], {
     cwd: apiRoot,
     env: smokeEnv,
     stdio: "inherit",
@@ -186,8 +193,18 @@ try {
 
   console.log("🌱  Re-seeding…");
   runNodeScript("seed-local.mjs", "seed:local");
+  console.log("🔐  Seeding admin password…");
+  runNodeScript("seed-password.mjs", "seed:password", [SMOKE_ADMIN_PASSWORD]);
 
   await startServer();
+
+  console.log("🔓  Logging into admin API…");
+  const adminLogin = await api("POST", "/api/admin/login", {
+    password: SMOKE_ADMIN_PASSWORD,
+  });
+  const adminCookie = extractCookieHeader(adminLogin.headers);
+  assert("POST /api/admin/login returns 200", adminLogin.status === 200);
+  assert("admin login authenticates", adminLogin.json.data?.authenticated === true);
 
   console.log("─── Health ───");
   {
@@ -224,7 +241,7 @@ try {
 
   console.log("\n─── Admin Settings ───");
   {
-    const { status, json } = await api("GET", "/api/admin/settings");
+    const { status, json } = await adminApi(adminCookie, "GET", "/api/admin/settings");
     assert("GET /api/admin/settings returns 200", status === 200);
     assert("settings has openrouter_api_key", json.data?.settings?.openrouter_api_key !== undefined);
     assert("settings has default_provider", json.data?.settings?.default_provider !== undefined);
@@ -233,7 +250,7 @@ try {
   }
 
   {
-    const { status, json } = await api("PUT", "/api/admin/settings", {
+    const { status, json } = await adminApi(adminCookie, "PUT", "/api/admin/settings", {
       settings: {
         openrouter_api_key: "sk-or-smoke-test",
         default_provider: "openrouter",
@@ -244,7 +261,7 @@ try {
     assert("PUT /api/admin/settings returns 200", status === 200);
     assert("updated keys returned", json.data?.updated?.length === 4);
 
-    const { json: after } = await api("GET", "/api/admin/settings");
+    const { json: after } = await adminApi(adminCookie, "GET", "/api/admin/settings");
     assert("API key persisted", after.data?.settings?.openrouter_api_key === "sk-or-smoke-test");
     assert("provider persisted", after.data?.settings?.default_provider === "openrouter");
     assert("model persisted", after.data?.settings?.default_model === "openai/gpt-4o-mini");
@@ -253,7 +270,7 @@ try {
 
   console.log("\n─── Admin Bootstrap ───");
   {
-    const { status, json } = await api("GET", "/api/admin/bootstrap");
+    const { status, json } = await adminApi(adminCookie, "GET", "/api/admin/bootstrap");
     assert("GET /api/admin/bootstrap returns 200", status === 200);
     assert("bootstrap has books", json.data?.books?.length > 0);
     assert("bootstrap has settings", typeof json.data?.settings?.default_model === "string");
@@ -262,7 +279,7 @@ try {
   console.log("\n─── Book + Translation Workflow ───");
   let createdTranslationId = null;
   {
-    const createBook = await api("POST", "/api/admin/books", {
+    const createBook = await adminApi(adminCookie, "POST", "/api/admin/books", {
       title: "Smoke Book",
       author: "Smoke Tester",
       originalLanguage: "English",
@@ -281,14 +298,14 @@ try {
     assert("created book starts with no translations", createBook.json.data?.book?.translations?.length === 0);
     assert("created book has one chapter", createBook.json.data?.chapters?.length === 1);
 
-    const updateBook = await api("PUT", "/api/admin/books/smoke-book", {
+    const updateBook = await adminApi(adminCookie, "PUT", "/api/admin/books/smoke-book", {
       title: "Smoke Book Revised",
       description: "Updated during the smoke test.",
     });
     assert("PUT /api/admin/books/smoke-book returns 200", updateBook.status === 200);
     assert("updated book title is returned", updateBook.json.data?.book?.title === "Smoke Book Revised");
 
-    const createTranslation = await api("POST", "/api/admin/books/smoke-book/translations", {
+    const createTranslation = await adminApi(adminCookie, "POST", "/api/admin/books/smoke-book/translations", {
       title: "Smoke Translation",
       description: "Created during the smoke test.",
       provider: "google",
@@ -304,7 +321,8 @@ try {
     const chapter = createTranslation.json.data?.chapters?.[0];
     assert("created translation exposes chapter id", typeof chapter?.chapterId === "string");
 
-    const saveChapter = await api(
+    const saveChapter = await adminApi(
+      adminCookie,
       "PUT",
       `/api/admin/translations/${createdTranslationId}/chapters/${chapter.chapterId}`,
       {
@@ -319,11 +337,11 @@ try {
       `got "${saveChapter.json.data?.chapters?.[0]?.status}"`,
     );
 
-    const validate = await api("GET", `/api/admin/translations/${createdTranslationId}/validate`);
+    const validate = await adminApi(adminCookie, "GET", `/api/admin/translations/${createdTranslationId}/validate`);
     assert("validation returns 200", validate.status === 200);
     assert("validation passes", validate.json.data?.isValid === true);
 
-    const publish = await api("POST", `/api/admin/translations/${createdTranslationId}/publish`);
+    const publish = await adminApi(adminCookie, "POST", `/api/admin/translations/${createdTranslationId}/publish`);
     assert("publish returns 200", publish.status === 200);
     assert("translation is published", publish.json.data?.status === "published");
 
@@ -341,17 +359,17 @@ try {
       publicChapter.json.data?.translation?.translation?.slug === "smoke-translation",
     );
 
-    const unpublish = await api("POST", `/api/admin/translations/${createdTranslationId}/unpublish`);
+    const unpublish = await adminApi(adminCookie, "POST", `/api/admin/translations/${createdTranslationId}/unpublish`);
     assert("unpublish returns 200", unpublish.status === 200);
     assert("translation returns to draft", unpublish.json.data?.status === "draft");
 
     const missingPublicBook = await api("GET", "/api/books/smoke-book");
     assert("unpublished smoke book is hidden from public", missingPublicBook.status === 404);
 
-    const deleteTranslation = await api("DELETE", `/api/admin/translations/${createdTranslationId}`);
+    const deleteTranslation = await adminApi(adminCookie, "DELETE", `/api/admin/translations/${createdTranslationId}`);
     assert("delete translation returns 200", deleteTranslation.status === 200);
 
-    const deleteBook = await api("DELETE", "/api/admin/books/smoke-book");
+    const deleteBook = await adminApi(adminCookie, "DELETE", "/api/admin/books/smoke-book");
     assert("delete book returns 200", deleteBook.status === 200);
   }
 
@@ -377,4 +395,21 @@ try {
 } finally {
   await stopServer();
   cleanupPersistDir();
+}
+
+async function adminApi(adminCookie, method, urlPath, body) {
+  return api(method, urlPath, body, {
+    headers: {
+      Cookie: adminCookie,
+    },
+  });
+}
+
+function extractCookieHeader(headers) {
+  const cookie = headers.get("set-cookie");
+  if (!cookie) {
+    throw new Error("Missing Set-Cookie header.");
+  }
+
+  return cookie.split(";")[0] ?? cookie;
 }

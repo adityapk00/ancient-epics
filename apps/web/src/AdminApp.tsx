@@ -3,6 +3,7 @@ import { useEffect, useMemo, useRef, useState, type ChangeEvent, type ReactNode 
 import {
   APP_SETTING_KEYS,
   normalizeChapterText,
+  type AccessLevel,
   normalizeProvider,
   reconstructSourceTextFromChunks,
   type AdminBookSourcePayload,
@@ -48,6 +49,10 @@ const THINKING_LEVEL_OPTIONS = [
   { value: "high", label: "High" },
   { value: "xhigh", label: "X-High" },
 ] as const;
+const ACCESS_LEVEL_OPTIONS = [
+  { value: "public", label: "Public / Free To Read" },
+  { value: "loggedin", label: "Logged In / Free Account Required" },
+] as const;
 
 export default function AdminApp() {
   const [screen, setScreen] = useState<AdminScreen>("books");
@@ -84,6 +89,7 @@ export default function AdminApp() {
   const [translationTitle, setTranslationTitle] = useState("");
   const [translationSlug, setTranslationSlug] = useState("");
   const [translationDescription, setTranslationDescription] = useState("");
+  const [translationAccessLevel, setTranslationAccessLevel] = useState<AccessLevel>("public");
   const [translationProvider, setTranslationProvider] = useState<AiProvider>(DEFAULT_PROVIDER);
   const [translationModel, setTranslationModel] = useState(DEFAULT_MODEL);
   const [translationThinkingLevel, setTranslationThinkingLevel] = useState("");
@@ -126,6 +132,7 @@ export default function AdminApp() {
         name: translationTitle.trim(),
         slug: translationSlug.trim(),
         description: translationDescription.trim(),
+        accessLevel: translationAccessLevel,
         provider: translationProvider,
         model: translationModel.trim(),
         thinkingLevel: normalizeThinkingLevelValue(translationThinkingLevel),
@@ -139,6 +146,7 @@ export default function AdminApp() {
     contextAfterChapterCount,
     contextBeforeChapterCount,
     translationDescription,
+    translationAccessLevel,
     translationModel,
     translationPrompt,
     translationProvider,
@@ -287,6 +295,7 @@ export default function AdminApp() {
     setTranslationTitle("");
     setTranslationSlug("");
     setTranslationDescription("");
+    setTranslationAccessLevel("public");
     setTranslationProvider(settingsProvider);
     setTranslationModel(settingsModel);
     setTranslationThinkingLevel("");
@@ -590,6 +599,7 @@ export default function AdminApp() {
     setTranslationTitle(translation.name);
     setTranslationSlug(translation.slug);
     setTranslationDescription(translation.description ?? "");
+    setTranslationAccessLevel(translation.accessLevel);
     setTranslationProvider(translation.provider);
     setTranslationModel(translation.model);
     setTranslationThinkingLevel(translation.thinkingLevel ?? "");
@@ -620,6 +630,7 @@ export default function AdminApp() {
       const translation = await api.createAdminTranslation(selectedBook.book.slug, {
         title: translationTitle,
         description: translationDescription || undefined,
+        accessLevel: translationAccessLevel,
         provider: translationProvider,
         model: translationModel,
         thinkingLevel: normalizeThinkingLevelValue(translationThinkingLevel),
@@ -763,6 +774,7 @@ export default function AdminApp() {
       name: translationTitle || activeTranslation.name,
       slug: translationSlug || activeTranslation.slug,
       description: translationDescription,
+      accessLevel: translationAccessLevel,
       provider: translationProvider,
       model: translationModel,
       thinkingLevel: normalizeThinkingLevelValue(translationThinkingLevel),
@@ -1235,6 +1247,9 @@ export default function AdminApp() {
                         <span className="rounded-full border border-border/70 bg-white/75 px-3 py-1">
                           {formatThinkingSummary(translation)}
                         </span>
+                        <span className="rounded-full border border-border/70 bg-white/75 px-3 py-1">
+                          {formatAccessLevelLabel(translation.accessLevel)}
+                        </span>
                       </div>
                       <div className="mt-4 grid grid-cols-2 gap-3 text-sm text-ink/70">
                         <Metric label="Saved" value={`${translation.savedChapterCount}/${translation.chapterCount}`} />
@@ -1270,6 +1285,12 @@ export default function AdminApp() {
                 <div className="grid gap-4">
                   <InputField label="Translation Name" value={translationTitle} onChange={setTranslationTitle} />
                   <InputField label="Description" value={translationDescription} onChange={setTranslationDescription} />
+                  <SelectField
+                    label="Reader Access"
+                    value={translationAccessLevel}
+                    onChange={(value) => setTranslationAccessLevel(value as AccessLevel)}
+                    options={[...ACCESS_LEVEL_OPTIONS]}
+                  />
                   <TranslationAiSettingsRow
                     provider={translationProvider}
                     onProviderChange={setTranslationProvider}
@@ -1364,6 +1385,12 @@ export default function AdminApp() {
                   <InputField label="Translation Name" value={translationTitle} onChange={setTranslationTitle} />
                   <InputField label="Slug" value={translationSlug} onChange={setTranslationSlug} />
                   <InputField label="Description" value={translationDescription} onChange={setTranslationDescription} />
+                  <SelectField
+                    label="Reader Access"
+                    value={translationAccessLevel}
+                    onChange={(value) => setTranslationAccessLevel(value as AccessLevel)}
+                    options={[...ACCESS_LEVEL_OPTIONS]}
+                  />
                 </div>
                 <div className="mt-4">
                   <TranslationAiSettingsRow
@@ -2251,11 +2278,16 @@ function formatProviderLabel(provider: AiProvider): string {
   return provider === "openrouter" ? "OpenRouter" : "Gemini SDK";
 }
 
+function formatAccessLevelLabel(accessLevel: AccessLevel): string {
+  return accessLevel === "loggedin" ? "Login Required" : "Free To Read";
+}
+
 function buildTranslationMetadataSnapshot(activeTranslation: AdminTranslationDetail) {
   return {
     name: activeTranslation.name.trim(),
     slug: activeTranslation.slug.trim(),
     description: (activeTranslation.description ?? "").trim(),
+    accessLevel: activeTranslation.accessLevel,
     provider: activeTranslation.provider,
     model: activeTranslation.model.trim(),
     thinkingLevel: activeTranslation.thinkingLevel ?? null,
@@ -2273,6 +2305,7 @@ function buildTranslationArchive(activeTranslation: AdminTranslationDetail): Tra
       name: activeTranslation.name,
       slug: activeTranslation.slug,
       description: activeTranslation.description,
+      accessLevel: activeTranslation.accessLevel,
       provider: activeTranslation.provider,
       model: activeTranslation.model,
       thinkingLevel: activeTranslation.thinkingLevel,

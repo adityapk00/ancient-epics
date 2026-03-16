@@ -10,6 +10,7 @@
     "test": "vitest run",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "seed:local": "node ./scripts/seed-local.mjs",
+    "seed:password": "node ./scripts/seed-password.mjs",
     "seed:nuke": "node ./scripts/seed-nuke.mjs",
     "export:local": "node ./scripts/export-local.mjs",
     "smoke": "node ./scripts/smoke-test.mjs"

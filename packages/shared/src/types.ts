@@ -4,6 +4,8 @@ export type TranslationStatus = "draft" | "published";
 
 export type TranslationChapterStatus = "empty" | "draft" | "saved" | "error";
 
+export type AccessLevel = "public" | "loggedin";
+
 export type ThinkingLevel = "none" | "minimal" | "low" | "medium" | "high" | "xhigh";
 
 export type AiProvider = "google" | "openrouter";
@@ -35,6 +37,7 @@ export interface BookSummary {
   originalLanguage: string | null;
   description: string | null;
   coverImageUrl: string | null;
+  accessLevel: AccessLevel;
   publishedAt: string | null;
 }
 
@@ -50,6 +53,7 @@ export interface TranslationSummary {
   slug: string;
   name: string;
   description: string | null;
+  accessLevel: AccessLevel;
   status: TranslationStatus;
   publishedAt: string | null;
   updatedAt: string;
@@ -77,6 +81,20 @@ export interface AppSetting {
   key: string;
   value: string;
   updatedAt: string;
+}
+
+export interface AuthUser {
+  id: string;
+  email: string;
+  createdAt: string;
+}
+
+export interface AuthSessionPayload {
+  user: AuthUser | null;
+}
+
+export interface AdminSessionPayload {
+  authenticated: boolean;
 }
 
 export const APP_SETTING_KEYS = {
@@ -173,6 +191,7 @@ export interface TranslationDraftArchive {
     name: string;
     slug: string;
     description: string | null;
+    accessLevel: AccessLevel;
     provider: AiProvider;
     model: string;
     thinkingLevel: ThinkingLevel | null;

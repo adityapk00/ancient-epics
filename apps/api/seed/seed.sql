@@ -1,3 +1,7 @@
+DELETE FROM admin_sessions;
+DELETE FROM admin_credentials;
+DELETE FROM user_sessions;
+DELETE FROM users;
 DELETE FROM translation_chapters;
 DELETE FROM translations;
 DELETE FROM chapters;

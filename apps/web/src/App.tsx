@@ -2,16 +2,10 @@ import { useEffect, useState, type FormEvent } from "react";
 
 import AdminApp from "./AdminApp";
 import ReaderApp from "./ReaderApp";
-
-const ADMIN_PASSWORD = "password";
-const ADMIN_UNLOCKED_STORAGE_KEY = "ancient-epics.admin.unlocked";
+import { api } from "./lib/api";
 
 function getCurrentRoute() {
   return window.location.pathname === "/admin" ? "admin" : "reader";
-}
-
-function isAdminUnlocked() {
-  return window.localStorage.getItem(ADMIN_UNLOCKED_STORAGE_KEY) === "true";
 }
 
 function navigateTo(path: "/" | "/admin") {
@@ -43,33 +37,79 @@ export default function App() {
 }
 
 function AdminSection() {
-  const [isUnlocked, setIsUnlocked] = useState(isAdminUnlocked);
+  const [isUnlocked, setIsUnlocked] = useState<boolean | null>(null);
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
+  const [isBusy, setIsBusy] = useState(false);
 
-  function unlockAdmin(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
+  useEffect(() => {
+    let isCancelled = false;
 
-    if (password !== ADMIN_PASSWORD) {
-      setError("Incorrect password.");
-      return;
+    async function loadAdminSession() {
+      try {
+        const payload = await api.getAdminSession();
+        if (isCancelled) {
+          return;
+        }
+
+        setIsUnlocked(payload.authenticated);
+      } catch (loadError) {
+        if (!isCancelled) {
+          setError(loadError instanceof Error ? loadError.message : "Failed to load admin session.");
+          setIsUnlocked(false);
+        }
+      }
     }
 
-    window.localStorage.setItem(ADMIN_UNLOCKED_STORAGE_KEY, "true");
-    setIsUnlocked(true);
-    setPassword("");
+    void loadAdminSession();
+    return () => {
+      isCancelled = true;
+    };
+  }, []);
+
+  async function unlockAdmin(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setIsBusy(true);
     setError(null);
+
+    try {
+      const payload = await api.loginAdmin({ password });
+      setIsUnlocked(payload.authenticated);
+      setPassword("");
+    } catch (loginError) {
+      setError(loginError instanceof Error ? loginError.message : "Failed to unlock admin.");
+    } finally {
+      setIsBusy(false);
+    }
   }
 
   function leaveAdmin() {
     navigateTo("/");
   }
 
-  function lockAdmin() {
-    window.localStorage.removeItem(ADMIN_UNLOCKED_STORAGE_KEY);
-    setIsUnlocked(false);
-    setPassword("");
+  async function lockAdmin() {
+    setIsBusy(true);
     setError(null);
+
+    try {
+      await api.logoutAdmin();
+      setIsUnlocked(false);
+      setPassword("");
+    } catch (logoutError) {
+      setError(logoutError instanceof Error ? logoutError.message : "Failed to lock admin.");
+    } finally {
+      setIsBusy(false);
+    }
+  }
+
+  if (isUnlocked == null) {
+    return (
+      <main className="min-h-screen bg-paper px-6 py-8 text-ink lg:px-10">
+        <div className="mx-auto flex min-h-[calc(100vh-4rem)] max-w-5xl items-center justify-center">
+          <p className="text-base text-ink/70">Loading admin...</p>
+        </div>
+      </main>
+    );
   }
 
   if (!isUnlocked) {
@@ -82,12 +122,9 @@ function AdminSection() {
               <div className="space-y-3">
                 <h1 className="font-display text-5xl leading-tight text-ink">Admin</h1>
                 <p className="max-w-2xl text-base leading-8 text-ink/72">
-                  The ingestion pipeline and editorial workspace now live behind a temporary password gate. Use the
-                  reader homepage for published books and translations.
+                  The ingestion pipeline and editorial workspace are protected by the admin password stored in D1. Use
+                  the reader homepage for published books and translations.
                 </p>
-              </div>
-              <div className="rounded-[24px] border border-border/70 bg-paper/70 p-5 text-sm leading-7 text-ink/68">
-                Temporary password: <span className="font-semibold text-ink">password</span>
               </div>
               <button
                 type="button"
@@ -113,9 +150,10 @@ function AdminSection() {
               {error ? <p className="mt-3 text-sm text-red-700">{error}</p> : null}
               <button
                 type="submit"
-                className="mt-5 w-full rounded-full bg-ink px-4 py-3 text-sm font-semibold text-paper transition hover:bg-accent"
+                disabled={isBusy}
+                className="mt-5 w-full rounded-full bg-ink px-4 py-3 text-sm font-semibold text-paper transition hover:bg-accent disabled:cursor-not-allowed disabled:opacity-60"
               >
-                Enter Admin
+                {isBusy ? "Checking..." : "Enter Admin"}
               </button>
             </form>
           </section>
@@ -136,7 +174,7 @@ function AdminSection() {
         </button>
         <button
           type="button"
-          onClick={lockAdmin}
+          onClick={() => void lockAdmin()}
           className="rounded-full border border-border/70 bg-white/90 px-4 py-2 text-sm font-semibold text-ink shadow-panel backdrop-blur transition hover:border-accent/50"
         >
           Lock Admin

@@ -2,6 +2,7 @@ import {
   APP_SETTING_KEYS,
   buildOriginalChapterKey,
   buildTranslationChapterKey,
+  normalizeAccessLevel,
   normalizeProvider,
   normalizeThinkingLevel,
   slugify,
@@ -17,8 +18,24 @@ import {
 import { Hono } from "hono";
 import { cors } from "hono/cors";
 import {
+  authenticateUser,
+  authenticateAdminPassword,
+  buildAuthSessionPayload,
+  createUserAccount,
+  getCurrentAdminSession,
+  getCurrentAuthUser,
+  revokeCurrentAdminSession,
+  revokeCurrentSession,
+  setAdminSessionCookie,
+  setAuthSessionCookie,
+  validateEmailAndPassword,
+  validatePasswordInput,
+} from "./auth";
+import {
   getAdminBookSourcePayload,
   getAdminTranslationDetail,
+  getPublishedBookAccessLevel,
+  getPublishedTranslationSummary,
   getPublicBookDetail,
   getPublishedTranslationPayload,
   getReaderChapterPayload,
@@ -41,6 +58,7 @@ app.use("/api/*", async (c, next) => {
   const origin = c.env.PUBLIC_APP_URL ?? "http://127.0.0.1:5173";
   return cors({
     origin,
+    credentials: true,
     allowMethods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     allowHeaders: ["Content-Type", "Authorization"],
   })(c, next);
@@ -55,6 +73,68 @@ app.get("/api/health", (c) =>
   ),
 );
 
+app.get("/api/auth/session", async (c) => c.json(success(buildAuthSessionPayload(await getCurrentAuthUser(c)))));
+
+app.post("/api/auth/signup", async (c) => {
+  try {
+    const body = await c.req.json<{ email?: string; password?: string }>();
+    const credentials = validateEmailAndPassword(body);
+    const { user, sessionToken } = await createUserAccount(c.env.DB, credentials);
+    setAuthSessionCookie(c, sessionToken);
+    return c.json(success(buildAuthSessionPayload(user)), 201);
+  } catch (error) {
+    return c.json(failure("bad_request", error instanceof Error ? error.message : "Failed to create account."), 400);
+  }
+});
+
+app.post("/api/auth/login", async (c) => {
+  const body = await c.req.json<{ email?: string; password?: string }>();
+
+  try {
+    const credentials = validateEmailAndPassword(body);
+    const session = await authenticateUser(c.env.DB, credentials);
+
+    if (!session) {
+      return c.json(failure("invalid_credentials", "Incorrect email or password."), 401);
+    }
+
+    setAuthSessionCookie(c, session.sessionToken);
+    return c.json(success(buildAuthSessionPayload(session.user)));
+  } catch (error) {
+    return c.json(failure("bad_request", error instanceof Error ? error.message : "Failed to log in."), 400);
+  }
+});
+
+app.post("/api/auth/logout", async (c) => {
+  await revokeCurrentSession(c);
+  return c.json(success(buildAuthSessionPayload(null)));
+});
+
+app.get("/api/admin/session", async (c) => c.json(success({ authenticated: await getCurrentAdminSession(c) })));
+
+app.post("/api/admin/login", async (c) => {
+  const body = await c.req.json<{ password?: string }>();
+
+  try {
+    const password = validatePasswordInput(body.password);
+    const session = await authenticateAdminPassword(c.env.DB, password);
+
+    if (!session) {
+      return c.json(failure("invalid_credentials", "Incorrect admin password."), 401);
+    }
+
+    setAdminSessionCookie(c, session.sessionToken);
+    return c.json(success({ authenticated: true }));
+  } catch (error) {
+    return c.json(failure("bad_request", error instanceof Error ? error.message : "Failed to log in."), 400);
+  }
+});
+
+app.post("/api/admin/logout", async (c) => {
+  await revokeCurrentAdminSession(c);
+  return c.json(success({ authenticated: false }));
+});
+
 app.get("/api/books", async (c) => c.json(success({ books: await listPublicBooks(c.env.DB) })));
 
 app.get("/api/books/:bookSlug", async (c) => {
@@ -68,10 +148,37 @@ app.get("/api/books/:bookSlug", async (c) => {
 });
 
 app.get("/api/books/:bookSlug/chapters/:chapterSlug", async (c) => {
+  const translationSlug = c.req.query("translation") ?? null;
+
+  if (translationSlug) {
+    const translation = await getPublishedTranslationSummary(c.env.DB, {
+      bookSlug: c.req.param("bookSlug"),
+      translationSlug,
+    });
+
+    if (!translation) {
+      return c.json(failure("not_found", "Translation was not found."), 404);
+    }
+
+    if (translation.accessLevel === "loggedin" && !(await getCurrentAuthUser(c))) {
+      return c.json(failure("auth_required", "Sign up for free to read this translation."), 401);
+    }
+  } else {
+    const bookAccessLevel = await getPublishedBookAccessLevel(c.env.DB, c.req.param("bookSlug"));
+
+    if (!bookAccessLevel) {
+      return c.json(failure("not_found", "Book was not found."), 404);
+    }
+
+    if (bookAccessLevel === "loggedin" && !(await getCurrentAuthUser(c))) {
+      return c.json(failure("auth_required", "Sign up for free to unlock this book."), 401);
+    }
+  }
+
   const payload = await getReaderChapterPayload(c.env.DB, c.env.CONTENT_BUCKET, {
     bookSlug: c.req.param("bookSlug"),
     chapterSlug: c.req.param("chapterSlug"),
-    translationSlug: c.req.query("translation") ?? null,
+    translationSlug,
   });
 
   if (!payload) {
@@ -82,6 +189,19 @@ app.get("/api/books/:bookSlug/chapters/:chapterSlug", async (c) => {
 });
 
 app.get("/api/books/:bookSlug/chapters/:chapterSlug/translations/:translationSlug", async (c) => {
+  const translation = await getPublishedTranslationSummary(c.env.DB, {
+    bookSlug: c.req.param("bookSlug"),
+    translationSlug: c.req.param("translationSlug"),
+  });
+
+  if (!translation) {
+    return c.json(failure("not_found", "Translation was not found."), 404);
+  }
+
+  if (translation.accessLevel === "loggedin" && !(await getCurrentAuthUser(c))) {
+    return c.json(failure("auth_required", "Sign up for free to read this translation."), 401);
+  }
+
   const payload = await getPublishedTranslationPayload(c.env.DB, c.env.CONTENT_BUCKET, {
     bookSlug: c.req.param("bookSlug"),
     chapterSlug: c.req.param("chapterSlug"),
@@ -93,6 +213,14 @@ app.get("/api/books/:bookSlug/chapters/:chapterSlug/translations/:translationSlu
   }
 
   return c.json(success(payload));
+});
+
+app.use("/api/admin/*", async (c, next) => {
+  if (!(await getCurrentAdminSession(c))) {
+    return c.json(failure("admin_auth_required", "Admin login required."), 401);
+  }
+
+  return next();
 });
 
 app.get("/api/admin/settings", async (c) => c.json(success({ settings: await getSettingsMap(c.env.DB) })));
@@ -269,6 +397,7 @@ app.post("/api/admin/books/:bookSlug/translations", async (c) => {
     const body = await c.req.json<{
       title?: string;
       description?: string;
+      accessLevel?: "public" | "loggedin";
       provider?: AiProvider;
       model?: string;
       thinkingLevel?: ThinkingLevel | null;
@@ -294,8 +423,8 @@ app.post("/api/admin/books/:bookSlug/translations", async (c) => {
       `
           INSERT INTO translations (
             id, book_id, slug, name, description, provider, model, thinking_level, prompt,
-            context_before_chapter_count, context_after_chapter_count, status, published_at, created_at, updated_at
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'draft', NULL, ?, ?)
+            context_before_chapter_count, context_after_chapter_count, access_level, status, published_at, created_at, updated_at
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'draft', NULL, ?, ?)
         `,
     )
       .bind(
@@ -310,6 +439,7 @@ app.post("/api/admin/books/:bookSlug/translations", async (c) => {
         body.prompt.trim(),
         Math.max(0, body.contextBeforeChapterCount ?? 1),
         Math.max(0, body.contextAfterChapterCount ?? 1),
+        normalizeAccessLevel(body.accessLevel),
         now,
         now,
       )
@@ -350,8 +480,8 @@ app.post("/api/admin/books/:bookSlug/translations/import", async (c) => {
       `
           INSERT INTO translations (
             id, book_id, slug, name, description, provider, model, thinking_level, prompt,
-            context_before_chapter_count, context_after_chapter_count, status, published_at, created_at, updated_at
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'draft', NULL, ?, ?)
+            context_before_chapter_count, context_after_chapter_count, access_level, status, published_at, created_at, updated_at
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'draft', NULL, ?, ?)
         `,
     )
       .bind(
@@ -366,6 +496,7 @@ app.post("/api/admin/books/:bookSlug/translations/import", async (c) => {
         archive.translation.prompt,
         archive.translation.contextBeforeChapterCount,
         archive.translation.contextAfterChapterCount,
+        normalizeAccessLevel(archive.translation.accessLevel),
         now,
         now,
       )
@@ -438,6 +569,7 @@ app.put("/api/admin/translations/:translationId", async (c) => {
     name?: string;
     slug?: string;
     description?: string;
+    accessLevel?: "public" | "loggedin";
     provider?: AiProvider;
     model?: string;
     thinkingLevel?: ThinkingLevel | null;
@@ -453,6 +585,8 @@ app.put("/api/admin/translations/:translationId", async (c) => {
       ? existing.slug
       : await createUniqueTranslationSlugForRename(c.env.DB, existing.id, existing.bookSlug, desiredSlug);
   const nextDescription = typeof body.description === "string" ? body.description.trim() || null : existing.description;
+  const nextAccessLevel =
+    body.accessLevel !== undefined ? normalizeAccessLevel(body.accessLevel) : existing.accessLevel;
   const nextProvider = body.provider !== undefined ? normalizeProvider(body.provider) : existing.provider;
   const nextModel = body.model?.trim() || existing.model;
   const nextThinkingLevel =
@@ -475,6 +609,7 @@ app.put("/api/admin/translations/:translationId", async (c) => {
           slug = ?,
           name = ?,
           description = ?,
+          access_level = ?,
           provider = ?,
           model = ?,
           thinking_level = ?,
@@ -489,6 +624,7 @@ app.put("/api/admin/translations/:translationId", async (c) => {
       nextSlug,
       nextName,
       nextDescription,
+      nextAccessLevel,
       nextProvider,
       nextModel,
       nextThinkingLevel,
@@ -940,7 +1076,14 @@ function normalizeImportedArchive(input: unknown): TranslationDraftArchive {
   const candidate = input as Record<string, unknown>;
 
   if (candidate.version === 2 && candidate.translation && Array.isArray(candidate.chapters)) {
-    return candidate as unknown as TranslationDraftArchive;
+    const archive = candidate as unknown as TranslationDraftArchive;
+    return {
+      ...archive,
+      translation: {
+        ...archive.translation,
+        accessLevel: normalizeAccessLevel(archive.translation.accessLevel),
+      },
+    };
   }
 
   const session = (
@@ -958,6 +1101,7 @@ function normalizeImportedArchive(input: unknown): TranslationDraftArchive {
       name: String(session.title),
       slug: slugify(String(session.title)),
       description: null,
+      accessLevel: normalizeAccessLevel(session.accessLevel as "public" | "loggedin" | undefined),
       provider: normalizeProvider(session.provider as AiProvider | undefined),
       model: typeof session.model === "string" ? session.model : "gemini-3-flash-preview",
       thinkingLevel: normalizeThinkingLevel(session.thinkingLevel as ThinkingLevel | undefined),
