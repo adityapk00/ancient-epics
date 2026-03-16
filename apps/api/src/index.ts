@@ -159,14 +159,13 @@ app.post("/api/admin/books", async (c) => {
     const bookSlug = await createUniqueBookSlug(c.env.DB, body.title);
     const now = new Date().toISOString();
 
-    await c.env.DB
-      .prepare(
-        `
+    await c.env.DB.prepare(
+      `
           INSERT INTO books (
             id, slug, title, author, original_language, description, cover_image_url, created_at, updated_at
           ) VALUES (?, ?, ?, ?, ?, ?, NULL, ?, ?)
         `,
-      )
+    )
       .bind(
         bookId,
         bookSlug,
@@ -186,13 +185,12 @@ app.post("/api/admin/books", async (c) => {
         buildOriginalDocument(bookSlug, chapter.slug, chapter.sourceText),
       );
 
-      await c.env.DB
-        .prepare(
-          `
+      await c.env.DB.prepare(
+        `
             INSERT INTO chapters (id, book_id, slug, position, title, created_at, updated_at)
             VALUES (?, ?, ?, ?, ?, ?, ?)
           `,
-        )
+      )
         .bind(crypto.randomUUID(), bookId, chapter.slug, chapter.position, chapter.title, now, now)
         .run();
     }
@@ -222,20 +220,17 @@ app.put("/api/admin/books/:bookSlug", async (c) => {
     description?: string;
   }>();
 
-  await c.env.DB
-    .prepare(
-      `
+  await c.env.DB.prepare(
+    `
         UPDATE books
         SET title = ?, author = ?, original_language = ?, description = ?, updated_at = ?
         WHERE id = ?
       `,
-    )
+  )
     .bind(
       body.title?.trim() || existing.book.title,
       typeof body.author === "string" ? body.author.trim() || null : existing.book.author,
-      typeof body.originalLanguage === "string"
-        ? body.originalLanguage.trim() || null
-        : existing.book.originalLanguage,
+      typeof body.originalLanguage === "string" ? body.originalLanguage.trim() || null : existing.book.originalLanguage,
       typeof body.description === "string" ? body.description.trim() || null : existing.book.description,
       new Date().toISOString(),
       existing.book.id,
@@ -295,15 +290,14 @@ app.post("/api/admin/books/:bookSlug/translations", async (c) => {
     const translationSlug = await createUniqueTranslationSlug(c.env.DB, book.id, body.title);
     const now = new Date().toISOString();
 
-    await c.env.DB
-      .prepare(
-        `
+    await c.env.DB.prepare(
+      `
           INSERT INTO translations (
             id, book_id, slug, name, description, provider, model, thinking_level, prompt,
             context_before_chapter_count, context_after_chapter_count, status, published_at, created_at, updated_at
           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'draft', NULL, ?, ?)
         `,
-      )
+    )
       .bind(
         translationId,
         book.id,
@@ -352,15 +346,14 @@ app.post("/api/admin/books/:bookSlug/translations/import", async (c) => {
     const translationSlug = await createUniqueTranslationSlug(c.env.DB, book.id, archive.translation.name);
     const now = new Date().toISOString();
 
-    await c.env.DB
-      .prepare(
-        `
+    await c.env.DB.prepare(
+      `
           INSERT INTO translations (
             id, book_id, slug, name, description, provider, model, thinking_level, prompt,
             context_before_chapter_count, context_after_chapter_count, status, published_at, created_at, updated_at
           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'draft', NULL, ?, ?)
         `,
-      )
+    )
       .bind(
         translationId,
         book.id,
@@ -388,12 +381,14 @@ app.post("/api/admin/books/:bookSlug/translations/import", async (c) => {
     const importedBySlug = new Map(archive.chapters.map((chapter) => [chapter.chapterSlug, chapter]));
 
     for (const chapter of translation.chapters) {
-      const imported = importedBySlug.get(chapter.slug) ?? archive.chapters.find((entry) => entry.position === chapter.position);
+      const imported =
+        importedBySlug.get(chapter.slug) ?? archive.chapters.find((entry) => entry.position === chapter.position);
       if (!imported) {
         continue;
       }
 
-      const rawResponse = imported.rawResponse ?? buildRawResponseFromContent(imported.title, imported.notes, imported.content);
+      const rawResponse =
+        imported.rawResponse ?? buildRawResponseFromContent(imported.title, imported.notes, imported.content);
       if (!rawResponse) {
         continue;
       }
@@ -473,9 +468,8 @@ app.put("/api/admin/translations/:translationId", async (c) => {
       : existing.contextAfterChapterCount;
   const now = new Date().toISOString();
 
-  await c.env.DB
-    .prepare(
-      `
+  await c.env.DB.prepare(
+    `
         UPDATE translations
         SET
           slug = ?,
@@ -490,7 +484,7 @@ app.put("/api/admin/translations/:translationId", async (c) => {
           updated_at = ?
         WHERE id = ?
       `,
-    )
+  )
     .bind(
       nextSlug,
       nextName,
@@ -535,7 +529,12 @@ app.delete("/api/admin/translations/:translationId", async (c) => {
     return c.json(failure("not_found", "Translation was not found."), 404);
   }
 
-  await deletePublishedTranslationObjects(c.env.CONTENT_BUCKET, translation.bookSlug, translation.slug, translation.chapters);
+  await deletePublishedTranslationObjects(
+    c.env.CONTENT_BUCKET,
+    translation.bookSlug,
+    translation.slug,
+    translation.chapters,
+  );
   await c.env.DB.prepare(`DELETE FROM translations WHERE id = ?`).bind(translation.id).run();
 
   return c.json(success({ deleted: true, translationId: translation.id }));
@@ -688,13 +687,11 @@ app.post("/api/admin/translations/:translationId/publish", async (c) => {
   }
 
   for (const chapter of translation.chapters) {
-    const rawResponse = chapter.rawResponse ?? buildRawResponseFromContent(chapter.title, chapter.notes, chapter.content);
+    const rawResponse =
+      chapter.rawResponse ?? buildRawResponseFromContent(chapter.title, chapter.notes, chapter.content);
 
     if (!rawResponse) {
-      return c.json(
-        failure("bad_request", `Chapter '${chapter.title}' has no translation content to publish.`),
-        400,
-      );
+      return c.json(failure("bad_request", `Chapter '${chapter.title}' has no translation content to publish.`), 400);
     }
 
     if (chapter.status !== "saved") {
@@ -725,8 +722,9 @@ app.post("/api/admin/translations/:translationId/publish", async (c) => {
     chapters: ready.chapters.filter((chapter) => chapter.content),
   });
 
-  await c.env.DB
-    .prepare(`UPDATE translations SET status = 'published', published_at = COALESCE(published_at, ?), updated_at = ? WHERE id = ?`)
+  await c.env.DB.prepare(
+    `UPDATE translations SET status = 'published', published_at = COALESCE(published_at, ?), updated_at = ? WHERE id = ?`,
+  )
     .bind(new Date().toISOString(), new Date().toISOString(), ready.id)
     .run();
 
@@ -745,9 +743,13 @@ app.post("/api/admin/translations/:translationId/unpublish", async (c) => {
     return c.json(failure("not_found", "Translation was not found."), 404);
   }
 
-  await deletePublishedTranslationObjects(c.env.CONTENT_BUCKET, translation.bookSlug, translation.slug, translation.chapters);
-  await c.env.DB
-    .prepare(`UPDATE translations SET status = 'draft', updated_at = ? WHERE id = ?`)
+  await deletePublishedTranslationObjects(
+    c.env.CONTENT_BUCKET,
+    translation.bookSlug,
+    translation.slug,
+    translation.chapters,
+  );
+  await c.env.DB.prepare(`UPDATE translations SET status = 'draft', updated_at = ? WHERE id = ?`)
     .bind(new Date().toISOString(), translation.id)
     .run();
 
@@ -782,11 +784,7 @@ function normalizeBookChapters(chapters: SourceChapterInput[]): SourceChapterInp
     }));
 }
 
-async function initializeTranslationChapters(
-  db: D1Database,
-  translationId: string,
-  bookId: string,
-): Promise<void> {
+async function initializeTranslationChapters(db: D1Database, translationId: string, bookId: string): Promise<void> {
   const chapters = await listBookChapters(db, bookId);
   const now = new Date().toISOString();
 
@@ -945,10 +943,9 @@ function normalizeImportedArchive(input: unknown): TranslationDraftArchive {
     return candidate as unknown as TranslationDraftArchive;
   }
 
-  const session = (candidate.session && typeof candidate.session === "object" ? candidate.session : candidate) as Record<
-    string,
-    unknown
-  >;
+  const session = (
+    candidate.session && typeof candidate.session === "object" ? candidate.session : candidate
+  ) as Record<string, unknown>;
 
   if (!session.title || !Array.isArray(session.chapters)) {
     throw new Error("The selected file does not contain a valid translation archive.");

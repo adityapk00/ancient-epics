@@ -609,7 +609,10 @@ export async function listBookSourceChapters(
 
   return Promise.all(
     chapters.map(async (chapter) => {
-      const original = await readObjectJson<OriginalChapterDocument>(bucket, buildOriginalChapterKey(book.slug, chapter.slug));
+      const original = await readObjectJson<OriginalChapterDocument>(
+        bucket,
+        buildOriginalChapterKey(book.slug, chapter.slug),
+      );
       return {
         position: chapter.position,
         title: chapter.title,
@@ -680,7 +683,10 @@ async function mapTranslationChapterDraft(
   translationSlug: string,
   chapter: TranslationChapterRow,
 ): Promise<TranslationChapterDraft> {
-  const original = await readObjectJson<OriginalChapterDocument>(bucket, buildOriginalChapterKey(bookSlug, chapter.slug));
+  const original = await readObjectJson<OriginalChapterDocument>(
+    bucket,
+    buildOriginalChapterKey(bookSlug, chapter.slug),
+  );
   const content = parseJsonOrNull<TranslationChapterDocument>(chapter.contentJson);
 
   return {

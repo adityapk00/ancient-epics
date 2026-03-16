@@ -187,7 +187,10 @@ try {
     const chapter = await api("GET", "/api/books/iliad/chapters/book-1-the-rage?translation=verse-meaning");
     assert("GET reader chapter returns 200", chapter.status === 200);
     assert("reader chapter has original text", typeof chapter.json.data?.original?.fullText === "string");
-    assert("reader chapter includes selected translation", chapter.json.data?.translation?.translation?.slug === "verse-meaning");
+    assert(
+      "reader chapter includes selected translation",
+      chapter.json.data?.translation?.translation?.slug === "verse-meaning",
+    );
 
     const translation = await api("GET", "/api/books/iliad/chapters/book-1-the-rage/translations/verse-meaning");
     assert("GET published translation alias returns 200", translation.status === 200);
@@ -276,9 +279,13 @@ try {
     const chapter = createTranslation.json.data?.chapters?.[0];
     assert("created translation exposes chapter id", typeof chapter?.chapterId === "string");
 
-    const saveChapter = await api("PUT", `/api/admin/translations/${createdTranslationId}/chapters/${chapter.chapterId}`, {
-      rawResponse: buildChapterRawResponse(chapter, "Smoke translation of the source lines."),
-    });
+    const saveChapter = await api(
+      "PUT",
+      `/api/admin/translations/${createdTranslationId}/chapters/${chapter.chapterId}`,
+      {
+        rawResponse: buildChapterRawResponse(chapter, "Smoke translation of the source lines."),
+      },
+    );
     assert("saving chapter returns 200", saveChapter.status === 200);
     assert("saved chapter count is updated", saveChapter.json.data?.savedChapterCount === 1);
     assert(
@@ -304,7 +311,10 @@ try {
 
     const publicChapter = await api("GET", "/api/books/smoke-book/chapters/book-one?translation=smoke-translation");
     assert("public smoke chapter returns 200", publicChapter.status === 200);
-    assert("public smoke chapter includes translation", publicChapter.json.data?.translation?.translation?.slug === "smoke-translation");
+    assert(
+      "public smoke chapter includes translation",
+      publicChapter.json.data?.translation?.translation?.slug === "smoke-translation",
+    );
 
     const unpublish = await api("POST", `/api/admin/translations/${createdTranslationId}/unpublish`);
     assert("unpublish returns 200", unpublish.status === 200);

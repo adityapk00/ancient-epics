@@ -121,7 +121,11 @@ export const api = {
   validateAdminTranslation: (translationId: string) =>
     request<AdminTranslationValidationPayload>(`/api/admin/translations/${translationId}/validate`),
   generateAdminTranslationChapter: (translationId: string, chapterId: string) =>
-    requestJson<AdminTranslationDetail>("POST", `/api/admin/translations/${translationId}/chapters/${chapterId}/generate`, {}),
+    requestJson<AdminTranslationDetail>(
+      "POST",
+      `/api/admin/translations/${translationId}/chapters/${chapterId}/generate`,
+      {},
+    ),
   saveAdminTranslationChapter: (translationId: string, chapterId: string, rawResponse: string) =>
     requestJson<AdminTranslationDetail>("PUT", `/api/admin/translations/${translationId}/chapters/${chapterId}`, {
       rawResponse,

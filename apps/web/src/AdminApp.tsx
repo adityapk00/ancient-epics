@@ -792,7 +792,10 @@ export default function AdminApp() {
 
     try {
       await saveTranslationSettings({ refreshState: false });
-      const updated = await api.generateAdminTranslationChapter(activeTranslation.id, currentWorkspaceChapter.chapterId);
+      const updated = await api.generateAdminTranslationChapter(
+        activeTranslation.id,
+        currentWorkspaceChapter.chapterId,
+      );
 
       if (selectedBook) {
         await refreshBookContext(selectedBook.book.slug);
@@ -852,7 +855,9 @@ export default function AdminApp() {
       const payload = await api.validateAdminTranslation(activeTranslation.id);
       setValidation(payload);
 
-      const currentChapterExists = payload.chapters.some((chapter) => chapter.chapterId === currentWorkspaceChapter?.chapterId);
+      const currentChapterExists = payload.chapters.some(
+        (chapter) => chapter.chapterId === currentWorkspaceChapter?.chapterId,
+      );
       if (!currentChapterExists) {
         setSelectedChapterId(payload.chapters[0]?.chapterId ?? null);
       }
@@ -1087,7 +1092,9 @@ export default function AdminApp() {
                 {splitMode === "heading" ? (
                   <InputField label="Heading Regex" value={headingPattern} onChange={setHeadingPattern} />
                 ) : null}
-                {splitMode === "delimiter" ? <InputField label="Delimiter" value={delimiter} onChange={setDelimiter} /> : null}
+                {splitMode === "delimiter" ? (
+                  <InputField label="Delimiter" value={delimiter} onChange={setDelimiter} />
+                ) : null}
                 <ActionButton label="Back To Books" onClick={goToBooks} />
               </div>
             </Panel>
@@ -1115,7 +1122,10 @@ export default function AdminApp() {
               <Panel title="Editable Chapter Staging">
                 <div className="space-y-4">
                   {stagedChapters.map((chapter, index) => (
-                    <div key={`${chapter.slug}-${index}`} className="rounded-2xl border border-border/60 bg-paper/80 p-4">
+                    <div
+                      key={`${chapter.slug}-${index}`}
+                      className="rounded-2xl border border-border/60 bg-paper/80 p-4"
+                    >
                       <div className="grid gap-4 lg:grid-cols-[1fr_1fr_auto]">
                         <InputField
                           label={`Chapter ${index + 1} Title`}
@@ -1235,7 +1245,10 @@ export default function AdminApp() {
                       <div className="mt-5 flex flex-wrap gap-2">
                         <ActionButton label="Open" onClick={() => void openTranslation(translation.id)} tone="accent" />
                         {translation.status === "published" ? (
-                          <ActionButton label="Unpublish" onClick={() => void unpublishTranslationFromList(translation)} />
+                          <ActionButton
+                            label="Unpublish"
+                            onClick={() => void unpublishTranslationFromList(translation)}
+                          />
                         ) : null}
                         <button
                           type="button"
@@ -1276,7 +1289,9 @@ export default function AdminApp() {
                     label={isBusy ? "Creating..." : "Create Translation"}
                     onClick={createTranslation}
                     tone="accent"
-                    disabled={isBusy || !translationTitle.trim() || !translationModel.trim() || !translationPrompt.trim()}
+                    disabled={
+                      isBusy || !translationTitle.trim() || !translationModel.trim() || !translationPrompt.trim()
+                    }
                   />
                 </div>
               </Panel>
@@ -1292,7 +1307,10 @@ export default function AdminApp() {
                 <h3 className="mt-3 font-display text-3xl text-ink">{activeTranslation.name}</h3>
                 <p className="mt-2 leading-7">{activeTranslation.description || "No description yet."}</p>
                 <div className="mt-4 grid grid-cols-2 gap-3">
-                  <Metric label="Saved" value={`${activeTranslation.savedChapterCount}/${activeTranslation.chapterCount}`} />
+                  <Metric
+                    label="Saved"
+                    value={`${activeTranslation.savedChapterCount}/${activeTranslation.chapterCount}`}
+                  />
                   <Metric label="Draft" value={String(activeTranslation.draftChapterCount)} />
                   <Metric label="Errors" value={String(activeTranslation.errorChapterCount)} />
                   <Metric label="Provider" value={formatProviderLabel(activeTranslation.provider)} />
@@ -1302,8 +1320,8 @@ export default function AdminApp() {
               <div className="mt-4 space-y-3">
                 {activeTranslation.chapters.map((chapter) => {
                   const issueCount =
-                    validation?.chapters.find((validationChapter) => validationChapter.chapterId === chapter.chapterId)?.issues
-                      .length ?? 0;
+                    validation?.chapters.find((validationChapter) => validationChapter.chapterId === chapter.chapterId)
+                      ?.issues.length ?? 0;
                   return (
                     <button
                       key={chapter.chapterId}
@@ -1459,7 +1477,9 @@ export default function AdminApp() {
                     </section>
                     <div className="mt-6 flex justify-end">
                       <ActionButton
-                        label={isBusy && chapterIsDirty ? "Saving..." : chapterIsDirty ? "Save Chapter" : "Chapter Saved"}
+                        label={
+                          isBusy && chapterIsDirty ? "Saving..." : chapterIsDirty ? "Save Chapter" : "Chapter Saved"
+                        }
                         onClick={saveCurrentChapter}
                         tone="accent"
                         disabled={isBusy || !chapterIsDirty}
@@ -1649,7 +1669,12 @@ export default function AdminApp() {
               <InputField label="Title" value={editingBookTitle} onChange={setEditingBookTitle} />
               <InputField label="Author" value={editingBookAuthor} onChange={setEditingBookAuthor} />
               <InputField label="Original Language" value={editingBookLanguage} onChange={setEditingBookLanguage} />
-              <TextareaField label="Description" value={editingBookDescription} onChange={setEditingBookDescription} rows={6} />
+              <TextareaField
+                label="Description"
+                value={editingBookDescription}
+                onChange={setEditingBookDescription}
+                rows={6}
+              />
             </div>
             <div className="mt-6 flex flex-wrap gap-3">
               <ActionButton label="Cancel" onClick={closeBookMetadataEditor} disabled={isBusy} />
@@ -1945,9 +1970,7 @@ function StatusPill({ status }: { status: string }) {
             : "bg-stone-200 text-stone-700";
 
   return (
-    <span className={`rounded-full px-3 py-1 text-xs font-semibold uppercase tracking-[0.18em] ${tone}`}>
-      {status}
-    </span>
+    <span className={`rounded-full px-3 py-1 text-xs font-semibold uppercase tracking-[0.18em] ${tone}`}>{status}</span>
   );
 }
 

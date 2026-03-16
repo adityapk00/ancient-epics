@@ -37,9 +37,7 @@ export function normalizeThinkingLevel(value: ThinkingLevel | string | null | un
     return null;
   }
 
-  return ["none", "minimal", "low", "medium", "high", "xhigh"].includes(value)
-    ? (value as ThinkingLevel)
-    : null;
+  return ["none", "minimal", "low", "medium", "high", "xhigh"].includes(value) ? (value as ThinkingLevel) : null;
 }
 
 function normalizeChunkText(value: string): string {

@@ -281,10 +281,7 @@ function buildRepairUserPrompt(input: { originalError: string; rawResponse: stri
   ].join("\n");
 }
 
-function normalizeTranslationChapter(input: {
-  translationSlug: string;
-  rawResponse: string;
-}): {
+function normalizeTranslationChapter(input: { translationSlug: string; rawResponse: string }): {
   content: TranslationChapterDocument;
   notes: string | null;
 } {
