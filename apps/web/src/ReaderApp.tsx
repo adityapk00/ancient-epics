@@ -9,6 +9,7 @@ type ReaderAppProps = {
 };
 
 type ReaderScreen = "books" | "translations" | "reader";
+type ReaderLoadState = "idle" | "loading" | "ready" | "error";
 
 function buildLastReadStorageKey(bookSlug: string, translationSlug: string): string {
   return `ancient-epics:last-read:${bookSlug}:${translationSlug}`;
@@ -41,6 +42,7 @@ export default function ReaderApp({ onOpenAdmin }: ReaderAppProps) {
   const [isLoadingBooks, setIsLoadingBooks] = useState(true);
   const [isLoadingBook, setIsLoadingBook] = useState(false);
   const [isLoadingReader, setIsLoadingReader] = useState(false);
+  const [readerLoadState, setReaderLoadState] = useState<ReaderLoadState>("idle");
   const [error, setError] = useState<string | null>(null);
   const [translationUnavailableMessage, setTranslationUnavailableMessage] = useState<string | null>(null);
 
@@ -117,6 +119,7 @@ export default function ReaderApp({ onOpenAdmin }: ReaderAppProps) {
     if (!selectedBook || !selectedTranslationSlug || !selectedChapterSlug) {
       setChapterPayload(null);
       setTranslationUnavailableMessage(null);
+      setReaderLoadState("idle");
       return;
     }
 
@@ -127,9 +130,8 @@ export default function ReaderApp({ onOpenAdmin }: ReaderAppProps) {
 
     async function loadReaderContent() {
       setIsLoadingReader(true);
+      setReaderLoadState("loading");
       setError(null);
-      setChapterPayload(null);
-      setTranslationUnavailableMessage(null);
 
       try {
         const chapter = await api.getChapter(bookSlug, chapterSlug, translationSlug);
@@ -137,12 +139,14 @@ export default function ReaderApp({ onOpenAdmin }: ReaderAppProps) {
           return;
         }
         setChapterPayload(chapter);
-        if (!chapter.translation) {
-          setTranslationUnavailableMessage("This translation is not available for the selected chapter yet.");
-        }
+        setTranslationUnavailableMessage(
+          chapter.translation ? null : "This translation is not available for the selected chapter yet.",
+        );
+        setReaderLoadState("ready");
       } catch (loadError) {
         if (!isCancelled) {
           setError(loadError instanceof Error ? loadError.message : "Failed to load reader content.");
+          setReaderLoadState("error");
         }
       } finally {
         if (!isCancelled) {
@@ -170,6 +174,8 @@ export default function ReaderApp({ onOpenAdmin }: ReaderAppProps) {
   const selectedChapter = selectedBook?.chapters.find((chapter) => chapter.slug === selectedChapterSlug) ?? null;
   const translationRows = chapterPayload?.translation?.content.chunks ?? [];
   const activeChapterTitle = chapterPayload?.chapter.title ?? selectedChapter?.title ?? "Chapter";
+  const showReaderLoadingOverlay = isLoadingReader && chapterPayload != null;
+  const showReaderLoadingState = readerLoadState === "idle" || readerLoadState === "loading";
   const chapterIndex =
     selectedBook && selectedChapter
       ? selectedBook.chapters.findIndex((chapter) => chapter.slug === selectedChapter.slug)
@@ -200,11 +206,13 @@ export default function ReaderApp({ onOpenAdmin }: ReaderAppProps) {
     setSelectedTranslationSlug(translationSlug);
     setSelectedChapterSlug(preferredChapterSlug);
     setChapterPayload(null);
+    setReaderLoadState(preferredChapterSlug ? "loading" : "idle");
     setScreen("reader");
   }
 
   function openChapter(chapterSlug: string) {
     setSelectedChapterSlug(chapterSlug);
+    setReaderLoadState("loading");
     setScreen("reader");
   }
 
@@ -375,9 +383,9 @@ export default function ReaderApp({ onOpenAdmin }: ReaderAppProps) {
                     <h3 className="mt-2 font-display text-3xl text-ink">{activeChapterTitle}</h3>
                   </div>
 
-                  {isLoadingReader ? (
+                  {showReaderLoadingState && chapterPayload == null ? (
                     <EmptyState body="Loading bilingual reader..." />
-                  ) : chapterPayload == null ? (
+                  ) : readerLoadState === "error" || chapterPayload == null ? (
                     <EmptyState body="The bilingual reader for this chapter could not be loaded." />
                   ) : (
                     <>
@@ -388,7 +396,14 @@ export default function ReaderApp({ onOpenAdmin }: ReaderAppProps) {
                         </div>
                       ) : null}
 
-                      <section className="overflow-hidden rounded-[32px] border border-border/70 bg-white/85 shadow-panel">
+                      <section className="relative overflow-hidden rounded-[32px] border border-border/70 bg-white/85 shadow-panel">
+                        {showReaderLoadingOverlay ? (
+                          <div className="absolute inset-0 z-10 flex items-center justify-center bg-paper/45 backdrop-blur-[1px]">
+                            <div className="rounded-full border border-border/70 bg-white/90 px-4 py-2 text-sm font-semibold text-ink/72 shadow-sm">
+                              Loading chapter...
+                            </div>
+                          </div>
+                        ) : null}
                         <div
                           className={`grid gap-0 border-b border-border/60 bg-paper/65 px-6 py-4 ${
                             chapterPayload.translation ? "md:grid-cols-2" : ""

@@ -14,7 +14,6 @@ Details:
 - Source chapters are stored once in R2 as plain full-text documents.
 - Translation drafts live in D1 inside `translation_chapters.content_json`.
 - Published translations are copied to R2 so the reader can load them directly.
- 
 
 ## Storage Split
 
