@@ -7,30 +7,39 @@ const ADMIN_PASSWORD = "password";
 const ADMIN_UNLOCKED_STORAGE_KEY = "ancient-epics.admin.unlocked";
 
 function getCurrentRoute() {
-  return window.location.hash === "#/admin" ? "admin" : "reader";
+  return window.location.pathname === "/admin" ? "admin" : "reader";
 }
 
 function isAdminUnlocked() {
   return window.localStorage.getItem(ADMIN_UNLOCKED_STORAGE_KEY) === "true";
 }
 
+function navigateTo(path: "/" | "/admin") {
+  if (window.location.pathname === path) {
+    return;
+  }
+
+  window.history.pushState({}, "", path);
+  window.dispatchEvent(new PopStateEvent("popstate"));
+}
+
 export default function App() {
   const [route, setRoute] = useState<"reader" | "admin">(getCurrentRoute);
 
   useEffect(() => {
-    function handleHashChange() {
+    function handleRouteChange() {
       setRoute(getCurrentRoute());
     }
 
-    window.addEventListener("hashchange", handleHashChange);
-    return () => window.removeEventListener("hashchange", handleHashChange);
+    window.addEventListener("popstate", handleRouteChange);
+    return () => window.removeEventListener("popstate", handleRouteChange);
   }, []);
 
   if (route === "admin") {
     return <AdminSection />;
   }
 
-  return <ReaderApp onOpenAdmin={() => (window.location.hash = "/admin")} />;
+  return <ReaderApp />;
 }
 
 function AdminSection() {
@@ -53,7 +62,7 @@ function AdminSection() {
   }
 
   function leaveAdmin() {
-    window.location.hash = "";
+    navigateTo("/");
   }
 
   function lockAdmin() {

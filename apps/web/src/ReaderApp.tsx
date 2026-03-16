@@ -4,10 +4,6 @@ import type { BookDetail, BookSummary, ReaderChapterPayload, TranslationSummary 
 
 import { api } from "./lib/api";
 
-type ReaderAppProps = {
-  onOpenAdmin: () => void;
-};
-
 type ReaderScreen = "books" | "translations" | "reader";
 type ReaderLoadState = "idle" | "loading" | "ready" | "error";
 
@@ -31,7 +27,7 @@ function setStoredLastReadChapter(bookSlug: string, translationSlug: string, cha
   window.localStorage.setItem(buildLastReadStorageKey(bookSlug, translationSlug), chapterSlug);
 }
 
-export default function ReaderApp({ onOpenAdmin }: ReaderAppProps) {
+export default function ReaderApp() {
   const [screen, setScreen] = useState<ReaderScreen>("books");
   const [books, setBooks] = useState<BookSummary[]>([]);
   const [selectedBookSlug, setSelectedBookSlug] = useState<string | null>(null);
@@ -254,13 +250,6 @@ export default function ReaderApp({ onOpenAdmin }: ReaderAppProps) {
       <div className="mx-auto flex max-w-[1400px] flex-col gap-8">
         <header className="flex items-center justify-between gap-4 rounded-full border border-border/70 bg-white/82 px-5 py-3 shadow-panel backdrop-blur">
           <p className="text-sm font-semibold uppercase tracking-[0.22em] text-accent">Ancient Epics</p>
-          <button
-            type="button"
-            onClick={onOpenAdmin}
-            className="rounded-full border border-border/70 bg-paper/90 px-4 py-2 text-sm font-semibold transition hover:border-accent/50"
-          >
-            Admin
-          </button>
         </header>
 
         {error ? <StatusPanel title="Error" body={error} /> : null}
