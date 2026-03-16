@@ -1,17 +1,20 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type ChangeEvent, type ReactNode } from "react";
 
 import {
   APP_SETTING_KEYS,
-  type AiProvider,
-  type AdminBookChapterInput,
+  normalizeChapterText,
+  normalizeProvider,
+  reconstructSourceTextFromChunks,
   type AdminBookSourcePayload,
-  type AdminIngestionBootstrapPayload,
-  type AdminIngestionChapterRecord,
+  type AdminBookSummary,
+  type AdminBootstrapPayload,
   type AdminTranslationDetail,
   type AdminTranslationSummary,
   type AdminTranslationValidationPayload,
-  normalizeChapterText,
-  reconstructSourceTextFromChunks,
+  type AiProvider,
+  type SourceChapterInput,
+  type TranslationChapterDraft,
+  type TranslationDraftArchive,
 } from "@ancient-epics/shared";
 
 import { splitSourceTextIntoChapters, type ChapterSplitMode, type SplitChapterInput } from "./lib/chapter-splitting";
@@ -27,19 +30,6 @@ type ChapterEditorState = {
     translatedText: string;
     type: "prose" | "verse";
   }>;
-};
-
-type DiffSegment = {
-  value: string;
-  kind: "equal" | "remove" | "add";
-};
-
-type DiffLine = {
-  left: DiffSegment[];
-  right: DiffSegment[];
-  leftLineNumber: number | null;
-  rightLineNumber: number | null;
-  hasChanges: boolean;
 };
 
 const DEFAULT_PROVIDER: AiProvider = "google";
@@ -62,16 +52,13 @@ const THINKING_LEVEL_OPTIONS = [
 export default function AdminApp() {
   const [screen, setScreen] = useState<AdminScreen>("books");
   const [settingsOpen, setSettingsOpen] = useState(false);
-  const [showAdvancedTranslationSettings, setShowAdvancedTranslationSettings] = useState(false);
-  const [showRawJsonEditor, setShowRawJsonEditor] = useState(false);
 
-  const [bootstrap, setBootstrap] = useState<AdminIngestionBootstrapPayload | null>(null);
+  const [bootstrap, setBootstrap] = useState<AdminBootstrapPayload | null>(null);
   const [selectedBook, setSelectedBook] = useState<AdminBookSourcePayload | null>(null);
   const [translations, setTranslations] = useState<AdminTranslationSummary[]>([]);
   const [activeTranslation, setActiveTranslation] = useState<AdminTranslationDetail | null>(null);
   const [validation, setValidation] = useState<AdminTranslationValidationPayload | null>(null);
-  const [selectedChapterIndex, setSelectedChapterIndex] = useState(0);
-  const [validationPreviewIndex, setValidationPreviewIndex] = useState(0);
+  const [selectedChapterId, setSelectedChapterId] = useState<string | null>(null);
 
   const [isLoading, setIsLoading] = useState(true);
   const [isBusy, setIsBusy] = useState(false);
@@ -103,29 +90,38 @@ export default function AdminApp() {
   const [translationPrompt, setTranslationPrompt] = useState("");
   const [contextBeforeChapterCount, setContextBeforeChapterCount] = useState("1");
   const [contextAfterChapterCount, setContextAfterChapterCount] = useState("1");
-  const [editedRawResponse, setEditedRawResponse] = useState("");
   const [chapterEditor, setChapterEditor] = useState<ChapterEditorState | null>(null);
-  const [workspaceSourceExpanded, setWorkspaceSourceExpanded] = useState(false);
 
-  const activeSession = activeTranslation?.currentSession ?? null;
-  const currentWorkspaceChapter = activeSession?.chapters[selectedChapterIndex] ?? null;
-  const validationPreviewChapter = validation?.session.chapters[validationPreviewIndex] ?? null;
+  const [editingBook, setEditingBook] = useState<AdminBookSummary | null>(null);
+  const [editingBookTitle, setEditingBookTitle] = useState("");
+  const [editingBookAuthor, setEditingBookAuthor] = useState("");
+  const [editingBookLanguage, setEditingBookLanguage] = useState("");
+  const [editingBookDescription, setEditingBookDescription] = useState("");
+
+  const importTranslationInputRef = useRef<HTMLInputElement | null>(null);
+
+  const currentWorkspaceChapter =
+    activeTranslation?.chapters.find((chapter) => chapter.chapterId === selectedChapterId) ??
+    activeTranslation?.chapters[0] ??
+    null;
   const currentValidationChapter =
-    validation && currentWorkspaceChapter
-      ? (validation.chapters.find((chapter) => chapter.position === currentWorkspaceChapter.position) ?? null)
-      : null;
+    validation?.chapters.find((chapter) => chapter.chapterId === currentWorkspaceChapter?.chapterId) ?? null;
+  const validationPreviewChapter =
+    activeTranslation?.chapters.find((chapter) => chapter.chapterId === selectedChapterId) ??
+    activeTranslation?.chapters[0] ??
+    null;
+  const selectedBookStatus = useMemo(
+    () =>
+      selectedBook?.book.translations.some((translation) => translation.status === "published") ? "published" : "draft",
+    [selectedBook],
+  );
   const translationMetadataIsDirty = useMemo(() => {
     if (!activeTranslation) {
       return false;
     }
 
     return (
-      JSON.stringify(
-        buildTranslationMetadataSnapshot({
-          activeTranslation,
-          activeSession,
-        }),
-      ) !==
+      JSON.stringify(buildTranslationMetadataSnapshot(activeTranslation)) !==
       JSON.stringify({
         name: translationTitle.trim(),
         slug: translationSlug.trim(),
@@ -140,15 +136,14 @@ export default function AdminApp() {
     );
   }, [
     activeTranslation,
-    activeSession,
     contextAfterChapterCount,
     contextBeforeChapterCount,
     translationDescription,
-    translationProvider,
     translationModel,
     translationPrompt,
-    translationThinkingLevel,
+    translationProvider,
     translationSlug,
+    translationThinkingLevel,
     translationTitle,
   ]);
   const chapterIsDirty = useMemo(() => {
@@ -159,6 +154,16 @@ export default function AdminApp() {
     return (
       JSON.stringify(serializeEditorState(buildChapterEditorState(currentWorkspaceChapter))) !==
       JSON.stringify(serializeEditorState(chapterEditor))
+    );
+  }, [chapterEditor, currentWorkspaceChapter]);
+  const sourceReconstructionMatches = useMemo(() => {
+    if (!currentWorkspaceChapter || !chapterEditor) {
+      return true;
+    }
+
+    return (
+      normalizeChapterText(currentWorkspaceChapter.sourceText) ===
+      normalizeChapterText(reconstructSourceTextFromChunks(chapterEditor.chunks))
     );
   }, [chapterEditor, currentWorkspaceChapter]);
 
@@ -172,35 +177,25 @@ export default function AdminApp() {
       }),
     [bookRawText, delimiter, headingPattern, splitMode],
   );
-  const sourceDiff = useMemo(() => {
-    if (!currentWorkspaceChapter || !chapterEditor) {
-      return null;
-    }
-
-    const sourceText = currentWorkspaceChapter.sourceText;
-    const reconstructedText = reconstructSourceTextFromChunks(chapterEditor.chunks);
-
-    return {
-      sourceText,
-      reconstructedText,
-      hasMismatch: normalizeChapterText(sourceText) !== normalizeChapterText(reconstructedText),
-      lines: buildSideBySideDiff(sourceText, reconstructedText),
-    };
-  }, [chapterEditor, currentWorkspaceChapter]);
 
   useEffect(() => {
+    let isCancelled = false;
+
     async function load() {
       try {
-        const payload = await api.getAdminIngestionBootstrap();
+        const payload = await api.getAdminBootstrap();
+        if (isCancelled) {
+          return;
+        }
+
         setBootstrap(payload);
         setSettingsOpenRouterApiKey(payload.settings[APP_SETTING_KEYS.OPENROUTER_API_KEY] ?? "");
         setSettingsGoogleApiKey(payload.settings[APP_SETTING_KEYS.GOOGLE_API_KEY] ?? "");
-        const provider = normalizeProviderValue(payload.settings[APP_SETTING_KEYS.ADMIN_INGESTION_PROVIDER]);
-        const model =
-          payload.settings[APP_SETTING_KEYS.ADMIN_INGESTION_MODEL] ??
-          payload.settings[APP_SETTING_KEYS.DEFAULT_TRANSLATION_MODEL] ??
-          DEFAULT_MODEL;
-        const prompt = payload.settings[APP_SETTING_KEYS.ADMIN_INGESTION_PROMPT] ?? "";
+
+        const provider = normalizeProvider(payload.settings[APP_SETTING_KEYS.DEFAULT_PROVIDER]);
+        const model = payload.settings[APP_SETTING_KEYS.DEFAULT_MODEL] ?? DEFAULT_MODEL;
+        const prompt = payload.settings[APP_SETTING_KEYS.DEFAULT_PROMPT] ?? "";
+
         setSettingsProvider(provider);
         setSettingsModel(model);
         setSettingsPrompt(prompt);
@@ -208,36 +203,72 @@ export default function AdminApp() {
         setTranslationModel(model);
         setTranslationPrompt(prompt);
       } catch (loadError) {
-        setError(loadError instanceof Error ? loadError.message : "Failed to load admin data.");
+        if (!isCancelled) {
+          setError(loadError instanceof Error ? loadError.message : "Failed to load admin data.");
+        }
       } finally {
-        setIsLoading(false);
+        if (!isCancelled) {
+          setIsLoading(false);
+        }
       }
     }
 
     void load();
+
+    return () => {
+      isCancelled = true;
+    };
   }, []);
+
+  useEffect(() => {
+    if (!activeTranslation) {
+      setSelectedChapterId(null);
+      return;
+    }
+
+    if (!activeTranslation.chapters.some((chapter) => chapter.chapterId === selectedChapterId)) {
+      setSelectedChapterId(activeTranslation.chapters[0]?.chapterId ?? null);
+    }
+  }, [activeTranslation, selectedChapterId]);
 
   useEffect(() => {
     const nextEditor = currentWorkspaceChapter ? buildChapterEditorState(currentWorkspaceChapter) : null;
     setChapterEditor(nextEditor);
-    setEditedRawResponse(nextEditor ? JSON.stringify(serializeEditorState(nextEditor), null, 2) : "");
-    setWorkspaceSourceExpanded(false);
   }, [currentWorkspaceChapter]);
 
-  async function refreshBootstrap() {
-    const payload = await api.getAdminIngestionBootstrap();
+  function applyBootstrapSettings(payload: AdminBootstrapPayload, seedTranslationDefaults: boolean) {
     setBootstrap(payload);
     setSettingsOpenRouterApiKey(payload.settings[APP_SETTING_KEYS.OPENROUTER_API_KEY] ?? "");
     setSettingsGoogleApiKey(payload.settings[APP_SETTING_KEYS.GOOGLE_API_KEY] ?? "");
-    const provider = normalizeProviderValue(payload.settings[APP_SETTING_KEYS.ADMIN_INGESTION_PROVIDER]);
-    const model =
-      payload.settings[APP_SETTING_KEYS.ADMIN_INGESTION_MODEL] ??
-      payload.settings[APP_SETTING_KEYS.DEFAULT_TRANSLATION_MODEL] ??
-      DEFAULT_MODEL;
-    const prompt = payload.settings[APP_SETTING_KEYS.ADMIN_INGESTION_PROMPT] ?? "";
+
+    const provider = normalizeProvider(payload.settings[APP_SETTING_KEYS.DEFAULT_PROVIDER]);
+    const model = payload.settings[APP_SETTING_KEYS.DEFAULT_MODEL] ?? DEFAULT_MODEL;
+    const prompt = payload.settings[APP_SETTING_KEYS.DEFAULT_PROMPT] ?? "";
+
     setSettingsProvider(provider);
     setSettingsModel(model);
     setSettingsPrompt(prompt);
+
+    if (seedTranslationDefaults) {
+      setTranslationProvider(provider);
+      setTranslationModel(model);
+      setTranslationPrompt(prompt);
+    }
+  }
+
+  async function refreshBootstrap(seedTranslationDefaults = false) {
+    const payload = await api.getAdminBootstrap();
+    applyBootstrapSettings(payload, seedTranslationDefaults);
+  }
+
+  async function refreshBookContext(bookSlugValue: string) {
+    const [book, translationResult] = await Promise.all([
+      api.getAdminBook(bookSlugValue),
+      api.listAdminTranslations(bookSlugValue),
+    ]);
+
+    setSelectedBook(book);
+    setTranslations(translationResult.translations);
   }
 
   function resetBookForm() {
@@ -262,7 +293,24 @@ export default function AdminApp() {
     setTranslationPrompt(settingsPrompt);
     setContextBeforeChapterCount("1");
     setContextAfterChapterCount("1");
-    setShowAdvancedTranslationSettings(false);
+  }
+
+  function goToBooks() {
+    setScreen("books");
+    setSelectedBook(null);
+    setTranslations([]);
+    setActiveTranslation(null);
+    setValidation(null);
+    setSelectedChapterId(null);
+    resetTranslationForm();
+  }
+
+  function goToTranslations() {
+    setScreen("translations");
+    setActiveTranslation(null);
+    setValidation(null);
+    setSelectedChapterId(null);
+    resetTranslationForm();
   }
 
   async function openBook(bookSlugValue: string) {
@@ -271,14 +319,10 @@ export default function AdminApp() {
     setNotice(null);
 
     try {
-      const [book, translationResult] = await Promise.all([
-        api.getAdminBookSource(bookSlugValue),
-        api.listAdminTranslations(bookSlugValue),
-      ]);
-      setSelectedBook(book);
-      setTranslations(translationResult.translations);
+      await refreshBookContext(bookSlugValue);
       setActiveTranslation(null);
       setValidation(null);
+      setSelectedChapterId(null);
       resetTranslationForm();
       setScreen("translations");
     } catch (loadError) {
@@ -288,9 +332,85 @@ export default function AdminApp() {
     }
   }
 
-  async function refreshTranslations(bookSlugValue: string) {
-    const translationResult = await api.listAdminTranslations(bookSlugValue);
-    setTranslations(translationResult.translations);
+  function openBookMetadataEditor(book: AdminBookSummary) {
+    setEditingBook(book);
+    setEditingBookTitle(book.title);
+    setEditingBookAuthor(book.author ?? "");
+    setEditingBookLanguage(book.originalLanguage ?? "");
+    setEditingBookDescription(book.description ?? "");
+  }
+
+  function closeBookMetadataEditor() {
+    setEditingBook(null);
+    setEditingBookTitle("");
+    setEditingBookAuthor("");
+    setEditingBookLanguage("");
+    setEditingBookDescription("");
+  }
+
+  async function saveBookMetadata() {
+    if (!editingBook) {
+      return;
+    }
+
+    setIsBusy(true);
+    setError(null);
+    setNotice(null);
+
+    try {
+      const updated = await api.updateAdminBook(editingBook.slug, {
+        title: editingBookTitle,
+        author: editingBookAuthor,
+        originalLanguage: editingBookLanguage,
+        description: editingBookDescription,
+      });
+
+      await refreshBootstrap();
+      if (selectedBook?.book.slug === editingBook.slug) {
+        await refreshBookContext(editingBook.slug);
+        setSelectedBook(updated);
+      }
+
+      closeBookMetadataEditor();
+      setNotice(`Updated '${updated.book.title}'.`);
+    } catch (saveError) {
+      setError(saveError instanceof Error ? saveError.message : "Failed to update book metadata.");
+    } finally {
+      setIsBusy(false);
+    }
+  }
+
+  async function deleteBookFromList(book: AdminBookSummary) {
+    const firstConfirm = window.confirm(
+      `Delete '${book.title}'? This will permanently delete the book, its translations, and related files.`,
+    );
+    if (!firstConfirm) {
+      return;
+    }
+
+    const secondConfirm = window.confirm(`Delete '${book.title}' for real? This cannot be undone.`);
+    if (!secondConfirm) {
+      return;
+    }
+
+    setIsBusy(true);
+    setError(null);
+    setNotice(null);
+
+    try {
+      await api.deleteAdminBook(book.slug);
+      await refreshBootstrap();
+
+      if (selectedBook?.book.slug === book.slug) {
+        goToBooks();
+      }
+
+      setNotice(`Deleted '${book.title}'.`);
+    } catch (deleteError) {
+      setError(deleteError instanceof Error ? deleteError.message : "Failed to delete book.");
+    } finally {
+      setIsBusy(false);
+    }
   }
 
   async function saveSettings() {
@@ -302,10 +422,11 @@ export default function AdminApp() {
       await api.updateAdminSettings({
         [APP_SETTING_KEYS.OPENROUTER_API_KEY]: settingsOpenRouterApiKey,
         [APP_SETTING_KEYS.GOOGLE_API_KEY]: settingsGoogleApiKey,
-        [APP_SETTING_KEYS.ADMIN_INGESTION_PROVIDER]: settingsProvider,
-        [APP_SETTING_KEYS.ADMIN_INGESTION_MODEL]: settingsModel,
-        [APP_SETTING_KEYS.ADMIN_INGESTION_PROMPT]: settingsPrompt,
+        [APP_SETTING_KEYS.DEFAULT_PROVIDER]: settingsProvider,
+        [APP_SETTING_KEYS.DEFAULT_MODEL]: settingsModel,
+        [APP_SETTING_KEYS.DEFAULT_PROMPT]: settingsPrompt,
       });
+
       await refreshBootstrap();
       setSettingsOpen(false);
       setNotice("Saved settings.");
@@ -350,6 +471,7 @@ export default function AdminApp() {
       if (!chapter) {
         return current;
       }
+
       next.splice(targetIndex, 0, chapter);
       return next.map((entry, position) => ({ ...entry, position }));
     });
@@ -393,6 +515,7 @@ export default function AdminApp() {
         slug: `${chapter.slug}-2`,
         sourceText: parts.slice(1).join("\n\n"),
       };
+
       const next = [...current];
       next.splice(index, 1, head, tail);
       return next.map((entry, position) => ({ ...entry, position }));
@@ -404,16 +527,19 @@ export default function AdminApp() {
       if (index === 0) {
         return current;
       }
+
       const previous = current[index - 1];
       const chapter = current[index];
       if (!previous || !chapter) {
         return current;
       }
+
       const merged = {
         ...previous,
         sourceText: `${previous.sourceText}\n\n${chapter.sourceText}`.trim(),
         title: `${previous.title} / ${chapter.title}`,
       };
+
       const next = [...current];
       next.splice(index - 1, 2, merged);
       return next.map((entry, position) => ({ ...entry, position }));
@@ -431,16 +557,23 @@ export default function AdminApp() {
         author: bookAuthor || undefined,
         originalLanguage: bookLanguage || undefined,
         description: bookDescription || undefined,
-        chapters: stagedChapters.map((chapter, index) => ({
-          position: index + 1,
-          title: chapter.title,
-          slug: chapter.slug,
-          sourceText: chapter.sourceText,
-        })) as AdminBookChapterInput[],
+        chapters: stagedChapters.map(
+          (chapter, index) =>
+            ({
+              position: index + 1,
+              title: chapter.title,
+              slug: chapter.slug,
+              sourceText: chapter.sourceText,
+            }) satisfies SourceChapterInput,
+        ),
       });
+
       await refreshBootstrap();
       setSelectedBook(created);
       setTranslations([]);
+      setActiveTranslation(null);
+      setValidation(null);
+      setSelectedChapterId(null);
       resetBookForm();
       resetTranslationForm();
       setScreen("translations");
@@ -450,6 +583,28 @@ export default function AdminApp() {
     } finally {
       setIsBusy(false);
     }
+  }
+
+  function hydrateActiveTranslation(translation: AdminTranslationDetail, preferredChapterId?: string | null) {
+    setActiveTranslation(translation);
+    setTranslationTitle(translation.name);
+    setTranslationSlug(translation.slug);
+    setTranslationDescription(translation.description ?? "");
+    setTranslationProvider(translation.provider);
+    setTranslationModel(translation.model);
+    setTranslationThinkingLevel(translation.thinkingLevel ?? "");
+    setTranslationPrompt(translation.prompt);
+    setContextBeforeChapterCount(String(translation.contextBeforeChapterCount));
+    setContextAfterChapterCount(String(translation.contextAfterChapterCount));
+
+    const nextChapterId =
+      (preferredChapterId && translation.chapters.some((chapter) => chapter.chapterId === preferredChapterId)
+        ? preferredChapterId
+        : null) ??
+      translation.chapters[0]?.chapterId ??
+      null;
+
+    setSelectedChapterId(nextChapterId);
   }
 
   async function createTranslation() {
@@ -472,18 +627,111 @@ export default function AdminApp() {
         contextBeforeChapterCount: Number(contextBeforeChapterCount || 0),
         contextAfterChapterCount: Number(contextAfterChapterCount || 0),
       });
-      await refreshTranslations(selectedBook.book.slug);
-      setActiveTranslation(translation);
-      setSelectedChapterIndex(
-        Math.min(
-          translation.currentSession?.currentChapterIndex ?? 0,
-          Math.max((translation.currentSession?.chapters.length ?? 1) - 1, 0),
-        ),
-      );
+
+      await refreshBookContext(selectedBook.book.slug);
+      await refreshBootstrap();
+      hydrateActiveTranslation(translation);
+      setValidation(null);
       setScreen("workspace");
       setNotice(`Created translation '${translation.name}'.`);
     } catch (createError) {
       setError(createError instanceof Error ? createError.message : "Failed to create translation.");
+    } finally {
+      setIsBusy(false);
+    }
+  }
+
+  function promptTranslationImport() {
+    importTranslationInputRef.current?.click();
+  }
+
+  async function importTranslationFromFile(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+
+    if (!selectedBook || !file) {
+      return;
+    }
+
+    setIsBusy(true);
+    setError(null);
+    setNotice(null);
+
+    try {
+      const rawText = await file.text();
+      const archive = JSON.parse(rawText) as TranslationDraftArchive | unknown;
+      const translation = await api.importAdminTranslation(selectedBook.book.slug, { archive });
+
+      await refreshBookContext(selectedBook.book.slug);
+      await refreshBootstrap();
+      hydrateActiveTranslation(translation);
+      setValidation(null);
+      setScreen("workspace");
+      setNotice(`Imported translation '${translation.name}'.`);
+    } catch (importError) {
+      setError(importError instanceof Error ? importError.message : "Failed to import translation.");
+    } finally {
+      event.target.value = "";
+      setIsBusy(false);
+    }
+  }
+
+  async function deleteTranslationFromList(translation: AdminTranslationSummary) {
+    const firstConfirm = window.confirm(
+      `Delete translation '${translation.name}'? This will permanently remove it and delete its published files.`,
+    );
+    if (!firstConfirm) {
+      return;
+    }
+
+    const secondConfirm = window.confirm(`Delete translation '${translation.name}' for real? This cannot be undone.`);
+    if (!secondConfirm) {
+      return;
+    }
+
+    setIsBusy(true);
+    setError(null);
+    setNotice(null);
+
+    try {
+      await api.deleteAdminTranslation(translation.id);
+
+      if (selectedBook) {
+        await refreshBookContext(selectedBook.book.slug);
+      }
+      await refreshBootstrap();
+
+      if (activeTranslation?.id === translation.id) {
+        goToTranslations();
+      }
+
+      setNotice(`Deleted translation '${translation.name}'.`);
+    } catch (deleteError) {
+      setError(deleteError instanceof Error ? deleteError.message : "Failed to delete translation.");
+    } finally {
+      setIsBusy(false);
+    }
+  }
+
+  async function unpublishTranslationFromList(translation: AdminTranslationSummary) {
+    setIsBusy(true);
+    setError(null);
+    setNotice(null);
+
+    try {
+      const updated = await api.unpublishAdminTranslation(translation.id);
+
+      if (selectedBook) {
+        await refreshBookContext(selectedBook.book.slug);
+      }
+      await refreshBootstrap();
+
+      if (activeTranslation?.id === translation.id) {
+        hydrateActiveTranslation(updated, selectedChapterId);
+      }
+
+      setNotice(`Unpublished '${translation.name}'.`);
+    } catch (updateError) {
+      setError(updateError instanceof Error ? updateError.message : "Failed to unpublish translation.");
     } finally {
       setIsBusy(false);
     }
@@ -506,26 +754,7 @@ export default function AdminApp() {
     }
   }
 
-  function hydrateActiveTranslation(translation: AdminTranslationDetail) {
-    setActiveTranslation(translation);
-    setTranslationTitle(translation.name);
-    setTranslationSlug(translation.slug);
-    setTranslationDescription(translation.description ?? "");
-    setTranslationProvider(translation.currentSession?.provider ?? DEFAULT_PROVIDER);
-    setTranslationModel(translation.currentSession?.model ?? DEFAULT_MODEL);
-    setTranslationThinkingLevel(translation.currentSession?.thinkingLevel ?? "");
-    setTranslationPrompt(translation.currentSession?.prompt ?? translation.aiSystemPrompt ?? "");
-    setContextBeforeChapterCount(String(translation.currentSession?.contextBeforeChapterCount ?? 1));
-    setContextAfterChapterCount(String(translation.currentSession?.contextAfterChapterCount ?? 1));
-    setSelectedChapterIndex(
-      Math.min(
-        translation.currentSession?.currentChapterIndex ?? 0,
-        Math.max((translation.currentSession?.chapters.length ?? 1) - 1, 0),
-      ),
-    );
-  }
-
-  async function saveTranslationSettings(extra?: { status?: "draft" | "ready" | "published" }) {
+  async function saveTranslationSettings(options?: { refreshState?: boolean }) {
     if (!activeTranslation) {
       return null;
     }
@@ -538,21 +767,22 @@ export default function AdminApp() {
       model: translationModel,
       thinkingLevel: normalizeThinkingLevelValue(translationThinkingLevel),
       prompt: translationPrompt,
-      status: extra?.status,
       contextBeforeChapterCount: Number(contextBeforeChapterCount || 0),
       contextAfterChapterCount: Number(contextAfterChapterCount || 0),
-      currentChapterIndex: selectedChapterIndex,
     });
 
-    hydrateActiveTranslation(updated);
-    if (selectedBook) {
-      await refreshTranslations(selectedBook.book.slug);
+    hydrateActiveTranslation(updated, currentWorkspaceChapter?.chapterId ?? selectedChapterId);
+
+    if ((options?.refreshState ?? true) && selectedBook) {
+      await refreshBookContext(selectedBook.book.slug);
+      await refreshBootstrap();
     }
+
     return updated;
   }
 
   async function generateCurrentChapter() {
-    if (!activeSession || !currentWorkspaceChapter) {
+    if (!activeTranslation || !currentWorkspaceChapter) {
       return;
     }
 
@@ -561,23 +791,15 @@ export default function AdminApp() {
     setNotice(null);
 
     try {
-      const updatedTranslation = await saveTranslationSettings();
-      const sessionId = updatedTranslation?.currentSession?.id ?? activeSession.id;
-      const result = await api.generateAdminIngestionChapter(sessionId, currentWorkspaceChapter.position);
+      await saveTranslationSettings({ refreshState: false });
+      const updated = await api.generateAdminTranslationChapter(activeTranslation.id, currentWorkspaceChapter.chapterId);
 
-      if (updatedTranslation?.currentSession) {
-        const nextTranslation = {
-          ...updatedTranslation,
-          currentSession: {
-            ...updatedTranslation.currentSession,
-            chapters: updatedTranslation.currentSession.chapters.map((chapter) =>
-              chapter.id === result.chapter.id ? result.chapter : chapter,
-            ),
-          },
-        };
-        hydrateActiveTranslation(nextTranslation);
+      if (selectedBook) {
+        await refreshBookContext(selectedBook.book.slug);
       }
-
+      await refreshBootstrap();
+      hydrateActiveTranslation(updated, currentWorkspaceChapter.chapterId);
+      setValidation(null);
       setNotice(`Generated '${currentWorkspaceChapter.title}'.`);
     } catch (generateError) {
       setError(generateError instanceof Error ? generateError.message : "Failed to generate chapter.");
@@ -587,7 +809,7 @@ export default function AdminApp() {
   }
 
   async function saveCurrentChapter() {
-    if (!activeSession || !currentWorkspaceChapter || !chapterEditor) {
+    if (!activeTranslation || !currentWorkspaceChapter || !chapterEditor) {
       return;
     }
 
@@ -596,24 +818,18 @@ export default function AdminApp() {
     setNotice(null);
 
     try {
-      const result = await api.saveAdminIngestionChapter(
-        activeSession.id,
-        currentWorkspaceChapter.position,
+      const updated = await api.saveAdminTranslationChapter(
+        activeTranslation.id,
+        currentWorkspaceChapter.chapterId,
         JSON.stringify(serializeEditorState(chapterEditor), null, 2),
       );
 
-      if (result.session && activeTranslation) {
-        const refreshedTranslation = await api.getAdminTranslation(activeTranslation.id);
-        hydrateActiveTranslation(refreshedTranslation);
-        const refreshedChapterIndex =
-          refreshedTranslation.currentSession?.chapters.findIndex(
-            (chapter) => chapter.id === currentWorkspaceChapter.id,
-          ) ?? -1;
-        if (refreshedChapterIndex >= 0) {
-          setSelectedChapterIndex(refreshedChapterIndex);
-        }
+      if (selectedBook) {
+        await refreshBookContext(selectedBook.book.slug);
       }
-
+      await refreshBootstrap();
+      hydrateActiveTranslation(updated, currentWorkspaceChapter.chapterId);
+      setValidation(null);
       setNotice(`Saved '${currentWorkspaceChapter.title}'.`);
     } catch (saveError) {
       setError(saveError instanceof Error ? saveError.message : "Failed to save chapter.");
@@ -632,18 +848,19 @@ export default function AdminApp() {
     setNotice(null);
 
     try {
-      await saveTranslationSettings();
+      await saveTranslationSettings({ refreshState: false });
       const payload = await api.validateAdminTranslation(activeTranslation.id);
       setValidation(payload);
-      const matchingChapterIndex =
-        currentWorkspaceChapter != null
-          ? payload.chapters.findIndex((chapter) => chapter.position === currentWorkspaceChapter.position)
-          : -1;
-      setValidationPreviewIndex(matchingChapterIndex >= 0 ? matchingChapterIndex : 0);
+
+      const currentChapterExists = payload.chapters.some((chapter) => chapter.chapterId === currentWorkspaceChapter?.chapterId);
+      if (!currentChapterExists) {
+        setSelectedChapterId(payload.chapters[0]?.chapterId ?? null);
+      }
+
       if (options?.openResults ?? true) {
         setScreen("validate");
       }
-      setNotice(payload.isValid ? "Validation passed." : "Validation found issues.");
+      setNotice(payload.isValid ? "Validation passed." : "Validation found blocking issues.");
     } catch (validateError) {
       setError(validateError instanceof Error ? validateError.message : "Failed to validate translation.");
     } finally {
@@ -651,41 +868,66 @@ export default function AdminApp() {
     }
   }
 
-  async function markTranslationStatus(status: "ready" | "published") {
+  async function publishActiveTranslation() {
+    if (!activeTranslation) {
+      return;
+    }
+
     setIsBusy(true);
     setError(null);
     setNotice(null);
 
     try {
-      const updated = await saveTranslationSettings({ status });
-      await refreshBootstrap();
+      await saveTranslationSettings({ refreshState: false });
+      const updated = await api.publishAdminTranslation(activeTranslation.id);
+
       if (selectedBook) {
-        const refreshedBook = await api.getAdminBookSource(selectedBook.book.slug);
-        setSelectedBook(refreshedBook);
+        await refreshBookContext(selectedBook.book.slug);
       }
-      const chapterPublishWarnings =
-        status === "published"
-          ? (updated?.currentSession?.chapters.filter((chapter) => chapter.status === "error").length ?? 0)
-          : 0;
-      setNotice(
-        status === "ready"
-          ? "Translation marked ready."
-          : chapterPublishWarnings > 0
-            ? `Translation published with ${chapterPublishWarnings} chapter warning(s).`
-            : "Translation published.",
-      );
-    } catch (statusError) {
-      setError(statusError instanceof Error ? statusError.message : "Failed to update draft status.");
+      await refreshBootstrap();
+      hydrateActiveTranslation(updated, currentWorkspaceChapter?.chapterId ?? selectedChapterId);
+      setValidation(null);
+      setNotice("Translation published.");
+    } catch (publishError) {
+      setError(publishError instanceof Error ? publishError.message : "Failed to publish translation.");
+    } finally {
+      setIsBusy(false);
+    }
+  }
+
+  async function unpublishActiveTranslation() {
+    if (!activeTranslation) {
+      return;
+    }
+
+    setIsBusy(true);
+    setError(null);
+    setNotice(null);
+
+    try {
+      const updated = await api.unpublishAdminTranslation(activeTranslation.id);
+
+      if (selectedBook) {
+        await refreshBookContext(selectedBook.book.slug);
+      }
+      await refreshBootstrap();
+      hydrateActiveTranslation(updated, currentWorkspaceChapter?.chapterId ?? selectedChapterId);
+      setValidation(null);
+      setNotice("Translation unpublished.");
+    } catch (unpublishError) {
+      setError(unpublishError instanceof Error ? unpublishError.message : "Failed to unpublish translation.");
     } finally {
       setIsBusy(false);
     }
   }
 
   function exportTranslationJson() {
-    if (!activeTranslation?.currentSession) {
+    if (!activeTranslation) {
       return;
     }
-    const blob = new Blob([JSON.stringify(activeTranslation.currentSession, null, 2)], {
+
+    const archive = buildTranslationArchive(activeTranslation);
+    const blob = new Blob([JSON.stringify(archive, null, 2)], {
       type: "application/json",
     });
     const url = URL.createObjectURL(blob);
@@ -698,50 +940,25 @@ export default function AdminApp() {
 
   function openValidationIssue(issueIndex: number) {
     const issue = validation?.issues[issueIndex];
-    if (!issue || issue.chapterPosition == null) {
+    if (!issue?.chapterId) {
       return;
     }
-    setSelectedChapterIndex(issue.chapterPosition);
+
+    setSelectedChapterId(issue.chapterId);
     setScreen("workspace");
   }
 
-  function openValidationChapter(index: number) {
-    setValidationPreviewIndex(index);
-    const chapter = validation?.chapters[index];
-    if (chapter) {
-      setSelectedChapterIndex(chapter.position);
-    }
-  }
-
   function updateChapterEditor(updater: (current: ChapterEditorState) => ChapterEditorState) {
-    setChapterEditor((current) => {
-      if (!current) {
-        return current;
-      }
-      const next = updater(current);
-      setEditedRawResponse(JSON.stringify(serializeEditorState(next), null, 2));
-      return next;
-    });
-  }
-
-  function reloadEditorFromRawJson() {
-    try {
-      const parsed = parseEditorStateFromRaw(editedRawResponse);
-      setChapterEditor(parsed);
-      setNotice("Reloaded the structured editor from raw JSON.");
-      setError(null);
-    } catch (parseError) {
-      setError(parseError instanceof Error ? parseError.message : "Failed to parse raw JSON.");
-    }
+    setChapterEditor((current) => (current ? updater(current) : current));
   }
 
   const breadcrumbs = buildBreadcrumbs({
     screen,
     selectedBookTitle: selectedBook?.book.title ?? null,
     activeTranslationName: activeTranslation?.name ?? null,
-    onBooks: () => setScreen("books"),
+    onBooks: goToBooks,
     onCreateBook: () => setScreen("create-book"),
-    onTranslations: selectedBook ? () => setScreen("translations") : null,
+    onTranslations: selectedBook ? goToTranslations : null,
     onWorkspace: activeTranslation ? () => setScreen("workspace") : null,
   });
 
@@ -752,7 +969,7 @@ export default function AdminApp() {
           <div className="flex flex-wrap gap-3">
             <button
               type="button"
-              onClick={() => setScreen("books")}
+              onClick={goToBooks}
               className={`rounded-full px-4 py-2 text-sm font-semibold transition ${
                 screen === "books"
                   ? "bg-ink text-paper"
@@ -805,34 +1022,42 @@ export default function AdminApp() {
             <Panel title="Books">
               <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
                 {(bootstrap?.books ?? []).map((book) => (
-                  <button
-                    key={book.id}
-                    type="button"
-                    onClick={() => void openBook(book.slug)}
-                    className="rounded-[24px] border border-border/70 bg-paper/80 p-5 text-left transition hover:border-accent/50 hover:bg-white"
-                  >
+                  <div key={book.id} className="rounded-[24px] border border-border/70 bg-paper/80 p-5">
                     <div className="flex items-center justify-between gap-3">
-                      <p className="text-xs font-semibold uppercase tracking-[0.18em] text-accent">{book.status}</p>
+                      <p className="text-xs font-semibold uppercase tracking-[0.18em] text-accent">
+                        {getBookPublicationStatus(book.publishedTranslationCount)}
+                      </p>
                       <span className="text-xs text-ink/55">{formatTimestamp(book.latestActivityAt)}</span>
                     </div>
                     <h2 className="mt-3 font-display text-3xl text-ink">{book.title}</h2>
-                    <p className="mt-2 text-sm text-ink/65">{book.author}</p>
+                    <p className="mt-2 text-sm text-ink/65">{book.author || "Unknown author"}</p>
                     <p className="mt-4 text-sm leading-7 text-ink/75">{book.description || "No description yet."}</p>
                     <div className="mt-4 grid grid-cols-2 gap-3 text-sm text-ink/70">
                       <Metric label="Chapters" value={String(book.chapterCount)} />
                       <Metric label="Translations" value={String(book.translationCount)} />
-                      <Metric label="Saved" value={`${book.savedChapterCount}/${book.chapterCount || 0}`} />
-                      <Metric label="Ready" value={String(book.readyTranslationCount)} />
+                      <Metric label="Published" value={String(book.publishedTranslationCount)} />
+                      <Metric label="Language" value={book.originalLanguage || "Unknown"} />
                     </div>
-                  </button>
+                    <div className="mt-5 flex flex-wrap gap-2">
+                      <ActionButton label="Open" onClick={() => void openBook(book.slug)} tone="accent" />
+                      <ActionButton label="Edit" onClick={() => openBookMetadataEditor(book)} />
+                      <button
+                        type="button"
+                        onClick={() => void deleteBookFromList(book)}
+                        className="rounded-full border border-red-200 bg-red-50 px-4 py-2 text-sm font-semibold text-red-700 transition hover:bg-red-100"
+                      >
+                        Delete
+                      </button>
+                    </div>
+                  </div>
                 ))}
               </div>
             </Panel>
 
             <Panel title="Create New">
               <p className="text-base leading-7 text-ink/70">
-                Paste a source text, auto-split it, then hand-edit the staged chapter list before anything is written to
-                D1 or R2.
+                Paste a source text, split it into chapters, and keep the stored model as plain books, chapters, and
+                translations.
               </p>
               <div className="mt-6">
                 <ActionButton label="Create New Book" onClick={() => setScreen("create-book")} tone="accent" />
@@ -862,10 +1087,8 @@ export default function AdminApp() {
                 {splitMode === "heading" ? (
                   <InputField label="Heading Regex" value={headingPattern} onChange={setHeadingPattern} />
                 ) : null}
-                {splitMode === "delimiter" ? (
-                  <InputField label="Delimiter" value={delimiter} onChange={setDelimiter} />
-                ) : null}
-                <ActionButton label="Back To Books" onClick={() => setScreen("books")} />
+                {splitMode === "delimiter" ? <InputField label="Delimiter" value={delimiter} onChange={setDelimiter} /> : null}
+                <ActionButton label="Back To Books" onClick={goToBooks} />
               </div>
             </Panel>
 
@@ -892,10 +1115,7 @@ export default function AdminApp() {
               <Panel title="Editable Chapter Staging">
                 <div className="space-y-4">
                   {stagedChapters.map((chapter, index) => (
-                    <div
-                      key={`${chapter.slug}-${index}`}
-                      className="rounded-2xl border border-border/60 bg-paper/80 p-4"
-                    >
+                    <div key={`${chapter.slug}-${index}`} className="rounded-2xl border border-border/60 bg-paper/80 p-4">
                       <div className="grid gap-4 lg:grid-cols-[1fr_1fr_auto]">
                         <InputField
                           label={`Chapter ${index + 1} Title`}
@@ -931,7 +1151,7 @@ export default function AdminApp() {
                   ))}
                   {stagedChapters.length === 0 ? (
                     <p className="text-base leading-7 text-ink/65">
-                      Generate an auto-split preview, then edit the staged chapters here before creating the book.
+                      Generate an auto-split preview, then adjust the staged chapters before creating the book.
                     </p>
                   ) : null}
                 </div>
@@ -952,36 +1172,46 @@ export default function AdminApp() {
           <section className="grid gap-6 xl:grid-cols-[360px_1fr]">
             <Panel title="Current Book">
               <div className="space-y-3">
-                <p className="text-xs font-semibold uppercase tracking-[0.18em] text-accent">
-                  {selectedBook.book.status}
-                </p>
+                <p className="text-xs font-semibold uppercase tracking-[0.18em] text-accent">{selectedBookStatus}</p>
                 <h2 className="font-display text-4xl text-ink">{selectedBook.book.title}</h2>
-                <p className="text-sm text-ink/65">{selectedBook.book.author}</p>
+                <p className="text-sm text-ink/65">{selectedBook.book.author || "Unknown author"}</p>
                 <p className="text-sm leading-7 text-ink/75">
                   {selectedBook.book.description || "No description yet."}
                 </p>
                 <div className="grid grid-cols-2 gap-3 rounded-2xl border border-border/70 bg-paper/75 p-4 text-sm text-ink/70">
                   <Metric label="Chapters" value={String(selectedBook.chapters.length)} />
                   <Metric label="Translations" value={String(translations.length)} />
+                  <Metric
+                    label="Published"
+                    value={String(translations.filter((translation) => translation.status === "published").length)}
+                  />
+                  <Metric label="Language" value={selectedBook.book.originalLanguage || "Unknown"} />
                 </div>
-                <ActionButton label="Back To Books" onClick={() => setScreen("books")} />
+                <ActionButton label="Back To Books" onClick={goToBooks} />
               </div>
             </Panel>
 
             <div className="grid gap-6">
               <Panel title="Translations">
+                <input
+                  ref={importTranslationInputRef}
+                  type="file"
+                  accept="application/json,.json"
+                  className="hidden"
+                  onChange={(event) => void importTranslationFromFile(event)}
+                />
+                <div className="mb-4 flex flex-wrap gap-3">
+                  <ActionButton
+                    label={isBusy ? "Importing..." : "Import Translation JSON"}
+                    onClick={promptTranslationImport}
+                    disabled={isBusy}
+                  />
+                </div>
                 <div className="grid gap-4 md:grid-cols-2">
                   {translations.map((translation) => (
-                    <button
-                      key={translation.id}
-                      type="button"
-                      onClick={() => void openTranslation(translation.id)}
-                      className="rounded-[24px] border border-border/70 bg-paper/80 p-5 text-left transition hover:border-accent/50 hover:bg-white"
-                    >
+                    <div key={translation.id} className="rounded-[24px] border border-border/70 bg-paper/80 p-5">
                       <div className="flex items-center justify-between gap-3">
-                        <p className="text-xs font-semibold uppercase tracking-[0.18em] text-accent">
-                          {translation.status}
-                        </p>
+                        <StatusPill status={translation.status} />
                         <span className="text-xs text-ink/55">{formatTimestamp(translation.latestActivityAt)}</span>
                       </div>
                       <h3 className="mt-3 font-display text-3xl text-ink">{translation.name}</h3>
@@ -990,99 +1220,97 @@ export default function AdminApp() {
                       </p>
                       <div className="mt-4 flex flex-wrap gap-2 text-xs font-semibold uppercase tracking-[0.14em] text-ink/65">
                         <span className="rounded-full border border-border/70 bg-white/75 px-3 py-1">
-                          {formatProviderLabel(translation.latestSession?.provider ?? DEFAULT_PROVIDER)} ·{" "}
-                          {translation.latestSession?.model ?? DEFAULT_MODEL}
+                          {formatProviderLabel(translation.provider)} · {translation.model}
                         </span>
                         <span className="rounded-full border border-border/70 bg-white/75 px-3 py-1">
-                          {formatThinkingSummary(translation.latestSession)}
+                          {formatThinkingSummary(translation)}
                         </span>
                       </div>
                       <div className="mt-4 grid grid-cols-2 gap-3 text-sm text-ink/70">
                         <Metric label="Saved" value={`${translation.savedChapterCount}/${translation.chapterCount}`} />
-                        <Metric label="Generated" value={String(translation.generatedChapterCount)} />
-                        <Metric label="Pending" value={String(translation.pendingChapterCount)} />
-                        <Metric label="Runs" value={String(translation.sessionCount)} />
+                        <Metric label="Draft" value={String(translation.draftChapterCount)} />
+                        <Metric label="Errors" value={String(translation.errorChapterCount)} />
+                        <Metric label="Published" value={translation.status === "published" ? "Yes" : "No"} />
                       </div>
-                    </button>
+                      <div className="mt-5 flex flex-wrap gap-2">
+                        <ActionButton label="Open" onClick={() => void openTranslation(translation.id)} tone="accent" />
+                        {translation.status === "published" ? (
+                          <ActionButton label="Unpublish" onClick={() => void unpublishTranslationFromList(translation)} />
+                        ) : null}
+                        <button
+                          type="button"
+                          onClick={() => void deleteTranslationFromList(translation)}
+                          className="rounded-full border border-red-200 bg-red-50 px-4 py-2 text-sm font-semibold text-red-700 transition hover:bg-red-100"
+                        >
+                          Delete
+                        </button>
+                      </div>
+                    </div>
                   ))}
+                  {translations.length === 0 ? (
+                    <p className="text-base leading-7 text-ink/70">No translations yet for this book.</p>
+                  ) : null}
                 </div>
               </Panel>
 
               <Panel title="Create Translation">
-                <div className="grid gap-4 lg:grid-cols-[1fr_auto] lg:items-end">
+                <div className="grid gap-4">
                   <InputField label="Translation Name" value={translationTitle} onChange={setTranslationTitle} />
+                  <InputField label="Description" value={translationDescription} onChange={setTranslationDescription} />
+                  <TranslationAiSettingsRow
+                    provider={translationProvider}
+                    onProviderChange={setTranslationProvider}
+                    model={translationModel}
+                    onModelChange={setTranslationModel}
+                    contextBeforeChapterCount={contextBeforeChapterCount}
+                    onContextBeforeChapterCountChange={setContextBeforeChapterCount}
+                    contextAfterChapterCount={contextAfterChapterCount}
+                    onContextAfterChapterCountChange={setContextAfterChapterCount}
+                    thinkingLevel={translationThinkingLevel}
+                    onThinkingLevelChange={setTranslationThinkingLevel}
+                  />
+                  <TextareaField label="Prompt" value={translationPrompt} onChange={setTranslationPrompt} rows={10} />
+                </div>
+                <div className="mt-6 flex flex-wrap gap-3">
                   <ActionButton
                     label={isBusy ? "Creating..." : "Create Translation"}
                     onClick={createTranslation}
                     tone="accent"
-                    disabled={isBusy || !translationTitle.trim()}
+                    disabled={isBusy || !translationTitle.trim() || !translationModel.trim() || !translationPrompt.trim()}
                   />
                 </div>
-                <button
-                  type="button"
-                  onClick={() => setShowAdvancedTranslationSettings((current) => !current)}
-                  className="mt-4 text-sm font-semibold text-accent"
-                >
-                  {showAdvancedTranslationSettings ? "Hide advanced settings" : "Show advanced settings"}
-                </button>
-                {showAdvancedTranslationSettings ? (
-                  <>
-                    <div className="mt-4 grid gap-4 lg:grid-cols-2">
-                      <InputField
-                        label="Description"
-                        value={translationDescription}
-                        onChange={setTranslationDescription}
-                      />
-                    </div>
-                    <div className="mt-4">
-                      <TranslationAiSettingsRow
-                        provider={translationProvider}
-                        onProviderChange={setTranslationProvider}
-                        model={translationModel}
-                        onModelChange={setTranslationModel}
-                        contextBeforeChapterCount={contextBeforeChapterCount}
-                        onContextBeforeChapterCountChange={setContextBeforeChapterCount}
-                        contextAfterChapterCount={contextAfterChapterCount}
-                        onContextAfterChapterCountChange={setContextAfterChapterCount}
-                        thinkingLevel={translationThinkingLevel}
-                        onThinkingLevelChange={setTranslationThinkingLevel}
-                      />
-                    </div>
-                    <div className="mt-4">
-                      <TextareaField
-                        label="Prompt"
-                        value={translationPrompt}
-                        onChange={setTranslationPrompt}
-                        rows={10}
-                      />
-                    </div>
-                  </>
-                ) : null}
               </Panel>
             </div>
           </section>
         ) : null}
 
-        {screen === "workspace" && activeTranslation && activeSession ? (
+        {screen === "workspace" && activeTranslation ? (
           <section className="grid gap-6 xl:grid-cols-[320px_1fr]">
             <Panel title="Translation">
               <div className="rounded-2xl border border-border/60 bg-paper/70 p-4 text-sm text-ink/70">
-                <p className="text-xs font-semibold uppercase tracking-[0.18em] text-accent">Translation</p>
-                <h3 className="mt-2 font-display text-3xl text-ink">{activeTranslation.name}</h3>
+                <StatusPill status={activeTranslation.status} />
+                <h3 className="mt-3 font-display text-3xl text-ink">{activeTranslation.name}</h3>
                 <p className="mt-2 leading-7">{activeTranslation.description || "No description yet."}</p>
+                <div className="mt-4 grid grid-cols-2 gap-3">
+                  <Metric label="Saved" value={`${activeTranslation.savedChapterCount}/${activeTranslation.chapterCount}`} />
+                  <Metric label="Draft" value={String(activeTranslation.draftChapterCount)} />
+                  <Metric label="Errors" value={String(activeTranslation.errorChapterCount)} />
+                  <Metric label="Provider" value={formatProviderLabel(activeTranslation.provider)} />
+                </div>
               </div>
+
               <div className="mt-4 space-y-3">
-                {activeSession.chapters.map((chapter, index) => {
+                {activeTranslation.chapters.map((chapter) => {
                   const issueCount =
-                    validation?.chapters.find((validationChapter) => validationChapter.position === chapter.position)
-                      ?.issues.length ?? 0;
+                    validation?.chapters.find((validationChapter) => validationChapter.chapterId === chapter.chapterId)?.issues
+                      .length ?? 0;
                   return (
                     <button
-                      key={chapter.id}
+                      key={chapter.chapterId}
                       type="button"
-                      onClick={() => setSelectedChapterIndex(index)}
+                      onClick={() => setSelectedChapterId(chapter.chapterId)}
                       className={`w-full rounded-2xl border px-4 py-3 text-left transition ${
-                        selectedChapterIndex === index
+                        selectedChapterId === chapter.chapterId
                           ? "border-accent bg-accent/10"
                           : "border-border/70 bg-paper/80 hover:border-accent/50"
                       }`}
@@ -1101,10 +1329,11 @@ export default function AdminApp() {
                   );
                 })}
               </div>
+
               <div className="mt-6 flex flex-wrap gap-3">
-                <ActionButton label="Back To Translations" onClick={() => setScreen("translations")} />
+                <ActionButton label="Back To Translations" onClick={goToTranslations} />
                 <ActionButton
-                  label="Validate Translation"
+                  label={isBusy ? "Validating..." : "Validate Translation"}
                   onClick={() => void validateCurrentTranslation()}
                   tone="accent"
                 />
@@ -1141,8 +1370,8 @@ export default function AdminApp() {
                       isBusy && translationMetadataIsDirty
                         ? "Saving..."
                         : translationMetadataIsDirty
-                          ? "Save Translation Metadata"
-                          : "Translation Metadata Saved"
+                          ? "Save Metadata"
+                          : "Metadata Saved"
                     }
                     onClick={() => void saveTranslationSettings()}
                     disabled={isBusy || !translationMetadataIsDirty}
@@ -1158,75 +1387,40 @@ export default function AdminApp() {
 
               {currentWorkspaceChapter && chapterEditor ? (
                 <>
-                  <section className="rounded-[28px] border border-border/70 bg-white/80 p-6 shadow-panel backdrop-blur">
-                    <button
-                      type="button"
-                      onClick={() => setWorkspaceSourceExpanded((current) => !current)}
-                      className="flex w-full items-center justify-between gap-4 text-left"
-                      aria-expanded={workspaceSourceExpanded}
-                    >
-                      <div>
-                        <h2 className="font-display text-3xl text-ink">{`Source: ${currentWorkspaceChapter.title}`}</h2>
-                        <p className="mt-2 text-sm text-ink/65">
-                          {workspaceSourceExpanded ? "Hide source text" : "Show source text"}
+                  <Panel title={`Source: ${currentWorkspaceChapter.title}`}>
+                    <div className="space-y-4">
+                      <div className="rounded-2xl border border-border/60 bg-paper/55 p-4">
+                        <p className="text-xs font-semibold uppercase tracking-[0.18em] text-accent">Source Text</p>
+                        <p className="mt-3 whitespace-pre-wrap text-base leading-7 text-ink/80">
+                          {currentWorkspaceChapter.sourceText}
                         </p>
                       </div>
-                      <span className="rounded-full border border-border/70 px-4 py-2 text-sm font-semibold text-ink">
-                        {workspaceSourceExpanded ? "Collapse" : "Expand"}
-                      </span>
-                    </button>
-                    {workspaceSourceExpanded ? (
-                      <div className="mt-5 space-y-5">
-                        <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-border/60 bg-paper/60 p-4">
-                          <div>
-                            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-accent">
-                              Source Reconstruction
-                            </p>
-                            <p
-                              className={`mt-2 text-sm leading-6 ${
-                                sourceDiff?.hasMismatch
-                                  ? "text-red-700"
-                                  : currentValidationChapter?.issues.length
-                                    ? "text-amber-800"
-                                    : "text-ink/70"
-                              }`}
-                            >
-                              {sourceDiff?.hasMismatch
-                                ? "Current chapter chunks do not reconstruct the source text exactly."
-                                : "Current chapter chunks reconstruct the source text exactly."}
-                            </p>
-                            {currentValidationChapter?.issues.length ? (
-                              <p className="mt-1 text-sm leading-6 text-ink/60">
-                                Last validation run: {currentValidationChapter.issues.length} issue(s) on this chapter.
-                              </p>
-                            ) : null}
-                          </div>
-                          <ActionButton
-                            label={isBusy ? "Re-Validating..." : "Re-Validate Translation"}
-                            onClick={() => void validateCurrentTranslation({ openResults: false })}
-                            disabled={isBusy}
-                          />
-                        </div>
 
-                        {sourceDiff?.hasMismatch ? (
-                          <SourceDiffPreview diff={sourceDiff} />
-                        ) : (
-                          <div className="rounded-2xl border border-border/60 bg-paper/55 p-4">
-                            <p className="whitespace-pre-wrap text-base leading-7 text-ink/80">
-                              {currentWorkspaceChapter.sourceText}
-                            </p>
-                          </div>
-                        )}
-
-                        {chapterIsDirty ? (
-                          <p className="text-sm leading-6 text-ink/60">
-                            The diff above is computed from unsaved editor changes. Save the chapter before
-                            re-validating if you want server-side validation to include those edits.
-                          </p>
-                        ) : null}
+                      <div
+                        className={`rounded-2xl border p-4 text-sm leading-6 ${
+                          sourceReconstructionMatches
+                            ? "border-emerald-200 bg-emerald-50 text-emerald-900"
+                            : "border-amber-200 bg-amber-50 text-amber-950"
+                        }`}
+                      >
+                        {sourceReconstructionMatches
+                          ? "Current chunks reconstruct the source text exactly."
+                          : "Current chunks do not reconstruct the source text exactly. Fix the chunk boundaries before publishing."}
                       </div>
-                    ) : null}
-                  </section>
+
+                      {currentValidationChapter?.issues.length ? (
+                        <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm leading-6 text-amber-950">
+                          Last validation run found {currentValidationChapter.issues.length} issue(s) on this chapter.
+                        </div>
+                      ) : null}
+
+                      {currentWorkspaceChapter.errorMessage ? (
+                        <div className="rounded-2xl border border-red-200 bg-red-50 p-4 text-sm leading-6 text-red-900">
+                          {currentWorkspaceChapter.errorMessage}
+                        </div>
+                      ) : null}
+                    </div>
+                  </Panel>
 
                   <Panel title="Structured Chapter Review">
                     <div className="grid gap-3 lg:grid-cols-2">
@@ -1263,34 +1457,9 @@ export default function AdminApp() {
                         }
                       />
                     </section>
-                    <button
-                      type="button"
-                      onClick={() => setShowRawJsonEditor((current) => !current)}
-                      className="mt-4 text-sm font-semibold text-accent"
-                    >
-                      {showRawJsonEditor ? "Hide raw JSON" : "Show raw JSON"}
-                    </button>
-                    {showRawJsonEditor ? (
-                      <div className="mt-4">
-                        <textarea
-                          className="min-h-[260px] w-full rounded-2xl border border-border/70 bg-paper/70 px-4 py-3 font-mono text-sm leading-6 text-ink outline-none transition focus:border-accent"
-                          value={editedRawResponse}
-                          onChange={(event) => setEditedRawResponse(event.target.value)}
-                        />
-                        <div className="mt-3">
-                          <ActionButton label="Reload Editor From Raw JSON" onClick={reloadEditorFromRawJson} />
-                        </div>
-                      </div>
-                    ) : null}
                     <div className="mt-6 flex justify-end">
                       <ActionButton
-                        label={
-                          isBusy && chapterIsDirty
-                            ? "Saving..."
-                            : chapterIsDirty
-                              ? "Save Chapter To Translation"
-                              : "Chapter Saved"
-                        }
+                        label={isBusy && chapterIsDirty ? "Saving..." : chapterIsDirty ? "Save Chapter" : "Chapter Saved"}
                         onClick={saveCurrentChapter}
                         tone="accent"
                         disabled={isBusy || !chapterIsDirty}
@@ -1307,14 +1476,11 @@ export default function AdminApp() {
           <section className="grid gap-6 xl:grid-cols-[320px_1fr]">
             <Panel title="Validation Summary">
               <p className="text-sm font-semibold uppercase tracking-[0.18em] text-accent">
-                {validation.isValid ? "Ready for finish line" : "Issues found"}
+                {validation.isValid ? "Ready to publish" : "Blocking issues found"}
               </p>
-              {!validation.isValid ? (
-                <p className="mt-3 text-sm leading-6 text-ink/70">
-                  Validation issues are non-blocking. You can review them here and still mark this translation ready or
-                  publish it.
-                </p>
-              ) : null}
+              <p className="mt-3 text-sm leading-6 text-ink/70">
+                Warnings are informational. Errors must be fixed before the backend will publish this translation.
+              </p>
               <div className="mt-4 grid grid-cols-2 gap-3 text-sm text-ink/70">
                 <Metric label="Chapters" value={String(validation.chapters.length)} />
                 <Metric
@@ -1330,16 +1496,24 @@ export default function AdminApp() {
               <div className="mt-6 flex flex-wrap gap-3">
                 <ActionButton label="Continue Editing" onClick={() => setScreen("workspace")} />
                 <ActionButton
-                  label="Mark Ready"
-                  onClick={() => void markTranslationStatus("ready")}
+                  label={isBusy ? "Refreshing..." : "Re-Validate"}
+                  onClick={() => void validateCurrentTranslation({ openResults: true })}
                   tone="accent"
                   disabled={isBusy}
                 />
-                <ActionButton
-                  label="Publish Translation"
-                  onClick={() => void markTranslationStatus("published")}
-                  disabled={isBusy}
-                />
+                {activeTranslation.status === "published" ? (
+                  <ActionButton
+                    label={isBusy ? "Unpublishing..." : "Unpublish"}
+                    onClick={() => void unpublishActiveTranslation()}
+                    disabled={isBusy}
+                  />
+                ) : (
+                  <ActionButton
+                    label={isBusy ? "Publishing..." : "Publish Translation"}
+                    onClick={() => void publishActiveTranslation()}
+                    disabled={isBusy || !validation.isValid}
+                  />
+                )}
                 <ActionButton label="Export Translation JSON" onClick={exportTranslationJson} />
               </div>
             </Panel>
@@ -1370,13 +1544,13 @@ export default function AdminApp() {
 
               <Panel title="Chapter Checks">
                 <div className="grid gap-3 md:grid-cols-2">
-                  {validation.chapters.map((chapter, index) => (
+                  {validation.chapters.map((chapter) => (
                     <button
-                      key={chapter.slug + chapter.position}
+                      key={chapter.chapterId}
                       type="button"
-                      onClick={() => openValidationChapter(index)}
+                      onClick={() => setSelectedChapterId(chapter.chapterId)}
                       className={`rounded-2xl border px-4 py-3 text-left transition ${
-                        validationPreviewIndex === index
+                        selectedChapterId === chapter.chapterId
                           ? "border-accent bg-accent/10"
                           : "border-border/70 bg-paper/80 hover:border-accent/50"
                       }`}
@@ -1389,20 +1563,16 @@ export default function AdminApp() {
                         <StatusPill status={chapter.status} />
                       </div>
                       <p className="mt-2 text-sm leading-6 text-ink/65">
-                        {chapter.issues.length > 0
-                          ? `${chapter.issues.length} issue(s) · Open in workspace`
-                          : "No issues"}
+                        {chapter.issues.length > 0 ? `${chapter.issues.length} issue(s)` : "No issues"}
                       </p>
                     </button>
                   ))}
                 </div>
               </Panel>
 
-              {validationPreviewChapter ? (
-                <Panel title="Side-by-Side Preview">
-                  <ChapterSideBySidePreview chapter={validationPreviewChapter} />
-                </Panel>
-              ) : null}
+              <Panel title="Side-By-Side Preview">
+                <ChapterSideBySidePreview chapter={validationPreviewChapter} />
+              </Panel>
             </div>
           </section>
         ) : null}
@@ -1461,11 +1631,43 @@ export default function AdminApp() {
           </div>
         </div>
       ) : null}
+
+      {editingBook ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-ink/35 px-4 py-6">
+          <div className="w-full max-w-2xl rounded-[32px] border border-border/70 bg-white p-6 shadow-panel">
+            <div className="flex items-center justify-between gap-4">
+              <h2 className="font-display text-4xl text-ink">Edit Book</h2>
+              <button
+                type="button"
+                onClick={closeBookMetadataEditor}
+                className="rounded-full border border-border/70 px-4 py-2 text-sm font-semibold text-ink transition hover:border-accent/50"
+              >
+                Close
+              </button>
+            </div>
+            <div className="mt-6 grid gap-4">
+              <InputField label="Title" value={editingBookTitle} onChange={setEditingBookTitle} />
+              <InputField label="Author" value={editingBookAuthor} onChange={setEditingBookAuthor} />
+              <InputField label="Original Language" value={editingBookLanguage} onChange={setEditingBookLanguage} />
+              <TextareaField label="Description" value={editingBookDescription} onChange={setEditingBookDescription} rows={6} />
+            </div>
+            <div className="mt-6 flex flex-wrap gap-3">
+              <ActionButton label="Cancel" onClick={closeBookMetadataEditor} disabled={isBusy} />
+              <ActionButton
+                label={isBusy ? "Saving..." : "Save Metadata"}
+                onClick={() => void saveBookMetadata()}
+                tone="accent"
+                disabled={isBusy || !editingBookTitle.trim()}
+              />
+            </div>
+          </div>
+        </div>
+      ) : null}
     </main>
   );
 }
 
-function Panel({ title, children }: { title: string; children: React.ReactNode }) {
+function Panel({ title, children }: { title: string; children: ReactNode }) {
   return (
     <section className="rounded-[28px] border border-border/70 bg-white/80 p-6 shadow-panel backdrop-blur">
       <h2 className="font-display text-3xl text-ink">{title}</h2>
@@ -1734,14 +1936,18 @@ function StatusPill({ status }: { status: string }) {
   const tone =
     status === "saved"
       ? "bg-emerald-100 text-emerald-800"
-      : status === "generated" || status === "ready" || status === "published"
-        ? "bg-amber-100 text-amber-800"
-        : status === "error" || status === "failed"
-          ? "bg-red-100 text-red-800"
-          : "bg-stone-200 text-stone-700";
+      : status === "published"
+        ? "bg-sky-100 text-sky-800"
+        : status === "draft"
+          ? "bg-amber-100 text-amber-800"
+          : status === "error"
+            ? "bg-red-100 text-red-800"
+            : "bg-stone-200 text-stone-700";
 
   return (
-    <span className={`rounded-full px-3 py-1 text-xs font-semibold uppercase tracking-[0.18em] ${tone}`}>{status}</span>
+    <span className={`rounded-full px-3 py-1 text-xs font-semibold uppercase tracking-[0.18em] ${tone}`}>
+      {status}
+    </span>
   );
 }
 
@@ -1766,104 +1972,100 @@ function AlignedTranslationReview({
     <div className="rounded-2xl border border-border/70 bg-paper/70 p-4">
       <div className="flex items-center justify-between gap-3">
         <p className="text-xs font-semibold uppercase tracking-[0.18em] text-accent">Aligned Translation Review</p>
-        <div className="flex flex-wrap gap-2">
-          <MiniButton
-            label="Add Chunk"
-            onClick={() =>
-              onChange([
-                ...chunks,
-                {
-                  originalText: "",
-                  translatedText: "",
-                  type: "prose",
-                },
-              ])
-            }
-          />
-        </div>
+        <MiniButton
+          label="Add Chunk"
+          onClick={() =>
+            onChange([
+              ...chunks,
+              {
+                originalText: "",
+                translatedText: "",
+                type: "prose",
+              },
+            ])
+          }
+        />
       </div>
       <div className="mt-3 space-y-3">
-        {chunks.map((chunk, index) => {
-          return (
-            <div
-              key={`translation-${index}`}
-              className="grid gap-4 rounded-xl border border-border/50 bg-white/45 p-4 xl:grid-cols-[minmax(0,0.95fr)_minmax(0,1.05fr)]"
-            >
-              <div className="min-w-0 border-r border-border/35 pr-4 xl:pr-5">
-                <div className="flex items-center justify-between gap-3">
-                  <p className="text-xs font-semibold uppercase tracking-[0.18em] text-accent/80">Source</p>
-                  <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-accent/75">T{index + 1}</p>
-                </div>
-                <textarea
-                  rows={Math.max(5, chunk.originalText.split("\n").length)}
-                  value={chunk.originalText}
-                  onChange={(event) =>
-                    onChange(
-                      chunks.map((entry, chunkIndex) =>
-                        chunkIndex === index ? { ...entry, originalText: event.target.value } : entry,
-                      ),
-                    )
-                  }
-                  placeholder="Original text"
-                  className="mt-3 w-full rounded-xl border border-border/60 bg-paper/65 px-3 py-2 text-base leading-7 text-ink outline-none transition focus:border-accent"
-                />
+        {chunks.map((chunk, index) => (
+          <div
+            key={`translation-${index}`}
+            className="grid gap-4 rounded-xl border border-border/50 bg-white/45 p-4 xl:grid-cols-[minmax(0,0.95fr)_minmax(0,1.05fr)]"
+          >
+            <div className="min-w-0 border-r border-border/35 pr-4 xl:pr-5">
+              <div className="flex items-center justify-between gap-3">
+                <p className="text-xs font-semibold uppercase tracking-[0.18em] text-accent/80">Source</p>
+                <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-accent/75">T{index + 1}</p>
               </div>
-
-              <div className="min-w-0">
-                <div className="flex flex-wrap items-center gap-2">
-                  <CompactSelect
-                    value={chunk.type}
-                    onChange={(value) =>
-                      onChange(
-                        chunks.map((entry, chunkIndex) =>
-                          chunkIndex === index ? { ...entry, type: value as "prose" | "verse" } : entry,
-                        ),
-                      )
-                    }
-                    options={[
-                      { value: "prose", label: "Prose" },
-                      { value: "verse", label: "Verse" },
-                    ]}
-                    ariaLabel={`Chunk type for translation ${index + 1}`}
-                  />
-                  <MiniButton
-                    label="Add Below"
-                    onClick={() =>
-                      onChange([
-                        ...chunks.slice(0, index + 1),
-                        {
-                          originalText: "",
-                          translatedText: "",
-                          type: chunk.type,
-                        },
-                        ...chunks.slice(index + 1),
-                      ])
-                    }
-                  />
-                  <MiniButton
-                    label="Delete"
-                    onClick={() => onChange(chunks.filter((_, chunkIndex) => chunkIndex !== index))}
-                    disabled={chunks.length === 1}
-                  />
-                </div>
-
-                <textarea
-                  rows={5}
-                  value={chunk.translatedText}
-                  onChange={(event) =>
-                    onChange(
-                      chunks.map((entry, chunkIndex) =>
-                        chunkIndex === index ? { ...entry, translatedText: event.target.value } : entry,
-                      ),
-                    )
-                  }
-                  placeholder="Translated text"
-                  className="mt-3 w-full rounded-xl border border-border/60 bg-paper/65 px-3 py-2 text-base leading-7 text-ink outline-none transition focus:border-accent"
-                />
-              </div>
+              <textarea
+                rows={Math.max(5, chunk.originalText.split("\n").length)}
+                value={chunk.originalText}
+                onChange={(event) =>
+                  onChange(
+                    chunks.map((entry, chunkIndex) =>
+                      chunkIndex === index ? { ...entry, originalText: event.target.value } : entry,
+                    ),
+                  )
+                }
+                placeholder="Original text"
+                className="mt-3 w-full rounded-xl border border-border/60 bg-paper/65 px-3 py-2 text-base leading-7 text-ink outline-none transition focus:border-accent"
+              />
             </div>
-          );
-        })}
+
+            <div className="min-w-0">
+              <div className="flex flex-wrap items-center gap-2">
+                <CompactSelect
+                  value={chunk.type}
+                  onChange={(value) =>
+                    onChange(
+                      chunks.map((entry, chunkIndex) =>
+                        chunkIndex === index ? { ...entry, type: value as "prose" | "verse" } : entry,
+                      ),
+                    )
+                  }
+                  options={[
+                    { value: "prose", label: "Prose" },
+                    { value: "verse", label: "Verse" },
+                  ]}
+                  ariaLabel={`Chunk type for translation ${index + 1}`}
+                />
+                <MiniButton
+                  label="Add Below"
+                  onClick={() =>
+                    onChange([
+                      ...chunks.slice(0, index + 1),
+                      {
+                        originalText: "",
+                        translatedText: "",
+                        type: chunk.type,
+                      },
+                      ...chunks.slice(index + 1),
+                    ])
+                  }
+                />
+                <MiniButton
+                  label="Delete"
+                  onClick={() => onChange(chunks.filter((_, chunkIndex) => chunkIndex !== index))}
+                  disabled={chunks.length === 1}
+                />
+              </div>
+
+              <textarea
+                rows={5}
+                value={chunk.translatedText}
+                onChange={(event) =>
+                  onChange(
+                    chunks.map((entry, chunkIndex) =>
+                      chunkIndex === index ? { ...entry, translatedText: event.target.value } : entry,
+                    ),
+                  )
+                }
+                placeholder="Translated text"
+                className="mt-3 w-full rounded-xl border border-border/60 bg-paper/65 px-3 py-2 text-base leading-7 text-ink outline-none transition focus:border-accent"
+              />
+            </div>
+          </div>
+        ))}
       </div>
     </div>
   );
@@ -1896,137 +2098,37 @@ function CompactSelect({
   );
 }
 
-function ChapterSideBySidePreview({
-  chapter,
-}: {
-  chapter: NonNullable<AdminTranslationValidationPayload["session"]>["chapters"][number];
-}) {
+function ChapterSideBySidePreview({ chapter }: { chapter: TranslationChapterDraft | null }) {
+  if (!chapter?.content || chapter.content.chunks.length === 0) {
+    return <p className="text-base leading-7 text-ink/70">No translated content saved for this chapter yet.</p>;
+  }
+
   return (
     <div className="divide-y divide-border/35">
       <div className="grid grid-cols-2 gap-4 py-3 text-xs font-semibold uppercase tracking-[0.18em] text-accent md:gap-8">
         <div>Source</div>
         <div>Translation</div>
       </div>
-      {(chapter.translationDocument?.chunks ?? []).map((chunk) => {
-        return (
-          <div key={chunk.id} className="grid grid-cols-2 gap-4 py-4 md:gap-8">
-            <div>
-              <p className="whitespace-pre-wrap text-lg leading-8 text-ink/80">{chunk.originalText}</p>
-            </div>
-            <div>
-              <p className="whitespace-pre-wrap text-lg leading-8 text-ink/80">{chunk.translatedText}</p>
-            </div>
+      {chapter.content.chunks.map((chunk) => (
+        <div key={chunk.id} className="grid grid-cols-2 gap-4 py-4 md:gap-8">
+          <div>
+            <p className="whitespace-pre-wrap text-lg leading-8 text-ink/80">{chunk.originalText}</p>
           </div>
-        );
-      })}
-    </div>
-  );
-}
-
-function SourceDiffPreview({
-  diff,
-}: {
-  diff: {
-    sourceText: string;
-    reconstructedText: string;
-    hasMismatch: boolean;
-    lines: DiffLine[];
-  };
-}) {
-  return (
-    <div className="space-y-4">
-      <div className="grid gap-4 lg:grid-cols-2">
-        <DiffTextCard label="Source Text" tone="source" text={diff.sourceText} emptyLabel="Source text is empty." />
-        <DiffTextCard
-          label="Reconstructed From Chunks"
-          tone="reconstructed"
-          text={diff.reconstructedText}
-          emptyLabel="Reconstructed text is empty."
-        />
-      </div>
-      <div className="overflow-hidden rounded-2xl border border-border/60 bg-paper/60">
-        <div className="grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)] border-b border-border/60 bg-white/70">
-          <div className="px-4 py-3 text-xs font-semibold uppercase tracking-[0.18em] text-accent">Source</div>
-          <div className="border-l border-border/60 px-4 py-3 text-xs font-semibold uppercase tracking-[0.18em] text-accent">
-            Reconstructed
+          <div>
+            <p className="whitespace-pre-wrap text-lg leading-8 text-ink/80">{chunk.translatedText}</p>
           </div>
         </div>
-        <div className="divide-y divide-border/40">
-          {diff.lines.map((line, index) => (
-            <div key={`${line.leftLineNumber}-${line.rightLineNumber}-${index}`} className="grid grid-cols-2">
-              <DiffLineCell segments={line.left} lineNumber={line.leftLineNumber} tone="source" />
-              <DiffLineCell segments={line.right} lineNumber={line.rightLineNumber} tone="reconstructed" />
-            </div>
-          ))}
-        </div>
-      </div>
+      ))}
     </div>
   );
 }
 
-function DiffTextCard({
-  label,
-  text,
-  emptyLabel,
-  tone,
-}: {
-  label: string;
-  text: string;
-  emptyLabel: string;
-  tone: "source" | "reconstructed";
-}) {
-  return (
-    <div className="rounded-2xl border border-border/60 bg-paper/55 p-4">
-      <p className="text-xs font-semibold uppercase tracking-[0.18em] text-accent">{label}</p>
-      <div className={`mt-3 rounded-xl border px-4 py-3 ${tone === "source" ? "bg-red-50/70" : "bg-emerald-50/70"}`}>
-        <p className="whitespace-pre-wrap text-sm leading-6 text-ink/85">{text || emptyLabel}</p>
-      </div>
-    </div>
-  );
-}
-
-function DiffLineCell({
-  segments,
-  lineNumber,
-  tone,
-}: {
-  segments: DiffSegment[];
-  lineNumber: number | null;
-  tone: "source" | "reconstructed";
-}) {
-  return (
-    <div className={`flex gap-3 px-4 py-3 ${tone === "reconstructed" ? "border-l border-border/60" : ""}`}>
-      <span className="w-8 shrink-0 pt-0.5 text-right font-mono text-xs text-ink/35">{lineNumber ?? ""}</span>
-      <p className="min-w-0 whitespace-pre-wrap break-words font-mono text-sm leading-6 text-ink/85">
-        {segments.length > 0 ? segments.map((segment, index) => renderDiffSegment(segment, tone, index)) : " "}
-      </p>
-    </div>
-  );
-}
-
-function renderDiffSegment(segment: DiffSegment, tone: "source" | "reconstructed", index: number) {
-  if (segment.kind === "equal") {
-    return <span key={index}>{segment.value}</span>;
-  }
-
-  const className =
-    tone === "source"
-      ? "rounded bg-red-200/90 px-0.5 text-red-900"
-      : "rounded bg-emerald-200/90 px-0.5 text-emerald-950";
-
-  return (
-    <mark key={index} className={className}>
-      {segment.value}
-    </mark>
-  );
-}
-
-function buildChapterEditorState(chapter: AdminIngestionChapterRecord): ChapterEditorState {
+function buildChapterEditorState(chapter: TranslationChapterDraft): ChapterEditorState {
   if (chapter.rawResponse?.trim()) {
     try {
       return parseEditorStateFromRaw(chapter.rawResponse);
     } catch {
-      // Fall back to normalized documents below.
+      // Fall back to structured content below.
     }
   }
 
@@ -2034,16 +2136,54 @@ function buildChapterEditorState(chapter: AdminIngestionChapterRecord): ChapterE
     chapterTitle: chapter.title,
     notes: chapter.notes ?? "",
     chunks: (
-      chapter.translationDocument?.chunks ?? [
+      chapter.content?.chunks ?? [
         {
-          originalText: "",
+          originalText: chapter.sourceText,
           translatedText: "",
-          type: "prose",
-          id: "t1",
-          ordinal: 1,
+          type: chapter.sourceText.includes("\n") ? "verse" : "prose",
         },
       ]
     ).map((chunk) => ({
+      originalText: chunk.originalText,
+      translatedText: chunk.translatedText,
+      type: chunk.type,
+    })),
+  };
+}
+
+function parseEditorStateFromRaw(rawResponse: string): ChapterEditorState {
+  const parsed = JSON.parse(rawResponse) as {
+    chapterTitle?: string;
+    notes?: string;
+    chunks?: Array<{
+      originalText?: string;
+      translatedText?: string;
+      type?: "prose" | "verse";
+    }>;
+  };
+
+  const chunks: ChapterEditorState["chunks"] = (parsed.chunks ?? []).map((chunk) => ({
+    originalText: chunk.originalText ?? "",
+    translatedText: chunk.translatedText ?? "",
+    type: chunk.type === "verse" ? "verse" : "prose",
+  }));
+
+  if (chunks.length === 0) {
+    throw new Error("Raw JSON must include chunks.");
+  }
+
+  return {
+    chapterTitle: parsed.chapterTitle ?? "Untitled Chapter",
+    notes: parsed.notes ?? "",
+    chunks,
+  };
+}
+
+function serializeEditorState(editor: ChapterEditorState) {
+  return {
+    chapterTitle: editor.chapterTitle,
+    notes: editor.notes,
+    chunks: editor.chunks.map((chunk) => ({
       originalText: chunk.originalText,
       translatedText: chunk.translatedText,
       type: chunk.type,
@@ -2066,47 +2206,66 @@ function normalizeThinkingLevelValue(value: string): "none" | "minimal" | "low" 
 }
 
 function formatThinkingSummary(
-  session:
+  translation:
     | {
-        provider?: AiProvider | null;
         thinkingLevel: string | null;
       }
     | null
     | undefined,
 ): string {
-  if (!session?.thinkingLevel) {
+  if (!translation?.thinkingLevel) {
     return "Thinking default";
   }
 
-  if (session.thinkingLevel === "none") {
+  if (translation.thinkingLevel === "none") {
     return "Thinking off";
   }
 
-  return `Thinking ${session.thinkingLevel}`;
-}
-
-function normalizeProviderValue(value: string | null | undefined): AiProvider {
-  return value === "openrouter" ? "openrouter" : DEFAULT_PROVIDER;
+  return `Thinking ${translation.thinkingLevel}`;
 }
 
 function formatProviderLabel(provider: AiProvider): string {
   return provider === "openrouter" ? "OpenRouter" : "Gemini SDK";
 }
 
-function buildTranslationMetadataSnapshot(input: {
-  activeTranslation: AdminTranslationDetail;
-  activeSession: AdminTranslationDetail["currentSession"];
-}) {
+function buildTranslationMetadataSnapshot(activeTranslation: AdminTranslationDetail) {
   return {
-    name: input.activeTranslation.name.trim(),
-    slug: input.activeTranslation.slug.trim(),
-    description: (input.activeTranslation.description ?? "").trim(),
-    provider: input.activeSession?.provider ?? DEFAULT_PROVIDER,
-    model: (input.activeSession?.model ?? DEFAULT_MODEL).trim(),
-    thinkingLevel: input.activeSession?.thinkingLevel ?? null,
-    prompt: input.activeSession?.prompt ?? input.activeTranslation.aiSystemPrompt ?? "",
-    contextBeforeChapterCount: input.activeSession?.contextBeforeChapterCount ?? 1,
-    contextAfterChapterCount: input.activeSession?.contextAfterChapterCount ?? 1,
+    name: activeTranslation.name.trim(),
+    slug: activeTranslation.slug.trim(),
+    description: (activeTranslation.description ?? "").trim(),
+    provider: activeTranslation.provider,
+    model: activeTranslation.model.trim(),
+    thinkingLevel: activeTranslation.thinkingLevel ?? null,
+    prompt: activeTranslation.prompt,
+    contextBeforeChapterCount: activeTranslation.contextBeforeChapterCount,
+    contextAfterChapterCount: activeTranslation.contextAfterChapterCount,
+  };
+}
+
+function buildTranslationArchive(activeTranslation: AdminTranslationDetail): TranslationDraftArchive {
+  return {
+    version: 2,
+    exportedAt: new Date().toISOString(),
+    translation: {
+      name: activeTranslation.name,
+      slug: activeTranslation.slug,
+      description: activeTranslation.description,
+      provider: activeTranslation.provider,
+      model: activeTranslation.model,
+      thinkingLevel: activeTranslation.thinkingLevel,
+      prompt: activeTranslation.prompt,
+      contextBeforeChapterCount: activeTranslation.contextBeforeChapterCount,
+      contextAfterChapterCount: activeTranslation.contextAfterChapterCount,
+    },
+    chapters: activeTranslation.chapters.map((chapter) => ({
+      chapterSlug: chapter.slug,
+      position: chapter.position,
+      title: chapter.title,
+      status: chapter.status,
+      rawResponse: chapter.rawResponse,
+      content: chapter.content,
+      notes: chapter.notes,
+    })),
   };
 }
 
@@ -2187,225 +2346,14 @@ function buildBreadcrumbs(input: {
   return breadcrumbs;
 }
 
-function parseEditorStateFromRaw(rawResponse: string): ChapterEditorState {
-  const parsed = JSON.parse(rawResponse) as {
-    chapterTitle?: string;
-    notes?: string;
-    chunks?: Array<{
-      originalText?: string;
-      translatedText?: string;
-      type?: "prose" | "verse";
-    }>;
-  };
-
-  const chunks: ChapterEditorState["chunks"] = (parsed.chunks ?? []).map((chunk) => ({
-    originalText: chunk.originalText ?? "",
-    translatedText: chunk.translatedText ?? "",
-    type: chunk.type === "verse" ? "verse" : "prose",
-  }));
-
-  if (chunks.length === 0) {
-    throw new Error("Raw JSON must include chunks.");
-  }
-
-  return {
-    chapterTitle: parsed.chapterTitle ?? "Untitled Chapter",
-    notes: parsed.notes ?? "",
-    chunks,
-  };
-}
-
-function serializeEditorState(editor: ChapterEditorState) {
-  return {
-    chapterTitle: editor.chapterTitle,
-    notes: editor.notes,
-    chunks: editor.chunks.map((chunk) => ({
-      originalText: chunk.originalText,
-      translatedText: chunk.translatedText,
-      type: chunk.type,
-    })),
-  };
-}
-
 function formatTimestamp(value: string | null) {
   if (!value) {
     return "No activity";
   }
+
   return new Date(value).toLocaleDateString();
 }
 
-function buildSideBySideDiff(sourceText: string, reconstructedText: string): DiffLine[] {
-  const leftLines = sourceText.split("\n");
-  const rightLines = reconstructedText.split("\n");
-  const operations = diffLines(leftLines, rightLines);
-  const rows: DiffLine[] = [];
-  let leftLineNumber = 1;
-  let rightLineNumber = 1;
-
-  for (let index = 0; index < operations.length; index += 1) {
-    const operation = operations[index];
-
-    if (operation?.type === "equal") {
-      rows.push({
-        left: [{ value: operation.left, kind: "equal" }],
-        right: [{ value: operation.right, kind: "equal" }],
-        leftLineNumber,
-        rightLineNumber,
-        hasChanges: false,
-      });
-      leftLineNumber += 1;
-      rightLineNumber += 1;
-      continue;
-    }
-
-    const removed: string[] = [];
-    const added: string[] = [];
-    while (operations[index]?.type === "remove") {
-      const entry = operations[index];
-      if (entry?.type !== "remove") {
-        break;
-      }
-      removed.push(entry.left);
-      index += 1;
-    }
-    while (operations[index]?.type === "add") {
-      const entry = operations[index];
-      if (entry?.type !== "add") {
-        break;
-      }
-      added.push(entry.right);
-      index += 1;
-    }
-    index -= 1;
-
-    const pairCount = Math.max(removed.length, added.length);
-    for (let pairIndex = 0; pairIndex < pairCount; pairIndex += 1) {
-      const left = removed[pairIndex];
-      const right = added[pairIndex];
-      const highlighted = highlightChangedLine(left, right);
-      rows.push({
-        left: highlighted.left,
-        right: highlighted.right,
-        leftLineNumber: left != null ? leftLineNumber++ : null,
-        rightLineNumber: right != null ? rightLineNumber++ : null,
-        hasChanges: true,
-      });
-    }
-  }
-
-  return rows;
-}
-
-function diffLines(leftLines: string[], rightLines: string[]) {
-  const leftLength = leftLines.length;
-  const rightLength = rightLines.length;
-  const dp = Array.from({ length: leftLength + 1 }, () => Array<number>(rightLength + 1).fill(0));
-
-  for (let leftIndex = leftLength - 1; leftIndex >= 0; leftIndex -= 1) {
-    for (let rightIndex = rightLength - 1; rightIndex >= 0; rightIndex -= 1) {
-      const row = dp[leftIndex];
-      if (!row) {
-        continue;
-      }
-      const leftLine = leftLines[leftIndex] ?? "";
-      const rightLine = rightLines[rightIndex] ?? "";
-      const down = dp[leftIndex + 1]?.[rightIndex] ?? 0;
-      const right = dp[leftIndex]?.[rightIndex + 1] ?? 0;
-      const diagonal = dp[leftIndex + 1]?.[rightIndex + 1] ?? 0;
-      row[rightIndex] = leftLine === rightLine ? diagonal + 1 : Math.max(down, right);
-    }
-  }
-
-  const operations: Array<
-    { type: "equal"; left: string; right: string } | { type: "remove"; left: string } | { type: "add"; right: string }
-  > = [];
-  let leftIndex = 0;
-  let rightIndex = 0;
-
-  while (leftIndex < leftLength && rightIndex < rightLength) {
-    const leftLine = leftLines[leftIndex] ?? "";
-    const rightLine = rightLines[rightIndex] ?? "";
-    if (leftLine === rightLine) {
-      operations.push({ type: "equal", left: leftLine, right: rightLine });
-      leftIndex += 1;
-      rightIndex += 1;
-    } else if ((dp[leftIndex + 1]?.[rightIndex] ?? 0) >= (dp[leftIndex]?.[rightIndex + 1] ?? 0)) {
-      operations.push({ type: "remove", left: leftLine });
-      leftIndex += 1;
-    } else {
-      operations.push({ type: "add", right: rightLine });
-      rightIndex += 1;
-    }
-  }
-
-  while (leftIndex < leftLength) {
-    operations.push({ type: "remove", left: leftLines[leftIndex] ?? "" });
-    leftIndex += 1;
-  }
-
-  while (rightIndex < rightLength) {
-    operations.push({ type: "add", right: rightLines[rightIndex] ?? "" });
-    rightIndex += 1;
-  }
-
-  return operations;
-}
-
-function highlightChangedLine(left: string | undefined, right: string | undefined) {
-  if (left == null) {
-    return {
-      left: [] as DiffSegment[],
-      right: right ? [{ value: right, kind: "add" as const }] : [],
-    };
-  }
-
-  if (right == null) {
-    return {
-      left: left ? [{ value: left, kind: "remove" as const }] : [],
-      right: [] as DiffSegment[],
-    };
-  }
-
-  let prefixLength = 0;
-  while (prefixLength < left.length && prefixLength < right.length && left[prefixLength] === right[prefixLength]) {
-    prefixLength += 1;
-  }
-
-  let leftSuffixIndex = left.length - 1;
-  let rightSuffixIndex = right.length - 1;
-  while (
-    leftSuffixIndex >= prefixLength &&
-    rightSuffixIndex >= prefixLength &&
-    left[leftSuffixIndex] === right[rightSuffixIndex]
-  ) {
-    leftSuffixIndex -= 1;
-    rightSuffixIndex -= 1;
-  }
-
-  const leftSegments: DiffSegment[] = [];
-  const rightSegments: DiffSegment[] = [];
-  const prefix = left.slice(0, prefixLength);
-  const leftMiddle = left.slice(prefixLength, leftSuffixIndex + 1);
-  const rightMiddle = right.slice(prefixLength, rightSuffixIndex + 1);
-  const suffix = left.slice(leftSuffixIndex + 1);
-
-  if (prefix) {
-    leftSegments.push({ value: prefix, kind: "equal" });
-    rightSegments.push({ value: prefix, kind: "equal" });
-  }
-  if (leftMiddle) {
-    leftSegments.push({ value: leftMiddle, kind: "remove" });
-  }
-  if (rightMiddle) {
-    rightSegments.push({ value: rightMiddle, kind: "add" });
-  }
-  if (suffix) {
-    leftSegments.push({ value: suffix, kind: "equal" });
-    rightSegments.push({ value: suffix, kind: "equal" });
-  }
-
-  return {
-    left: leftSegments,
-    right: rightSegments,
-  };
+function getBookPublicationStatus(publishedTranslationCount: number) {
+  return publishedTranslationCount > 0 ? "published" : "draft";
 }

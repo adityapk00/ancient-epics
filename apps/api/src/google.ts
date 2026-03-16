@@ -4,26 +4,26 @@ import {
   type ThinkingConfig,
   ThinkingLevel as GoogleThinkingLevel,
 } from "@google/genai";
-import type { AdminIngestionChapterRecord, AdminIngestionSessionDetail, ThinkingLevel } from "@ancient-epics/shared";
+import type { AdminTranslationDetail, ThinkingLevel, TranslationChapterDraft } from "@ancient-epics/shared";
 import { config } from "./config";
-import { generateChapterWithProvider, type ProviderCallResult } from "./translation-generation";
+import { generateTranslationChapterWithProvider, type ProviderCallResult } from "./translation-generation";
 
 export async function generateChapterWithGoogle(input: {
   apiKey: string;
   model: string;
   thinkingLevel: ThinkingLevel | null;
   prompt: string;
-  session: AdminIngestionSessionDetail;
-  chapter: AdminIngestionChapterRecord;
-  previousChapters?: AdminIngestionChapterRecord[];
-  nextChapters?: AdminIngestionChapterRecord[];
+  translation: AdminTranslationDetail;
+  chapter: TranslationChapterDraft;
+  previousChapters?: TranslationChapterDraft[];
+  nextChapters?: TranslationChapterDraft[];
 }): Promise<string> {
-  return generateChapterWithProvider({
+  return generateTranslationChapterWithProvider({
     provider: "google",
     model: input.model,
     thinkingLevel: input.thinkingLevel,
     prompt: input.prompt,
-    session: input.session,
+    translation: input.translation,
     chapter: input.chapter,
     previousChapters: input.previousChapters,
     nextChapters: input.nextChapters,

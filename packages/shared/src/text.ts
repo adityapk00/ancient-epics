@@ -1,4 +1,4 @@
-import type { TranslationChunk } from "./types";
+import type { AiProvider, ThinkingLevel, TranslationChunk } from "./types";
 
 export function normalizeChapterText(value: string): string {
   return value.replace(/\r\n/g, "\n").trim();
@@ -14,6 +14,32 @@ export function originalTextReconstructsSource(
   chunks: Array<Pick<TranslationChunk, "originalText">>,
 ): boolean {
   return normalizeChapterText(sourceText) === normalizeChapterText(reconstructSourceTextFromChunks(chunks));
+}
+
+export function slugify(value: string, fallback = "untitled"): string {
+  const slug = value
+    .toLowerCase()
+    .trim()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .replace(/-{2,}/g, "-")
+    .slice(0, 80);
+
+  return slug || fallback;
+}
+
+export function normalizeProvider(value: AiProvider | string | null | undefined): AiProvider {
+  return value === "openrouter" ? "openrouter" : "google";
+}
+
+export function normalizeThinkingLevel(value: ThinkingLevel | string | null | undefined): ThinkingLevel | null {
+  if (value === null || value === undefined) {
+    return null;
+  }
+
+  return ["none", "minimal", "low", "medium", "high", "xhigh"].includes(value)
+    ? (value as ThinkingLevel)
+    : null;
 }
 
 function normalizeChunkText(value: string): string {

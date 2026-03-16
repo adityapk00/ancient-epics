@@ -1,18 +1,17 @@
 import type {
-  AiProvider,
-  AdminBookChapterInput,
   AdminBookSourcePayload,
-  AdminIngestionBootstrapPayload,
-  AdminIngestionSessionDetail,
+  AdminBootstrapPayload,
   AdminTranslationDetail,
   AdminTranslationSummary,
   AdminTranslationValidationPayload,
-  ThinkingLevel,
+  AiProvider,
   ApiResponse,
   BookDetail,
   BookSummary,
-  ChapterPayload,
-  TranslationPayload,
+  ReaderChapterPayload,
+  SourceChapterInput,
+  ThinkingLevel,
+  TranslationDraftArchive,
 } from "@ancient-epics/shared";
 
 const apiBaseUrl = import.meta.env.VITE_API_BASE_URL ?? "";
@@ -42,28 +41,48 @@ function requestJson<T>(method: "POST" | "PUT", path: string, body: unknown): Pr
   });
 }
 
+function requestWithMethod<T>(method: "DELETE" | "POST", path: string): Promise<T> {
+  return request<T>(path, {
+    method,
+  });
+}
+
 export const api = {
   health: () => request<{ environment: string; now: string }>("/api/health"),
   listBooks: () => request<{ books: BookSummary[] }>("/api/books"),
   getBook: (bookSlug: string) => request<BookDetail>(`/api/books/${bookSlug}`),
-  getChapter: (bookSlug: string, chapterSlug: string) =>
-    request<ChapterPayload>(`/api/books/${bookSlug}/chapters/${chapterSlug}`),
-  getTranslation: (bookSlug: string, chapterSlug: string, translationSlug: string) =>
-    request<TranslationPayload>(`/api/books/${bookSlug}/chapters/${chapterSlug}/translations/${translationSlug}`),
+  getChapter: (bookSlug: string, chapterSlug: string, translationSlug?: string | null) =>
+    request<ReaderChapterPayload>(
+      `/api/books/${bookSlug}/chapters/${chapterSlug}${
+        translationSlug ? `?translation=${encodeURIComponent(translationSlug)}` : ""
+      }`,
+    ),
   getAdminSettings: () => request<{ settings: Record<string, string> }>("/api/admin/settings"),
   updateAdminSettings: (settings: Record<string, string>) =>
     requestJson<{ updated: string[] }>("PUT", "/api/admin/settings", {
       settings,
     }),
-  getAdminIngestionBootstrap: () => request<AdminIngestionBootstrapPayload>("/api/admin/ingestion/bootstrap"),
+  getAdminBootstrap: () => request<AdminBootstrapPayload>("/api/admin/bootstrap"),
   createAdminBook: (body: {
     title: string;
     author?: string;
     originalLanguage?: string;
     description?: string;
-    chapters: AdminBookChapterInput[];
+    chapters: SourceChapterInput[];
   }) => requestJson<AdminBookSourcePayload>("POST", "/api/admin/books", body),
+  getAdminBook: (bookSlug: string) => request<AdminBookSourcePayload>(`/api/admin/books/${bookSlug}`),
   getAdminBookSource: (bookSlug: string) => request<AdminBookSourcePayload>(`/api/admin/books/${bookSlug}/source`),
+  updateAdminBook: (
+    bookSlug: string,
+    body: {
+      title?: string;
+      author?: string;
+      originalLanguage?: string;
+      description?: string;
+    },
+  ) => requestJson<AdminBookSourcePayload>("PUT", `/api/admin/books/${bookSlug}`, body),
+  deleteAdminBook: (bookSlug: string) =>
+    requestWithMethod<{ deleted: true; bookSlug: string }>("DELETE", `/api/admin/books/${bookSlug}`),
   listAdminTranslations: (bookSlug: string) =>
     request<{ translations: AdminTranslationSummary[] }>(`/api/admin/books/${bookSlug}/translations`),
   createAdminTranslation: (
@@ -79,6 +98,8 @@ export const api = {
       contextAfterChapterCount?: number;
     },
   ) => requestJson<AdminTranslationDetail>("POST", `/api/admin/books/${bookSlug}/translations`, body),
+  importAdminTranslation: (bookSlug: string, body: { archive: TranslationDraftArchive | unknown }) =>
+    requestJson<AdminTranslationDetail>("POST", `/api/admin/books/${bookSlug}/translations/import`, body),
   getAdminTranslation: (translationId: string) =>
     request<AdminTranslationDetail>(`/api/admin/translations/${translationId}`),
   updateAdminTranslation: (
@@ -87,63 +108,26 @@ export const api = {
       name?: string;
       slug?: string;
       description?: string;
-      status?: "draft" | "generating" | "ready" | "published" | "failed";
       provider?: AiProvider;
       model?: string;
       thinkingLevel?: ThinkingLevel | null;
       prompt?: string;
       contextBeforeChapterCount?: number;
       contextAfterChapterCount?: number;
-      currentChapterIndex?: number;
     },
   ) => requestJson<AdminTranslationDetail>("PUT", `/api/admin/translations/${translationId}`, body),
+  deleteAdminTranslation: (translationId: string) =>
+    requestWithMethod<{ deleted: true; translationId: string }>("DELETE", `/api/admin/translations/${translationId}`),
   validateAdminTranslation: (translationId: string) =>
     request<AdminTranslationValidationPayload>(`/api/admin/translations/${translationId}/validate`),
-  createAdminIngestionSession: (body: {
-    title: string;
-    sourceMode: "paste" | "existing_story";
-    sourceBookSlug?: string;
-    translationId?: string;
-    provider: AiProvider;
-    model: string;
-    thinkingLevel?: ThinkingLevel | null;
-    prompt: string;
-    contextBeforeChapterCount?: number;
-    contextAfterChapterCount?: number;
-    chapters?: Array<{
-      position: number;
-      title: string;
-      slug: string;
-      sourceText: string;
-      sourceChapterSlug: string | null;
-    }>;
-  }) => requestJson<AdminIngestionSessionDetail>("POST", "/api/admin/ingestion/sessions", body),
-  getAdminIngestionSession: (sessionId: string) =>
-    request<AdminIngestionSessionDetail>(`/api/admin/ingestion/sessions/${sessionId}`),
-  updateAdminIngestionSession: (
-    sessionId: string,
-    body: {
-      title?: string;
-      provider?: AiProvider;
-      model?: string;
-      thinkingLevel?: ThinkingLevel | null;
-      prompt?: string;
-      contextBeforeChapterCount?: number;
-      contextAfterChapterCount?: number;
-      currentChapterIndex?: number;
-    },
-  ) => requestJson<AdminIngestionSessionDetail>("PUT", `/api/admin/ingestion/sessions/${sessionId}`, body),
-  generateAdminIngestionChapter: (sessionId: string, position: number) =>
-    requestJson<{ chapter: AdminIngestionSessionDetail["chapters"][number] }>(
-      "POST",
-      `/api/admin/ingestion/sessions/${sessionId}/chapters/${position}/generate`,
-      {},
-    ),
-  saveAdminIngestionChapter: (sessionId: string, position: number, rawResponse: string) =>
-    requestJson<{
-      chapter: AdminIngestionSessionDetail["chapters"][number];
-      session: AdminIngestionSessionDetail | null;
-    }>("PUT", `/api/admin/ingestion/sessions/${sessionId}/chapters/${position}/save`, {
+  generateAdminTranslationChapter: (translationId: string, chapterId: string) =>
+    requestJson<AdminTranslationDetail>("POST", `/api/admin/translations/${translationId}/chapters/${chapterId}/generate`, {}),
+  saveAdminTranslationChapter: (translationId: string, chapterId: string, rawResponse: string) =>
+    requestJson<AdminTranslationDetail>("PUT", `/api/admin/translations/${translationId}/chapters/${chapterId}`, {
       rawResponse,
     }),
+  publishAdminTranslation: (translationId: string) =>
+    requestWithMethod<AdminTranslationDetail>("POST", `/api/admin/translations/${translationId}/publish`),
+  unpublishAdminTranslation: (translationId: string) =>
+    requestWithMethod<AdminTranslationDetail>("POST", `/api/admin/translations/${translationId}/unpublish`),
 };

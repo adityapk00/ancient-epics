@@ -1,126 +1,47 @@
 import {
   APP_SETTING_KEYS,
-  type AiProvider,
-  type AdminBookChapterInput,
-  type AdminIngestionSessionDetail,
   buildOriginalChapterKey,
   buildTranslationChapterKey,
-  type AdminIngestionBootstrapPayload,
-  type AdminIngestionChapterInput,
-  type AdminIngestionSourceMode,
-  type BookDetail,
-  type BookSummary,
-  type ChapterPayload,
-  type ChapterSummary,
+  normalizeProvider,
+  normalizeThinkingLevel,
+  slugify,
+  type AdminBootstrapPayload,
+  type AiProvider,
   type OriginalChapterDocument,
+  type SourceChapterInput,
   type ThinkingLevel,
   type TranslationChapterDocument,
-  type TranslationPayload,
-  type TranslationSummary,
+  type TranslationChapterDraft,
+  type TranslationDraftArchive,
 } from "@ancient-epics/shared";
 import { Hono } from "hono";
 import { cors } from "hono/cors";
 import {
-  buildChapterInputsFromExistingStory,
-  buildInitialOriginalDocument,
-  createAdminIngestionSessionForBook,
   getAdminBookSourcePayload,
-  getAdminIngestionSessionDetail,
-  getAdminIngestionSessionRow,
   getAdminTranslationDetail,
+  getPublicBookDetail,
+  getPublishedTranslationPayload,
+  getReaderChapterPayload,
   getSettingsMap,
-  listAdminBookWorkflowSummaries,
-  listAdminIngestionSessions,
+  listAdminBookSummaries,
   listAdminTranslations,
-  normalizePastedChapterInputs,
-  validateTranslation,
-} from "./admin-data";
+  listBookChapters,
+  listPublicBooks,
+  upsertSettings,
+  validateTranslationDetail,
+} from "./data";
 import { generateChapterWithGoogle } from "./google";
-import { failure, type AppEnv, readObjectJson, success, slugify, writeObjectJson } from "./http";
+import { failure, type AppEnv, success, writeObjectJson } from "./http";
 import { generateChapterWithOpenRouter } from "./openrouter";
-import { normalizeThinkingLevel } from "./reasoning";
-import { persistGeneratedChapter } from "./translation-generation";
+import { publishTranslationChapters, saveTranslationChapterDraft } from "./translation-generation";
 
 const app = new Hono<AppEnv>();
-
-async function syncBookPublicationStatus(db: D1Database, bookId: string, now: string) {
-  const publishedTranslation = await db
-    .prepare(
-      `
-        SELECT 1
-        FROM translations
-        WHERE book_id = ? AND status = 'published'
-        LIMIT 1
-      `,
-    )
-    .bind(bookId)
-    .first<{ 1: number } | null>();
-
-  await db
-    .prepare(
-      `
-        UPDATE books
-        SET
-          status = ?,
-          published_at = CASE
-            WHEN ? = 'published' AND published_at IS NULL THEN ?
-            WHEN ? = 'draft' THEN NULL
-            ELSE published_at
-          END,
-          updated_at = ?
-        WHERE id = ?
-      `,
-    )
-    .bind(
-      publishedTranslation ? "published" : "draft",
-      publishedTranslation ? "published" : "draft",
-      now,
-      publishedTranslation ? "published" : "draft",
-      now,
-      bookId,
-    )
-    .run();
-}
-
-async function materializeTranslationChaptersForPublish(input: {
-  db: D1Database;
-  bucket: R2Bucket;
-  session: AdminIngestionSessionDetail;
-}) {
-  const warnings: string[] = [];
-
-  for (const chapter of input.session.chapters) {
-    if (!chapter.rawResponse?.trim()) {
-      warnings.push(`Chapter ${chapter.position + 1} "${chapter.title}" has no generated translation to publish.`);
-      continue;
-    }
-
-    const updatedChapter = await persistGeneratedChapter({
-      db: input.db,
-      bucket: input.bucket,
-      session: input.session,
-      chapter,
-      rawResponse: chapter.rawResponse,
-      statusOnSuccess: "saved",
-    });
-
-    if (updatedChapter.status !== "saved") {
-      warnings.push(
-        `Chapter ${chapter.position + 1} "${chapter.title}" failed to save: ${
-          updatedChapter.errorMessage ?? "Unknown save error."
-        }`,
-      );
-    }
-  }
-
-  return warnings;
-}
 
 app.use("/api/*", async (c, next) => {
   const origin = c.env.PUBLIC_APP_URL ?? "http://127.0.0.1:5173";
   return cors({
     origin,
-    allowMethods: ["GET", "POST", "PUT", "OPTIONS"],
+    allowMethods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     allowHeaders: ["Content-Type", "Authorization"],
   })(c, next);
 });
@@ -134,215 +55,42 @@ app.get("/api/health", (c) =>
   ),
 );
 
-app.get("/api/books", async (c) => {
-  const results = await c.env.DB.prepare(
-    `
-      SELECT
-        books.id,
-        books.slug,
-        books.title,
-        books.author,
-        books.original_language AS originalLanguage,
-        books.description,
-        books.cover_image_url AS coverImageUrl,
-        'published' AS status,
-        COALESCE(
-          books.published_at,
-          (
-            SELECT MAX(translations.published_at)
-            FROM translations
-            WHERE translations.book_id = books.id AND translations.status = 'published'
-          )
-        ) AS publishedAt
-      FROM books
-      WHERE EXISTS (
-        SELECT 1
-        FROM translations
-        WHERE translations.book_id = books.id AND translations.status = 'published'
-      )
-      ORDER BY publishedAt DESC, books.title ASC
-    `,
-  ).all<BookSummary>();
-
-  return c.json(success({ books: results.results ?? [] }));
-});
+app.get("/api/books", async (c) => c.json(success({ books: await listPublicBooks(c.env.DB) })));
 
 app.get("/api/books/:bookSlug", async (c) => {
-  const bookSlug = c.req.param("bookSlug");
-  const book = await c.env.DB.prepare(
-    `
-      SELECT
-        books.id,
-        books.slug,
-        books.title,
-        books.author,
-        books.original_language AS originalLanguage,
-        books.description,
-        books.cover_image_url AS coverImageUrl,
-        'published' AS status,
-        COALESCE(
-          books.published_at,
-          (
-            SELECT MAX(translations.published_at)
-            FROM translations
-            WHERE translations.book_id = books.id AND translations.status = 'published'
-          )
-        ) AS publishedAt
-      FROM books
-      WHERE books.slug = ?
-        AND EXISTS (
-          SELECT 1
-          FROM translations
-          WHERE translations.book_id = books.id AND translations.status = 'published'
-        )
-    `,
-  )
-    .bind(bookSlug)
-    .first<BookSummary>();
+  const payload = await getPublicBookDetail(c.env.DB, c.req.param("bookSlug"));
 
-  if (!book) {
-    return c.json(failure("not_found", `Book '${bookSlug}' was not found.`), 404);
+  if (!payload) {
+    return c.json(failure("not_found", "Book was not found."), 404);
   }
-
-  const [chaptersResult, translationsResult] = await Promise.all([
-    c.env.DB.prepare(
-      `
-        SELECT
-          id,
-          slug,
-          position,
-          title,
-          is_preview AS isPreview,
-          source_r2_key AS sourceR2Key,
-          published_at AS publishedAt
-        FROM chapters
-        WHERE book_id = ?
-        ORDER BY position ASC
-      `,
-    )
-      .bind(book.id)
-      .all<ChapterSummary>(),
-    c.env.DB.prepare(
-      `
-        SELECT
-          id,
-          slug,
-          name,
-          description,
-          output_r2_prefix AS outputR2Prefix,
-          status
-        FROM translations
-        WHERE book_id = ? AND status = 'published'
-        ORDER BY name ASC
-      `,
-    )
-      .bind(book.id)
-      .all<TranslationSummary>(),
-  ]);
-
-  const payload: BookDetail = {
-    ...book,
-    chapters: chaptersResult.results ?? [],
-    translations: translationsResult.results ?? [],
-  };
 
   return c.json(success(payload));
 });
 
 app.get("/api/books/:bookSlug/chapters/:chapterSlug", async (c) => {
-  const { bookSlug, chapterSlug } = c.req.param();
-  const chapter = await c.env.DB.prepare(
-    `
-      SELECT
-        chapters.id,
-        chapters.slug,
-        chapters.position,
-        chapters.title,
-        chapters.is_preview AS isPreview,
-        chapters.source_r2_key AS sourceR2Key,
-        chapters.published_at AS publishedAt,
-        books.id AS bookId
-      FROM chapters
-      JOIN books ON books.id = chapters.book_id
-      WHERE books.slug = ? AND books.status = 'published' AND chapters.slug = ?
-    `,
-  )
-    .bind(bookSlug, chapterSlug)
-    .first<(ChapterSummary & { bookId: string }) | null>();
+  const payload = await getReaderChapterPayload(c.env.DB, c.env.CONTENT_BUCKET, {
+    bookSlug: c.req.param("bookSlug"),
+    chapterSlug: c.req.param("chapterSlug"),
+    translationSlug: c.req.query("translation") ?? null,
+  });
 
-  if (!chapter) {
-    return c.json(failure("not_found", `Chapter '${chapterSlug}' was not found.`), 404);
+  if (!payload) {
+    return c.json(failure("not_found", "Chapter was not found."), 404);
   }
-
-  const [original, translationsResult] = await Promise.all([
-    readObjectJson<OriginalChapterDocument>(c.env.CONTENT_BUCKET, chapter.sourceR2Key),
-    c.env.DB.prepare(
-      `
-        SELECT
-          id,
-          slug,
-          name,
-          description,
-          output_r2_prefix AS outputR2Prefix,
-          status
-        FROM translations
-        WHERE book_id = ? AND status = 'published'
-        ORDER BY name ASC
-      `,
-    )
-      .bind(chapter.bookId)
-      .all<TranslationSummary>(),
-  ]);
-
-  if (!original) {
-    return c.json(failure("not_found", "Original chapter content was not found."), 404);
-  }
-
-  const payload: ChapterPayload = {
-    chapter,
-    original,
-    availableTranslations: translationsResult.results ?? [],
-  };
 
   return c.json(success(payload));
 });
 
 app.get("/api/books/:bookSlug/chapters/:chapterSlug/translations/:translationSlug", async (c) => {
-  const { bookSlug, chapterSlug, translationSlug } = c.req.param();
-  const translation = await c.env.DB.prepare(
-    `
-      SELECT
-        translations.id,
-        translations.slug,
-        translations.name,
-        translations.description,
-        translations.output_r2_prefix AS outputR2Prefix,
-        translations.status
-      FROM translations
-      JOIN books ON books.id = translations.book_id
-      WHERE books.slug = ? AND translations.slug = ? AND translations.status = 'published'
-    `,
-  )
-    .bind(bookSlug, translationSlug)
-    .first<TranslationSummary>();
+  const payload = await getPublishedTranslationPayload(c.env.DB, c.env.CONTENT_BUCKET, {
+    bookSlug: c.req.param("bookSlug"),
+    chapterSlug: c.req.param("chapterSlug"),
+    translationSlug: c.req.param("translationSlug"),
+  });
 
-  if (!translation) {
-    return c.json(failure("not_found", `Translation '${translationSlug}' was not found.`), 404);
+  if (!payload) {
+    return c.json(failure("not_found", "Translation was not found."), 404);
   }
-
-  const content = await readObjectJson<TranslationChapterDocument>(
-    c.env.CONTENT_BUCKET,
-    buildTranslationChapterKey(bookSlug, chapterSlug, translationSlug),
-  );
-
-  if (!content) {
-    return c.json(failure("not_found", "Translated chapter content was not found."), 404);
-  }
-
-  const payload: TranslationPayload = {
-    translation,
-    content,
-  };
 
   return c.json(success(payload));
 });
@@ -350,114 +98,40 @@ app.get("/api/books/:bookSlug/chapters/:chapterSlug/translations/:translationSlu
 app.get("/api/admin/settings", async (c) => c.json(success({ settings: await getSettingsMap(c.env.DB) })));
 
 app.put("/api/admin/settings", async (c) => {
-  const body = await c.req.json<{ settings: Record<string, string> }>();
+  const body = await c.req.json<{ settings?: Record<string, string> }>();
+
   if (!body.settings || typeof body.settings !== "object") {
     return c.json(failure("bad_request", "Body must contain a `settings` object."), 400);
   }
 
-  const now = new Date().toISOString();
-  for (const [key, value] of Object.entries(body.settings)) {
-    await c.env.DB.prepare(
-      `
-        INSERT INTO app_settings (key, value, updated_at)
-        VALUES (?, ?, ?)
-        ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at
-      `,
-    )
-      .bind(key, value, now)
-      .run();
-  }
-
+  await upsertSettings(c.env.DB, body.settings);
   return c.json(success({ updated: Object.keys(body.settings) }));
 });
 
-app.get("/api/admin/books", async (c) => {
-  const results = await c.env.DB.prepare(
-    `
-      SELECT
-        id,
-        slug,
-        title,
-        author,
-        original_language AS originalLanguage,
-        description,
-        cover_image_url AS coverImageUrl,
-        status,
-        published_at AS publishedAt
-      FROM books
-      ORDER BY created_at DESC
-    `,
-  ).all<BookSummary>();
-
-  return c.json(success({ books: results.results ?? [] }));
+app.get("/api/admin/bootstrap", async (c) => {
+  const [books, settings] = await Promise.all([listAdminBookSummaries(c.env.DB), getSettingsMap(c.env.DB)]);
+  const payload: AdminBootstrapPayload = { books, settings };
+  return c.json(success(payload));
 });
 
-app.get("/api/admin/books/:bookSlug", async (c) => {
-  const bookSlug = c.req.param("bookSlug");
-  const book = await c.env.DB.prepare(
-    `
-      SELECT
-        id,
-        slug,
-        title,
-        author,
-        original_language AS originalLanguage,
-        description,
-        cover_image_url AS coverImageUrl,
-        status,
-        published_at AS publishedAt
-      FROM books
-      WHERE slug = ?
-    `,
-  )
-    .bind(bookSlug)
-    .first<BookSummary>();
+app.get("/api/admin/books", async (c) => c.json(success({ books: await listAdminBookSummaries(c.env.DB) })));
 
-  if (!book) {
-    return c.json(failure("not_found", `Book '${bookSlug}' was not found.`), 404);
+app.get("/api/admin/books/:bookSlug", async (c) => {
+  const payload = await getAdminBookSourcePayload(c.env.DB, c.env.CONTENT_BUCKET, c.req.param("bookSlug"));
+
+  if (!payload) {
+    return c.json(failure("not_found", "Book was not found."), 404);
   }
 
-  const [chaptersResult, translationsResult] = await Promise.all([
-    c.env.DB.prepare(
-      `
-        SELECT
-          id,
-          slug,
-          position,
-          title,
-          is_preview AS isPreview,
-          source_r2_key AS sourceR2Key,
-          published_at AS publishedAt
-        FROM chapters
-        WHERE book_id = ?
-        ORDER BY position ASC
-      `,
-    )
-      .bind(book.id)
-      .all<ChapterSummary>(),
-    c.env.DB.prepare(
-      `
-        SELECT
-          id,
-          slug,
-          name,
-          description,
-          output_r2_prefix AS outputR2Prefix,
-          status
-        FROM translations
-        WHERE book_id = ?
-        ORDER BY name ASC
-      `,
-    )
-      .bind(book.id)
-      .all<TranslationSummary>(),
-  ]);
+  return c.json(success(payload));
+});
 
-  const payload: BookDetail = {
-    ...book,
-    chapters: chaptersResult.results ?? [],
-    translations: translationsResult.results ?? [],
-  };
+app.get("/api/admin/books/:bookSlug/source", async (c) => {
+  const payload = await getAdminBookSourcePayload(c.env.DB, c.env.CONTENT_BUCKET, c.req.param("bookSlug"));
+
+  if (!payload) {
+    return c.json(failure("not_found", "Book was not found."), 404);
+  }
 
   return c.json(success(payload));
 });
@@ -469,38 +143,30 @@ app.post("/api/admin/books", async (c) => {
       author?: string;
       originalLanguage?: string;
       description?: string;
-      chapters?: AdminBookChapterInput[];
+      chapters?: SourceChapterInput[];
     }>();
 
     if (!body.title?.trim()) {
       return c.json(failure("bad_request", "A book title is required."), 400);
     }
 
-    const normalizedChapters = (body.chapters ?? [])
-      .filter((chapter) => chapter.sourceText.trim().length > 0)
-      .map((chapter, index) => ({
-        position: index + 1,
-        title: chapter.title.trim() || `Chapter ${index + 1}`,
-        slug: slugify(chapter.slug || chapter.title || `chapter-${index + 1}`),
-        sourceText: chapter.sourceText.trim(),
-      }));
-
-    if (normalizedChapters.length === 0) {
+    const chapters = normalizeBookChapters(body.chapters ?? []);
+    if (chapters.length === 0) {
       return c.json(failure("bad_request", "At least one chapter is required."), 400);
     }
 
     const bookId = crypto.randomUUID();
-    const bookSlug = slugify(body.title);
+    const bookSlug = await createUniqueBookSlug(c.env.DB, body.title);
     const now = new Date().toISOString();
 
-    await c.env.DB.prepare(
-      `
-        INSERT INTO books (
-          id, slug, title, author, original_language, description, cover_image_url,
-          status, created_at, updated_at, published_at
-        ) VALUES (?, ?, ?, ?, ?, ?, NULL, 'draft', ?, ?, NULL)
-      `,
-    )
+    await c.env.DB
+      .prepare(
+        `
+          INSERT INTO books (
+            id, slug, title, author, original_language, description, cover_image_url, created_at, updated_at
+          ) VALUES (?, ?, ?, ?, ?, ?, NULL, ?, ?)
+        `,
+      )
       .bind(
         bookId,
         bookSlug,
@@ -513,19 +179,21 @@ app.post("/api/admin/books", async (c) => {
       )
       .run();
 
-    for (const chapter of normalizedChapters) {
-      const sourceR2Key = buildOriginalChapterKey(bookSlug, chapter.slug);
-      const originalDocument = buildInitialOriginalDocument(bookSlug, chapter.slug, chapter.sourceText);
-      await writeObjectJson(c.env.CONTENT_BUCKET, sourceR2Key, originalDocument);
+    for (const chapter of chapters) {
+      await writeObjectJson(
+        c.env.CONTENT_BUCKET,
+        buildOriginalChapterKey(bookSlug, chapter.slug),
+        buildOriginalDocument(bookSlug, chapter.slug, chapter.sourceText),
+      );
 
-      await c.env.DB.prepare(
-        `
-          INSERT INTO chapters (
-            id, book_id, slug, position, title, is_preview, source_r2_key, created_at, updated_at, published_at
-          ) VALUES (?, ?, ?, ?, ?, 0, ?, ?, ?, NULL)
-        `,
-      )
-        .bind(crypto.randomUUID(), bookId, chapter.slug, chapter.position, chapter.title, sourceR2Key, now, now)
+      await c.env.DB
+        .prepare(
+          `
+            INSERT INTO chapters (id, book_id, slug, position, title, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+          `,
+        )
+        .bind(crypto.randomUUID(), bookId, chapter.slug, chapter.position, chapter.title, now, now)
         .run();
     }
 
@@ -540,12 +208,60 @@ app.post("/api/admin/books", async (c) => {
   }
 });
 
-app.get("/api/admin/books/:bookSlug/source", async (c) => {
-  const payload = await getAdminBookSourcePayload(c.env.DB, c.env.CONTENT_BUCKET, c.req.param("bookSlug"));
-  if (!payload) {
+app.put("/api/admin/books/:bookSlug", async (c) => {
+  const existing = await getAdminBookSourcePayload(c.env.DB, c.env.CONTENT_BUCKET, c.req.param("bookSlug"));
+
+  if (!existing) {
     return c.json(failure("not_found", "Book was not found."), 404);
   }
+
+  const body = await c.req.json<{
+    title?: string;
+    author?: string;
+    originalLanguage?: string;
+    description?: string;
+  }>();
+
+  await c.env.DB
+    .prepare(
+      `
+        UPDATE books
+        SET title = ?, author = ?, original_language = ?, description = ?, updated_at = ?
+        WHERE id = ?
+      `,
+    )
+    .bind(
+      body.title?.trim() || existing.book.title,
+      typeof body.author === "string" ? body.author.trim() || null : existing.book.author,
+      typeof body.originalLanguage === "string"
+        ? body.originalLanguage.trim() || null
+        : existing.book.originalLanguage,
+      typeof body.description === "string" ? body.description.trim() || null : existing.book.description,
+      new Date().toISOString(),
+      existing.book.id,
+    )
+    .run();
+
+  const payload = await getAdminBookSourcePayload(c.env.DB, c.env.CONTENT_BUCKET, existing.book.slug);
+  if (!payload) {
+    return c.json(failure("internal_error", "Book was updated but could not be reloaded."), 500);
+  }
+
   return c.json(success(payload));
+});
+
+app.delete("/api/admin/books/:bookSlug", async (c) => {
+  const bookSlug = c.req.param("bookSlug");
+  const book = await c.env.DB.prepare(`SELECT id FROM books WHERE slug = ?`).bind(bookSlug).first<{ id: string }>();
+
+  if (!book) {
+    return c.json(failure("not_found", "Book was not found."), 404);
+  }
+
+  await deleteObjectsByPrefix(c.env.CONTENT_BUCKET, `epics/${bookSlug}/`);
+  await c.env.DB.prepare(`DELETE FROM books WHERE id = ?`).bind(book.id).run();
+
+  return c.json(success({ deleted: true, bookSlug }));
 });
 
 app.get("/api/admin/books/:bookSlug/translations", async (c) =>
@@ -576,44 +292,38 @@ app.post("/api/admin/books/:bookSlug/translations", async (c) => {
     }
 
     const translationId = crypto.randomUUID();
-    const translationSlug = slugify(body.title);
+    const translationSlug = await createUniqueTranslationSlug(c.env.DB, book.id, body.title);
     const now = new Date().toISOString();
 
-    await c.env.DB.prepare(
-      `
-        INSERT INTO translations (
-          id, book_id, slug, name, description, ai_system_prompt, output_r2_prefix, status, created_at, updated_at, published_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, 'draft', ?, ?, NULL)
-      `,
-    )
+    await c.env.DB
+      .prepare(
+        `
+          INSERT INTO translations (
+            id, book_id, slug, name, description, provider, model, thinking_level, prompt,
+            context_before_chapter_count, context_after_chapter_count, status, published_at, created_at, updated_at
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'draft', NULL, ?, ?)
+        `,
+      )
       .bind(
         translationId,
         book.id,
         translationSlug,
         body.title.trim(),
         body.description?.trim() || null,
+        normalizeProvider(body.provider),
+        body.model.trim(),
+        normalizeThinkingLevel(body.thinkingLevel),
         body.prompt.trim(),
-        `epics/${bookSlug}/translations/${translationSlug}`,
+        Math.max(0, body.contextBeforeChapterCount ?? 1),
+        Math.max(0, body.contextAfterChapterCount ?? 1),
         now,
         now,
       )
       .run();
 
-    await createAdminIngestionSessionForBook({
-      db: c.env.DB,
-      bucket: c.env.CONTENT_BUCKET,
-      bookSlug,
-      title: body.title.trim(),
-      provider: normalizeProvider(body.provider),
-      model: body.model.trim(),
-      thinkingLevel: normalizeThinkingLevel(body.thinkingLevel),
-      prompt: body.prompt.trim(),
-      translationId,
-      contextBeforeChapterCount: body.contextBeforeChapterCount ?? 1,
-      contextAfterChapterCount: body.contextAfterChapterCount ?? 1,
-    });
+    await initializeTranslationChapters(c.env.DB, translationId, book.id);
 
-    const translation = await getAdminTranslationDetail(c.env.DB, translationId);
+    const translation = await getAdminTranslationDetail(c.env.DB, c.env.CONTENT_BUCKET, translationId);
     if (!translation) {
       return c.json(failure("internal_error", "Translation was created but could not be reloaded."), 500);
     }
@@ -627,308 +337,127 @@ app.post("/api/admin/books/:bookSlug/translations", async (c) => {
   }
 });
 
+app.post("/api/admin/books/:bookSlug/translations/import", async (c) => {
+  try {
+    const bookSlug = c.req.param("bookSlug");
+    const body = await c.req.json<{ archive?: unknown; session?: unknown }>();
+    const archive = normalizeImportedArchive(body.archive ?? body.session ?? body);
+
+    const book = await c.env.DB.prepare(`SELECT id FROM books WHERE slug = ?`).bind(bookSlug).first<{ id: string }>();
+    if (!book) {
+      return c.json(failure("not_found", "Book was not found."), 404);
+    }
+
+    const translationId = crypto.randomUUID();
+    const translationSlug = await createUniqueTranslationSlug(c.env.DB, book.id, archive.translation.name);
+    const now = new Date().toISOString();
+
+    await c.env.DB
+      .prepare(
+        `
+          INSERT INTO translations (
+            id, book_id, slug, name, description, provider, model, thinking_level, prompt,
+            context_before_chapter_count, context_after_chapter_count, status, published_at, created_at, updated_at
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'draft', NULL, ?, ?)
+        `,
+      )
+      .bind(
+        translationId,
+        book.id,
+        translationSlug,
+        archive.translation.name,
+        archive.translation.description,
+        archive.translation.provider,
+        archive.translation.model,
+        archive.translation.thinkingLevel,
+        archive.translation.prompt,
+        archive.translation.contextBeforeChapterCount,
+        archive.translation.contextAfterChapterCount,
+        now,
+        now,
+      )
+      .run();
+
+    await initializeTranslationChapters(c.env.DB, translationId, book.id);
+
+    const translation = await getAdminTranslationDetail(c.env.DB, c.env.CONTENT_BUCKET, translationId);
+    if (!translation) {
+      return c.json(failure("internal_error", "Imported translation could not be reloaded."), 500);
+    }
+
+    const importedBySlug = new Map(archive.chapters.map((chapter) => [chapter.chapterSlug, chapter]));
+
+    for (const chapter of translation.chapters) {
+      const imported = importedBySlug.get(chapter.slug) ?? archive.chapters.find((entry) => entry.position === chapter.position);
+      if (!imported) {
+        continue;
+      }
+
+      const rawResponse = imported.rawResponse ?? buildRawResponseFromContent(imported.title, imported.notes, imported.content);
+      if (!rawResponse) {
+        continue;
+      }
+
+      await saveTranslationChapterDraft({
+        db: c.env.DB,
+        translation,
+        chapter,
+        rawResponse,
+        statusOnSuccess: imported.status === "saved" ? "saved" : "draft",
+      });
+    }
+
+    const refreshed = await getAdminTranslationDetail(c.env.DB, c.env.CONTENT_BUCKET, translationId);
+    if (!refreshed) {
+      return c.json(failure("internal_error", "Imported translation could not be reloaded."), 500);
+    }
+
+    return c.json(success(refreshed), 201);
+  } catch (error) {
+    return c.json(
+      failure("bad_request", error instanceof Error ? error.message : "Failed to import translation."),
+      400,
+    );
+  }
+});
+
 app.get("/api/admin/translations/:translationId", async (c) => {
-  const translation = await getAdminTranslationDetail(c.env.DB, c.req.param("translationId"));
+  const translation = await getAdminTranslationDetail(c.env.DB, c.env.CONTENT_BUCKET, c.req.param("translationId"));
+
   if (!translation) {
     return c.json(failure("not_found", "Translation was not found."), 404);
   }
+
   return c.json(success(translation));
 });
 
 app.put("/api/admin/translations/:translationId", async (c) => {
   const translationId = c.req.param("translationId");
+  const existing = await getAdminTranslationDetail(c.env.DB, c.env.CONTENT_BUCKET, translationId);
+
+  if (!existing) {
+    return c.json(failure("not_found", "Translation was not found."), 404);
+  }
+
   const body = await c.req.json<{
     name?: string;
     slug?: string;
     description?: string;
-    status?: TranslationSummary["status"];
     provider?: AiProvider;
     model?: string;
     thinkingLevel?: ThinkingLevel | null;
     prompt?: string;
     contextBeforeChapterCount?: number;
     contextAfterChapterCount?: number;
-    currentChapterIndex?: number;
   }>();
 
-  const existing = await getAdminTranslationDetail(c.env.DB, translationId);
-  const translationRow = await c.env.DB.prepare(`SELECT book_id AS bookId FROM translations WHERE id = ?`)
-    .bind(translationId)
-    .first<{ bookId: string }>();
-  if (!existing) {
-    return c.json(failure("not_found", "Translation was not found."), 404);
-  }
-  if (!translationRow) {
-    return c.json(failure("not_found", "Translation was not found."), 404);
-  }
-
-  const now = new Date().toISOString();
-  const nextSlug = slugify(body.slug || existing.slug);
   const nextName = body.name?.trim() || existing.name;
+  const desiredSlug = body.slug?.trim() || nextName;
+  const nextSlug =
+    desiredSlug === existing.slug
+      ? existing.slug
+      : await createUniqueTranslationSlugForRename(c.env.DB, existing.id, existing.bookSlug, desiredSlug);
   const nextDescription = typeof body.description === "string" ? body.description.trim() || null : existing.description;
-  const nextStatus =
-    body.status && ["draft", "generating", "ready", "published", "failed"].includes(body.status)
-      ? body.status
-      : existing.status;
-  const nextPrompt = body.prompt?.trim() || existing.aiSystemPrompt || "";
-  const nextProvider =
-    body.provider !== undefined
-      ? normalizeProvider(body.provider)
-      : (existing.currentSession?.provider ?? existing.latestSession?.provider ?? "google");
-  const nextModel = body.model?.trim() || existing.latestSession?.model || "gemini-3-flash-preview";
-  const nextThinkingLevel =
-    body.thinkingLevel !== undefined
-      ? normalizeThinkingLevel(body.thinkingLevel)
-      : (existing.currentSession?.thinkingLevel ?? existing.latestSession?.thinkingLevel ?? null);
-  const nextContextBeforeChapterCount =
-    typeof body.contextBeforeChapterCount === "number" && body.contextBeforeChapterCount >= 0
-      ? body.contextBeforeChapterCount
-      : (existing.latestSession?.contextBeforeChapterCount ?? 1);
-  const nextContextAfterChapterCount =
-    typeof body.contextAfterChapterCount === "number" && body.contextAfterChapterCount >= 0
-      ? body.contextAfterChapterCount
-      : (existing.latestSession?.contextAfterChapterCount ?? 1);
-  const nextCurrentChapterIndex =
-    typeof body.currentChapterIndex === "number" && body.currentChapterIndex >= 0
-      ? body.currentChapterIndex
-      : (existing.currentSession?.currentChapterIndex ?? existing.latestSession?.currentChapterIndex ?? 0);
-  const shouldPublish = nextStatus === "published";
-  const persistedStatus = shouldPublish ? existing.status : nextStatus;
-
-  await c.env.DB.prepare(
-    `
-      UPDATE translations
-      SET slug = ?, name = ?, description = ?, ai_system_prompt = ?, output_r2_prefix = ?, status = ?, updated_at = ?,
-          published_at = CASE WHEN ? = 'published' THEN COALESCE(published_at, ?) ELSE published_at END
-      WHERE id = ?
-    `,
-  )
-    .bind(
-      nextSlug,
-      nextName,
-      nextDescription,
-      nextPrompt || null,
-      `epics/${existing.bookSlug}/translations/${nextSlug}`,
-      persistedStatus,
-      now,
-      persistedStatus,
-      now,
-      translationId,
-    )
-    .run();
-
-  if (existing.currentSession) {
-    await c.env.DB.prepare(
-      `
-        UPDATE admin_ingestion_sessions
-        SET title = ?, provider = ?, model = ?, thinking_level = ?, prompt = ?, context_before_chapter_count = ?, context_after_chapter_count = ?, current_chapter_index = ?, updated_at = ?
-        WHERE id = ?
-      `,
-    )
-      .bind(
-        nextName,
-        nextProvider,
-        nextModel,
-        nextThinkingLevel,
-        nextPrompt,
-        nextContextBeforeChapterCount,
-        nextContextAfterChapterCount,
-        nextCurrentChapterIndex,
-        now,
-        existing.currentSession.id,
-      )
-      .run();
-  }
-
-  if (shouldPublish) {
-    const publishDetail = await getAdminTranslationDetail(c.env.DB, translationId);
-    if (!publishDetail?.currentSession) {
-      return c.json(
-        failure(
-          "bad_request",
-          "A translation needs an active session with chapter content before it can be published.",
-        ),
-        400,
-      );
-    }
-
-    await materializeTranslationChaptersForPublish({
-      db: c.env.DB,
-      bucket: c.env.CONTENT_BUCKET,
-      session: publishDetail.currentSession,
-    });
-
-    await c.env.DB.prepare(
-      `
-        UPDATE translations
-        SET status = 'published', published_at = COALESCE(published_at, ?), updated_at = ?
-        WHERE id = ?
-      `,
-    )
-      .bind(now, now, translationId)
-      .run();
-
-    await c.env.DB.prepare(
-      `
-        UPDATE books
-        SET status = 'published', published_at = COALESCE(published_at, ?), updated_at = ?
-        WHERE slug = ?
-      `,
-    )
-      .bind(now, now, existing.bookSlug)
-      .run();
-  }
-
-  await syncBookPublicationStatus(c.env.DB, translationRow.bookId, now);
-
-  const updated = await getAdminTranslationDetail(c.env.DB, translationId);
-  if (!updated) {
-    return c.json(failure("internal_error", "Translation was updated but could not be reloaded."), 500);
-  }
-  return c.json(success(updated));
-});
-
-app.get("/api/admin/translations/:translationId/validate", async (c) => {
-  const payload = await validateTranslation(c.env.DB, c.req.param("translationId"));
-  if (!payload) {
-    return c.json(failure("not_found", "Translation was not found."), 404);
-  }
-  return c.json(success(payload));
-});
-
-app.get("/api/admin/ingestion/bootstrap", async (c) => {
-  const [books, settings, sessions] = await Promise.all([
-    listAdminBookWorkflowSummaries(c.env.DB),
-    getSettingsMap(c.env.DB),
-    listAdminIngestionSessions(c.env.DB),
-  ]);
-
-  const payload: AdminIngestionBootstrapPayload = { books, settings, sessions };
-  return c.json(success(payload));
-});
-
-app.post("/api/admin/ingestion/sessions", async (c) => {
-  try {
-    const body = await c.req.json<{
-      title?: string;
-      sourceMode?: AdminIngestionSourceMode;
-      sourceBookSlug?: string;
-      translationId?: string;
-      provider?: AiProvider;
-      model?: string;
-      thinkingLevel?: ThinkingLevel | null;
-      prompt?: string;
-      contextBeforeChapterCount?: number;
-      contextAfterChapterCount?: number;
-      chapters?: AdminIngestionChapterInput[];
-    }>();
-
-    if (!body.title?.trim() || !body.model?.trim() || !body.prompt?.trim()) {
-      return c.json(failure("bad_request", "Title, model, and prompt are required."), 400);
-    }
-
-    if (body.sourceMode !== "paste" && body.sourceMode !== "existing_story") {
-      return c.json(failure("bad_request", "sourceMode must be 'paste' or 'existing_story'."), 400);
-    }
-
-    const chapters =
-      body.sourceMode === "existing_story"
-        ? await buildChapterInputsFromExistingStory(c.env.DB, c.env.CONTENT_BUCKET, body.sourceBookSlug)
-        : normalizePastedChapterInputs(body.chapters ?? []);
-
-    if (chapters.length === 0) {
-      return c.json(failure("bad_request", "At least one chapter is required to create a session."), 400);
-    }
-
-    const now = new Date().toISOString();
-    const sessionId = crypto.randomUUID();
-
-    await c.env.DB.prepare(
-      `
-        INSERT INTO admin_ingestion_sessions (
-          id, title, source_mode, source_book_slug, translation_id, provider, model, thinking_level, prompt,
-          context_before_chapter_count, context_after_chapter_count, current_chapter_index, created_at, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-      `,
-    )
-      .bind(
-        sessionId,
-        body.title.trim(),
-        body.sourceMode,
-        body.sourceBookSlug?.trim() || null,
-        body.translationId?.trim() || null,
-        normalizeProvider(body.provider),
-        body.model.trim(),
-        normalizeThinkingLevel(body.thinkingLevel),
-        body.prompt.trim(),
-        Math.max(0, body.contextBeforeChapterCount ?? 1),
-        Math.max(0, body.contextAfterChapterCount ?? 1),
-        0,
-        now,
-        now,
-      )
-      .run();
-
-    for (const chapter of chapters) {
-      await c.env.DB.prepare(
-        `
-          INSERT INTO admin_ingestion_chapters (
-            id, session_id, position, title, slug, source_text, source_chapter_slug, status, created_at, updated_at
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?)
-        `,
-      )
-        .bind(
-          crypto.randomUUID(),
-          sessionId,
-          chapter.position,
-          chapter.title,
-          chapter.slug,
-          chapter.sourceText,
-          chapter.sourceChapterSlug,
-          now,
-          now,
-        )
-        .run();
-    }
-
-    const detail = await getAdminIngestionSessionDetail(c.env.DB, sessionId);
-    if (!detail) {
-      return c.json(failure("internal_error", "Session was created but could not be reloaded."), 500);
-    }
-
-    return c.json(success(detail), 201);
-  } catch (error) {
-    return c.json(failure("bad_request", error instanceof Error ? error.message : "Failed to create session."), 400);
-  }
-});
-
-app.get("/api/admin/ingestion/sessions/:sessionId", async (c) => {
-  const detail = await getAdminIngestionSessionDetail(c.env.DB, c.req.param("sessionId"));
-  if (!detail) {
-    return c.json(failure("not_found", "Session was not found."), 404);
-  }
-  return c.json(success(detail));
-});
-
-app.put("/api/admin/ingestion/sessions/:sessionId", async (c) => {
-  const sessionId = c.req.param("sessionId");
-  const body = await c.req.json<{
-    title?: string;
-    provider?: AiProvider;
-    model?: string;
-    thinkingLevel?: ThinkingLevel | null;
-    prompt?: string;
-    contextBeforeChapterCount?: number;
-    contextAfterChapterCount?: number;
-    currentChapterIndex?: number;
-  }>();
-
-  const existing = await getAdminIngestionSessionRow(c.env.DB, sessionId);
-  if (!existing) {
-    return c.json(failure("not_found", "Session was not found."), 404);
-  }
-
-  const nextTitle = body.title?.trim() || existing.title;
   const nextProvider = body.provider !== undefined ? normalizeProvider(body.provider) : existing.provider;
   const nextModel = body.model?.trim() || existing.model;
   const nextThinkingLevel =
@@ -942,69 +471,110 @@ app.put("/api/admin/ingestion/sessions/:sessionId", async (c) => {
     typeof body.contextAfterChapterCount === "number" && body.contextAfterChapterCount >= 0
       ? body.contextAfterChapterCount
       : existing.contextAfterChapterCount;
-  const nextCurrentChapterIndex =
-    typeof body.currentChapterIndex === "number" && body.currentChapterIndex >= 0
-      ? body.currentChapterIndex
-      : existing.currentChapterIndex;
+  const now = new Date().toISOString();
 
-  await c.env.DB.prepare(
-    `
-      UPDATE admin_ingestion_sessions
-      SET title = ?, provider = ?, model = ?, thinking_level = ?, prompt = ?, context_before_chapter_count = ?, context_after_chapter_count = ?, current_chapter_index = ?, updated_at = ?
-      WHERE id = ?
-    `,
-  )
+  await c.env.DB
+    .prepare(
+      `
+        UPDATE translations
+        SET
+          slug = ?,
+          name = ?,
+          description = ?,
+          provider = ?,
+          model = ?,
+          thinking_level = ?,
+          prompt = ?,
+          context_before_chapter_count = ?,
+          context_after_chapter_count = ?,
+          updated_at = ?
+        WHERE id = ?
+      `,
+    )
     .bind(
-      nextTitle,
+      nextSlug,
+      nextName,
+      nextDescription,
       nextProvider,
       nextModel,
       nextThinkingLevel,
       nextPrompt,
       nextContextBeforeChapterCount,
       nextContextAfterChapterCount,
-      nextCurrentChapterIndex,
-      new Date().toISOString(),
-      sessionId,
+      now,
+      translationId,
     )
     .run();
 
-  const detail = await getAdminIngestionSessionDetail(c.env.DB, sessionId);
-  if (!detail) {
-    return c.json(failure("internal_error", "Session was updated but could not be reloaded."), 500);
+  if (existing.status === "published" && existing.slug !== nextSlug) {
+    await deletePublishedTranslationObjects(c.env.CONTENT_BUCKET, existing.bookSlug, existing.slug, existing.chapters);
+    const updatedForPublish = await getAdminTranslationDetail(c.env.DB, c.env.CONTENT_BUCKET, translationId);
+
+    if (updatedForPublish) {
+      await publishTranslationChapters({
+        bucket: c.env.CONTENT_BUCKET,
+        bookSlug: updatedForPublish.bookSlug,
+        translationSlug: updatedForPublish.slug,
+        chapters: updatedForPublish.chapters.filter((chapter) => chapter.content),
+      });
+    }
   }
 
-  return c.json(success(detail));
+  const updated = await getAdminTranslationDetail(c.env.DB, c.env.CONTENT_BUCKET, translationId);
+  if (!updated) {
+    return c.json(failure("internal_error", "Translation was updated but could not be reloaded."), 500);
+  }
+
+  return c.json(success(updated));
 });
 
-app.post("/api/admin/ingestion/sessions/:sessionId/chapters/:position/generate", async (c) => {
+app.delete("/api/admin/translations/:translationId", async (c) => {
+  const translation = await getAdminTranslationDetail(c.env.DB, c.env.CONTENT_BUCKET, c.req.param("translationId"));
+
+  if (!translation) {
+    return c.json(failure("not_found", "Translation was not found."), 404);
+  }
+
+  await deletePublishedTranslationObjects(c.env.CONTENT_BUCKET, translation.bookSlug, translation.slug, translation.chapters);
+  await c.env.DB.prepare(`DELETE FROM translations WHERE id = ?`).bind(translation.id).run();
+
+  return c.json(success({ deleted: true, translationId: translation.id }));
+});
+
+app.get("/api/admin/translations/:translationId/validate", async (c) => {
+  const translation = await getAdminTranslationDetail(c.env.DB, c.env.CONTENT_BUCKET, c.req.param("translationId"));
+
+  if (!translation) {
+    return c.json(failure("not_found", "Translation was not found."), 404);
+  }
+
+  return c.json(success(await validateTranslationDetail(translation)));
+});
+
+app.post("/api/admin/translations/:translationId/chapters/:chapterId/generate", async (c) => {
   try {
-    const sessionId = c.req.param("sessionId");
-    const position = Number(c.req.param("position"));
+    const translation = await getAdminTranslationDetail(c.env.DB, c.env.CONTENT_BUCKET, c.req.param("translationId"));
 
-    if (!Number.isInteger(position) || position < 0) {
-      return c.json(failure("bad_request", "Chapter position is invalid."), 400);
+    if (!translation) {
+      return c.json(failure("not_found", "Translation was not found."), 404);
     }
 
-    const detail = await getAdminIngestionSessionDetail(c.env.DB, sessionId);
-    if (!detail) {
-      return c.json(failure("not_found", "Session was not found."), 404);
-    }
-
-    const chapter = detail.chapters.find((entry) => entry.position === position);
+    const chapter = translation.chapters.find((entry) => entry.chapterId === c.req.param("chapterId"));
     if (!chapter) {
       return c.json(failure("not_found", "Chapter was not found."), 404);
     }
 
     const settings = await getSettingsMap(c.env.DB);
     const apiKey =
-      detail.provider === "google"
+      translation.provider === "google"
         ? settings[APP_SETTING_KEYS.GOOGLE_API_KEY]?.trim()
         : settings[APP_SETTING_KEYS.OPENROUTER_API_KEY]?.trim();
+
     if (!apiKey) {
       return c.json(
         failure(
           "missing_api_key",
-          detail.provider === "google"
+          translation.provider === "google"
             ? "Set google_api_key in admin settings before generating chapters."
             : "Set openrouter_api_key in admin settings before generating chapters.",
         ),
@@ -1012,47 +582,59 @@ app.post("/api/admin/ingestion/sessions/:sessionId/chapters/:position/generate",
       );
     }
 
-    const previousChapters = detail.chapters
-      .filter((entry) => entry.position < position && entry.position >= position - detail.contextBeforeChapterCount)
+    const previousChapters = translation.chapters
+      .filter(
+        (entry) =>
+          entry.position < chapter.position &&
+          entry.position >= chapter.position - translation.contextBeforeChapterCount,
+      )
       .sort((left, right) => left.position - right.position);
-    const nextChapters = detail.chapters
-      .filter((entry) => entry.position > position && entry.position <= position + detail.contextAfterChapterCount)
+    const nextChapters = translation.chapters
+      .filter(
+        (entry) =>
+          entry.position > chapter.position &&
+          entry.position <= chapter.position + translation.contextAfterChapterCount,
+      )
       .sort((left, right) => left.position - right.position);
 
     const rawResponse =
-      detail.provider === "google"
+      translation.provider === "google"
         ? await generateChapterWithGoogle({
             apiKey,
-            model: detail.model,
-            thinkingLevel: detail.thinkingLevel,
-            prompt: detail.prompt,
-            session: detail,
+            model: translation.model,
+            thinkingLevel: translation.thinkingLevel,
+            prompt: translation.prompt,
+            translation,
             chapter,
             previousChapters,
             nextChapters,
           })
         : await generateChapterWithOpenRouter({
             apiKey,
-            model: detail.model,
-            thinkingLevel: detail.thinkingLevel,
-            prompt: detail.prompt,
-            session: detail,
+            model: translation.model,
+            thinkingLevel: translation.thinkingLevel,
+            prompt: translation.prompt,
+            translation,
             chapter,
             previousChapters,
             nextChapters,
             publicAppUrl: c.env.PUBLIC_APP_URL,
           });
 
-    const updatedChapter = await persistGeneratedChapter({
+    await saveTranslationChapterDraft({
       db: c.env.DB,
-      bucket: c.env.CONTENT_BUCKET,
-      session: detail,
+      translation,
       chapter,
       rawResponse,
-      statusOnSuccess: "generated",
+      statusOnSuccess: "draft",
     });
 
-    return c.json(success({ chapter: updatedChapter }));
+    const updated = await getAdminTranslationDetail(c.env.DB, c.env.CONTENT_BUCKET, translation.id);
+    if (!updated) {
+      return c.json(failure("internal_error", "Generated chapter could not be reloaded."), 500);
+    }
+
+    return c.json(success(updated));
   } catch (error) {
     return c.json(
       failure("generation_failed", error instanceof Error ? error.message : "Chapter generation failed."),
@@ -1061,53 +643,373 @@ app.post("/api/admin/ingestion/sessions/:sessionId/chapters/:position/generate",
   }
 });
 
-app.put("/api/admin/ingestion/sessions/:sessionId/chapters/:position/save", async (c) => {
-  const sessionId = c.req.param("sessionId");
-  const position = Number(c.req.param("position"));
-  const body = await c.req.json<{ rawResponse?: string }>();
+app.put("/api/admin/translations/:translationId/chapters/:chapterId", async (c) => {
+  const translation = await getAdminTranslationDetail(c.env.DB, c.env.CONTENT_BUCKET, c.req.param("translationId"));
 
-  if (!Number.isInteger(position) || position < 0) {
-    return c.json(failure("bad_request", "Chapter position is invalid."), 400);
-  }
-  if (!body.rawResponse?.trim()) {
-    return c.json(failure("bad_request", "rawResponse is required when saving a chapter."), 400);
+  if (!translation) {
+    return c.json(failure("not_found", "Translation was not found."), 404);
   }
 
-  const detail = await getAdminIngestionSessionDetail(c.env.DB, sessionId);
-  if (!detail) {
-    return c.json(failure("not_found", "Session was not found."), 404);
-  }
-
-  const chapter = detail.chapters.find((entry) => entry.position === position);
+  const chapter = translation.chapters.find((entry) => entry.chapterId === c.req.param("chapterId"));
   if (!chapter) {
     return c.json(failure("not_found", "Chapter was not found."), 404);
   }
 
-  const updatedChapter = await persistGeneratedChapter({
+  const body = await c.req.json<{ rawResponse?: string }>();
+  if (!body.rawResponse?.trim()) {
+    return c.json(failure("bad_request", "rawResponse is required when saving a chapter."), 400);
+  }
+
+  await saveTranslationChapterDraft({
     db: c.env.DB,
-    bucket: c.env.CONTENT_BUCKET,
-    session: detail,
+    translation,
     chapter,
     rawResponse: body.rawResponse,
     statusOnSuccess: "saved",
   });
 
-  await c.env.DB.prepare(`UPDATE admin_ingestion_sessions SET current_chapter_index = ?, updated_at = ? WHERE id = ?`)
-    .bind(position, new Date().toISOString(), sessionId)
+  const updated = await getAdminTranslationDetail(c.env.DB, c.env.CONTENT_BUCKET, translation.id);
+  if (!updated) {
+    return c.json(failure("internal_error", "Saved chapter could not be reloaded."), 500);
+  }
+
+  return c.json(success(updated));
+});
+
+app.post("/api/admin/translations/:translationId/publish", async (c) => {
+  const translation = await getAdminTranslationDetail(c.env.DB, c.env.CONTENT_BUCKET, c.req.param("translationId"));
+
+  if (!translation) {
+    return c.json(failure("not_found", "Translation was not found."), 404);
+  }
+
+  if (translation.chapters.length === 0) {
+    return c.json(failure("bad_request", "A translation needs chapters before it can be published."), 400);
+  }
+
+  for (const chapter of translation.chapters) {
+    const rawResponse = chapter.rawResponse ?? buildRawResponseFromContent(chapter.title, chapter.notes, chapter.content);
+
+    if (!rawResponse) {
+      return c.json(
+        failure("bad_request", `Chapter '${chapter.title}' has no translation content to publish.`),
+        400,
+      );
+    }
+
+    if (chapter.status !== "saved") {
+      await saveTranslationChapterDraft({
+        db: c.env.DB,
+        translation,
+        chapter,
+        rawResponse,
+        statusOnSuccess: "saved",
+      });
+    }
+  }
+
+  const ready = await getAdminTranslationDetail(c.env.DB, c.env.CONTENT_BUCKET, translation.id);
+  if (!ready) {
+    return c.json(failure("internal_error", "Translation could not be reloaded for publish."), 500);
+  }
+
+  const validation = await validateTranslationDetail(ready);
+  if (!validation.isValid) {
+    return c.json(failure("bad_request", "Fix validation errors before publishing."), 400);
+  }
+
+  await publishTranslationChapters({
+    bucket: c.env.CONTENT_BUCKET,
+    bookSlug: ready.bookSlug,
+    translationSlug: ready.slug,
+    chapters: ready.chapters.filter((chapter) => chapter.content),
+  });
+
+  await c.env.DB
+    .prepare(`UPDATE translations SET status = 'published', published_at = COALESCE(published_at, ?), updated_at = ? WHERE id = ?`)
+    .bind(new Date().toISOString(), new Date().toISOString(), ready.id)
     .run();
 
-  return c.json(
-    success({
-      chapter: updatedChapter,
-      session: await getAdminIngestionSessionDetail(c.env.DB, sessionId),
-    }),
-  );
+  const updated = await getAdminTranslationDetail(c.env.DB, c.env.CONTENT_BUCKET, ready.id);
+  if (!updated) {
+    return c.json(failure("internal_error", "Published translation could not be reloaded."), 500);
+  }
+
+  return c.json(success(updated));
+});
+
+app.post("/api/admin/translations/:translationId/unpublish", async (c) => {
+  const translation = await getAdminTranslationDetail(c.env.DB, c.env.CONTENT_BUCKET, c.req.param("translationId"));
+
+  if (!translation) {
+    return c.json(failure("not_found", "Translation was not found."), 404);
+  }
+
+  await deletePublishedTranslationObjects(c.env.CONTENT_BUCKET, translation.bookSlug, translation.slug, translation.chapters);
+  await c.env.DB
+    .prepare(`UPDATE translations SET status = 'draft', updated_at = ? WHERE id = ?`)
+    .bind(new Date().toISOString(), translation.id)
+    .run();
+
+  const updated = await getAdminTranslationDetail(c.env.DB, c.env.CONTENT_BUCKET, translation.id);
+  if (!updated) {
+    return c.json(failure("internal_error", "Translation could not be reloaded."), 500);
+  }
+
+  return c.json(success(updated));
 });
 
 app.notFound((c) => c.json(failure("not_found", "Route not found."), 404));
 
 export default app;
 
-function normalizeProvider(value: AiProvider | null | undefined): AiProvider {
-  return value === "openrouter" ? "openrouter" : "google";
+function buildOriginalDocument(bookSlug: string, chapterSlug: string, sourceText: string): OriginalChapterDocument {
+  return {
+    bookSlug,
+    chapterSlug,
+    fullText: sourceText.trim(),
+  };
+}
+
+function normalizeBookChapters(chapters: SourceChapterInput[]): SourceChapterInput[] {
+  return chapters
+    .filter((chapter) => chapter.sourceText.trim().length > 0)
+    .map((chapter, index) => ({
+      position: index + 1,
+      title: chapter.title.trim() || `Chapter ${index + 1}`,
+      slug: slugify(chapter.slug || chapter.title || `chapter-${index + 1}`),
+      sourceText: chapter.sourceText.trim(),
+    }));
+}
+
+async function initializeTranslationChapters(
+  db: D1Database,
+  translationId: string,
+  bookId: string,
+): Promise<void> {
+  const chapters = await listBookChapters(db, bookId);
+  const now = new Date().toISOString();
+
+  for (const chapter of chapters) {
+    await db
+      .prepare(
+        `
+          INSERT INTO translation_chapters (
+            id, translation_id, chapter_id, status, raw_response, content_json, notes, error_message, created_at, updated_at
+          ) VALUES (?, ?, ?, 'empty', NULL, NULL, NULL, NULL, ?, ?)
+        `,
+      )
+      .bind(crypto.randomUUID(), translationId, chapter.id, now, now)
+      .run();
+  }
+}
+
+async function createUniqueBookSlug(db: D1Database, desiredName: string): Promise<string> {
+  const baseSlug = slugify(desiredName);
+  let candidate = baseSlug;
+  let suffix = 2;
+
+  for (;;) {
+    const existing = await db.prepare(`SELECT 1 FROM books WHERE slug = ? LIMIT 1`).bind(candidate).first();
+    if (!existing) {
+      return candidate;
+    }
+
+    candidate = `${baseSlug}-${suffix}`;
+    suffix += 1;
+  }
+}
+
+async function createUniqueTranslationSlug(db: D1Database, bookId: string, desiredName: string): Promise<string> {
+  const baseSlug = slugify(desiredName);
+  let candidate = baseSlug;
+  let suffix = 2;
+
+  for (;;) {
+    const existing = await db
+      .prepare(`SELECT 1 FROM translations WHERE book_id = ? AND slug = ? LIMIT 1`)
+      .bind(bookId, candidate)
+      .first();
+
+    if (!existing) {
+      return candidate;
+    }
+
+    candidate = `${baseSlug}-${suffix}`;
+    suffix += 1;
+  }
+}
+
+async function createUniqueTranslationSlugForRename(
+  db: D1Database,
+  translationId: string,
+  bookSlug: string,
+  desiredName: string,
+): Promise<string> {
+  const book = await db.prepare(`SELECT id FROM books WHERE slug = ?`).bind(bookSlug).first<{ id: string }>();
+  if (!book) {
+    throw new Error("Book was not found for translation rename.");
+  }
+
+  const baseSlug = slugify(desiredName);
+  let candidate = baseSlug;
+  let suffix = 2;
+
+  for (;;) {
+    const existing = await db
+      .prepare(`SELECT id FROM translations WHERE book_id = ? AND slug = ? LIMIT 1`)
+      .bind(book.id, candidate)
+      .first<{ id: string }>();
+
+    if (!existing || existing.id === translationId) {
+      return candidate;
+    }
+
+    candidate = `${baseSlug}-${suffix}`;
+    suffix += 1;
+  }
+}
+
+async function deletePublishedTranslationObjects(
+  bucket: R2Bucket,
+  bookSlug: string,
+  translationSlug: string,
+  chapters: Array<Pick<TranslationChapterDraft, "slug">>,
+): Promise<void> {
+  await deleteObjectsByKeys(
+    bucket,
+    chapters.map((chapter) => buildTranslationChapterKey(bookSlug, chapter.slug, translationSlug)),
+  );
+}
+
+async function deleteObjectsByKeys(bucket: R2Bucket, keys: string[]): Promise<void> {
+  const uniqueKeys = Array.from(new Set(keys.filter((key) => key.trim().length > 0)));
+  if (uniqueKeys.length === 0) {
+    return;
+  }
+
+  await bucket.delete(uniqueKeys);
+}
+
+async function deleteObjectsByPrefix(bucket: R2Bucket, prefix: string): Promise<void> {
+  let cursor: string | undefined;
+
+  for (;;) {
+    const listing = await bucket.list({ prefix, cursor });
+    const keys = listing.objects.map((object) => object.key);
+
+    if (keys.length > 0) {
+      await bucket.delete(keys);
+    }
+
+    if (!listing.truncated || !listing.cursor) {
+      break;
+    }
+
+    cursor = listing.cursor;
+  }
+}
+
+function buildRawResponseFromContent(
+  chapterTitle: string,
+  notes: string | null,
+  content: TranslationChapterDocument | null,
+): string | null {
+  if (!content || content.chunks.length === 0) {
+    return null;
+  }
+
+  return JSON.stringify(
+    {
+      chapterTitle,
+      notes: notes ?? "",
+      chunks: content.chunks.map((chunk) => ({
+        originalText: chunk.originalText,
+        translatedText: chunk.translatedText,
+        type: chunk.type,
+      })),
+    },
+    null,
+    2,
+  );
+}
+
+function normalizeImportedArchive(input: unknown): TranslationDraftArchive {
+  if (!input || typeof input !== "object") {
+    throw new Error("A translation archive is required.");
+  }
+
+  const candidate = input as Record<string, unknown>;
+
+  if (candidate.version === 2 && candidate.translation && Array.isArray(candidate.chapters)) {
+    return candidate as unknown as TranslationDraftArchive;
+  }
+
+  const session = (candidate.session && typeof candidate.session === "object" ? candidate.session : candidate) as Record<
+    string,
+    unknown
+  >;
+
+  if (!session.title || !Array.isArray(session.chapters)) {
+    throw new Error("The selected file does not contain a valid translation archive.");
+  }
+
+  return {
+    version: 2,
+    exportedAt: new Date().toISOString(),
+    translation: {
+      name: String(session.title),
+      slug: slugify(String(session.title)),
+      description: null,
+      provider: normalizeProvider(session.provider as AiProvider | undefined),
+      model: typeof session.model === "string" ? session.model : "gemini-3-flash-preview",
+      thinkingLevel: normalizeThinkingLevel(session.thinkingLevel as ThinkingLevel | undefined),
+      prompt: typeof session.prompt === "string" ? session.prompt : "",
+      contextBeforeChapterCount:
+        typeof session.contextBeforeChapterCount === "number" ? Math.max(0, session.contextBeforeChapterCount) : 1,
+      contextAfterChapterCount:
+        typeof session.contextAfterChapterCount === "number" ? Math.max(0, session.contextAfterChapterCount) : 1,
+    },
+    chapters: session.chapters.map((chapter) => normalizeLegacyArchiveChapter(chapter)),
+  };
+}
+
+function normalizeLegacyArchiveChapter(value: unknown): TranslationDraftArchive["chapters"][number] {
+  if (!value || typeof value !== "object") {
+    throw new Error("Archive chapter entry is invalid.");
+  }
+
+  const chapter = value as Record<string, unknown>;
+
+  return {
+    chapterSlug:
+      typeof chapter.sourceChapterSlug === "string"
+        ? chapter.sourceChapterSlug
+        : typeof chapter.slug === "string"
+          ? chapter.slug
+          : "",
+    position: typeof chapter.position === "number" ? chapter.position : 0,
+    title: typeof chapter.title === "string" ? chapter.title : "Chapter",
+    status: mapImportedStatus(chapter.status),
+    rawResponse: typeof chapter.rawResponse === "string" ? chapter.rawResponse : null,
+    content:
+      chapter.translationDocument && typeof chapter.translationDocument === "object"
+        ? (chapter.translationDocument as TranslationChapterDocument)
+        : null,
+    notes: typeof chapter.notes === "string" ? chapter.notes : null,
+  };
+}
+
+function mapImportedStatus(value: unknown): TranslationDraftArchive["chapters"][number]["status"] {
+  switch (value) {
+    case "saved":
+      return "saved";
+    case "generated":
+    case "draft":
+      return "draft";
+    case "error":
+      return "error";
+    default:
+      return "empty";
+  }
 }

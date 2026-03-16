@@ -1,26 +1,12 @@
-// ── Enum types ──────────────────────────────────────────────
-
 export type ChunkType = "prose" | "verse";
 
-/** Status for books. */
-export type ContentStatus = "draft" | "published";
+export type TranslationStatus = "draft" | "published";
 
-/** Status for translation variants (includes generation lifecycle). */
-export type TranslationStatus = "draft" | "generating" | "ready" | "published" | "failed";
-
-export type SubscriptionStatus = "free" | "trial" | "active" | "expired";
-
-export type UserRole = "reader" | "admin";
-
-export type AdminIngestionSourceMode = "paste" | "existing_story";
-
-export type AdminIngestionChapterStatus = "pending" | "generated" | "saved" | "error";
+export type TranslationChapterStatus = "empty" | "draft" | "saved" | "error";
 
 export type ThinkingLevel = "none" | "minimal" | "low" | "medium" | "high" | "xhigh";
 
 export type AiProvider = "google" | "openrouter";
-
-// ── R2 document shapes ──────────────────────────────────────
 
 export interface TranslationChunk {
   id: string;
@@ -41,8 +27,6 @@ export interface TranslationChapterDocument {
   chunks: TranslationChunk[];
 }
 
-// ── D1 row / API shapes ────────────────────────────────────
-
 export interface BookSummary {
   id: string;
   slug: string;
@@ -51,7 +35,6 @@ export interface BookSummary {
   originalLanguage: string | null;
   description: string | null;
   coverImageUrl: string | null;
-  status: ContentStatus;
   publishedAt: string | null;
 }
 
@@ -60,9 +43,6 @@ export interface ChapterSummary {
   slug: string;
   position: number;
   title: string;
-  isPreview: boolean;
-  sourceR2Key: string;
-  publishedAt: string | null;
 }
 
 export interface TranslationSummary {
@@ -70,35 +50,9 @@ export interface TranslationSummary {
   slug: string;
   name: string;
   description: string | null;
-  outputR2Prefix: string;
   status: TranslationStatus;
-}
-
-export interface AdminBookWorkflowSummary extends BookSummary {
-  chapterCount: number;
-  translationCount: number;
-  readyTranslationCount: number;
-  savedChapterCount: number;
-  latestActivityAt: string | null;
-}
-
-export type AdminTranslationSessionSummary = AdminIngestionSessionSummary;
-
-export interface AdminTranslationSummary extends TranslationSummary {
-  bookSlug: string;
-  aiSystemPrompt: string | null;
-  latestSession: AdminTranslationSessionSummary | null;
-  sessionCount: number;
-  chapterCount: number;
-  savedChapterCount: number;
-  generatedChapterCount: number;
-  pendingChapterCount: number;
-  latestActivityAt: string | null;
-}
-
-export interface AdminTranslationDetail extends AdminTranslationSummary {
-  currentSession: AdminIngestionSessionDetail | null;
-  sessions: AdminTranslationSessionSummary[];
+  publishedAt: string | null;
+  updatedAt: string;
 }
 
 export interface BookDetail extends BookSummary {
@@ -106,10 +60,12 @@ export interface BookDetail extends BookSummary {
   translations: TranslationSummary[];
 }
 
-export interface ChapterPayload {
+export interface ReaderChapterPayload {
+  book: Pick<BookSummary, "slug" | "title">;
   chapter: ChapterSummary;
   original: OriginalChapterDocument;
   availableTranslations: TranslationSummary[];
+  translation: TranslationPayload | null;
 }
 
 export interface TranslationPayload {
@@ -117,98 +73,21 @@ export interface TranslationPayload {
   content: TranslationChapterDocument;
 }
 
-// ── User / Notes ────────────────────────────────────────────
-
-export interface UserProfile {
-  id: string;
-  email: string;
-  role: UserRole;
-  subscriptionStatus: SubscriptionStatus;
-  stripeCustomerId: string | null;
-  createdAt: string;
-  updatedAt: string;
-}
-
-export interface NoteRecord {
-  id: string;
-  userId: string;
-  bookId: string;
-  chapterId: string;
-  translationId: string;
-  anchorId: string;
-  content: string;
-  createdAt: string;
-  updatedAt: string;
-}
-
-// ── App Settings ────────────────────────────────────────────
-
 export interface AppSetting {
   key: string;
   value: string;
   updatedAt: string;
 }
 
-/** Well-known setting keys stored in the `app_settings` table. */
 export const APP_SETTING_KEYS = {
   OPENROUTER_API_KEY: "openrouter_api_key",
   GOOGLE_API_KEY: "google_api_key",
-  DEFAULT_TRANSLATION_MODEL: "default_translation_model",
-  ADMIN_INGESTION_PROVIDER: "admin_ingestion_provider",
-  ADMIN_INGESTION_MODEL: "admin_ingestion_model",
-  ADMIN_INGESTION_PROMPT: "admin_ingestion_prompt",
+  DEFAULT_PROVIDER: "default_provider",
+  DEFAULT_MODEL: "default_model",
+  DEFAULT_PROMPT: "default_prompt",
 } as const;
 
-// ── Admin ingestion workflow ────────────────────────────────
-
-export interface AdminIngestionChapterInput {
-  position: number;
-  title: string;
-  slug: string;
-  sourceText: string;
-  sourceChapterSlug: string | null;
-}
-
-export interface AdminIngestionSessionSummary {
-  id: string;
-  title: string;
-  sourceMode: AdminIngestionSourceMode;
-  sourceBookSlug: string | null;
-  translationId: string | null;
-  provider: AiProvider;
-  model: string;
-  thinkingLevel: ThinkingLevel | null;
-  contextBeforeChapterCount: number;
-  contextAfterChapterCount: number;
-  currentChapterIndex: number;
-  chapterCount: number;
-  createdAt: string;
-  updatedAt: string;
-}
-
-export interface AdminIngestionChapterRecord extends AdminIngestionChapterInput {
-  id: string;
-  status: AdminIngestionChapterStatus;
-  rawResponse: string | null;
-  originalDocument: OriginalChapterDocument | null;
-  translationDocument: TranslationChapterDocument | null;
-  notes: string | null;
-  errorMessage: string | null;
-  updatedAt: string;
-}
-
-export interface AdminIngestionSessionDetail extends AdminIngestionSessionSummary {
-  prompt: string;
-  chapters: AdminIngestionChapterRecord[];
-}
-
-export interface AdminIngestionBootstrapPayload {
-  books: AdminBookWorkflowSummary[];
-  settings: Record<string, string>;
-  sessions: AdminIngestionSessionSummary[];
-}
-
-export interface AdminBookChapterInput {
+export interface SourceChapterInput {
   position: number;
   title: string;
   slug: string;
@@ -217,64 +96,100 @@ export interface AdminBookChapterInput {
 
 export interface AdminBookSourcePayload {
   book: BookDetail;
-  chapters: AdminBookChapterInput[];
+  chapters: SourceChapterInput[];
+}
+
+export interface AdminBookSummary extends BookSummary {
+  chapterCount: number;
+  translationCount: number;
+  publishedTranslationCount: number;
+  latestActivityAt: string | null;
+}
+
+export interface TranslationChapterDraft extends ChapterSummary {
+  chapterId: string;
+  sourceText: string;
+  status: TranslationChapterStatus;
+  rawResponse: string | null;
+  content: TranslationChapterDocument | null;
+  notes: string | null;
+  errorMessage: string | null;
+  updatedAt: string;
+}
+
+export interface AdminTranslationSummary extends TranslationSummary {
+  bookSlug: string;
+  provider: AiProvider;
+  model: string;
+  thinkingLevel: ThinkingLevel | null;
+  contextBeforeChapterCount: number;
+  contextAfterChapterCount: number;
+  chapterCount: number;
+  savedChapterCount: number;
+  draftChapterCount: number;
+  errorChapterCount: number;
+  latestActivityAt: string | null;
+}
+
+export interface AdminTranslationDetail extends AdminTranslationSummary {
+  prompt: string;
+  chapters: TranslationChapterDraft[];
+}
+
+export interface AdminBootstrapPayload {
+  books: AdminBookSummary[];
+  settings: Record<string, string>;
 }
 
 export interface AdminTranslationValidationIssue {
   level: "error" | "warning";
   message: string;
+  chapterId?: string;
   chapterPosition?: number;
   chapterSlug?: string;
   translationChunkId?: string;
-  sourceChunkId?: string;
 }
 
 export interface AdminTranslationValidationChapter {
+  chapterId: string;
   position: number;
   title: string;
   slug: string;
-  status: AdminIngestionChapterStatus;
+  status: TranslationChapterStatus;
   issues: AdminTranslationValidationIssue[];
 }
 
 export interface AdminTranslationValidationPayload {
-  session: AdminIngestionSessionDetail;
+  translationId: string;
   isValid: boolean;
   issues: AdminTranslationValidationIssue[];
   chapters: AdminTranslationValidationChapter[];
 }
 
-export interface AdminIngestionGeneratePayload {
-  chapter: AdminIngestionChapterRecord;
-  session: AdminIngestionSessionSummary & { prompt: string };
-}
-
-// ── Export / Import shapes ──────────────────────────────────
-
-/** Portable archive for an original text (book + chapters + R2 chunks). */
-export interface BookExportArchive {
-  version: 1;
+export interface TranslationDraftArchive {
+  version: 2;
   exportedAt: string;
-  book: Omit<BookSummary, "status"> & { originalLanguage: string | null };
+  translation: {
+    name: string;
+    slug: string;
+    description: string | null;
+    provider: AiProvider;
+    model: string;
+    thinkingLevel: ThinkingLevel | null;
+    prompt: string;
+    contextBeforeChapterCount: number;
+    contextAfterChapterCount: number;
+  };
   chapters: Array<{
-    meta: ChapterSummary;
-    fullText: string;
+    chapterSlug: string;
+    position: number;
+    title: string;
+    status: TranslationChapterStatus;
+    rawResponse: string | null;
+    content: TranslationChapterDocument | null;
+    notes: string | null;
   }>;
 }
-
-/** Portable archive for a single translation variant. */
-export interface TranslationExportArchive {
-  version: 1;
-  exportedAt: string;
-  bookSlug: string;
-  translation: Omit<TranslationSummary, "status"> & {
-    aiSystemPrompt: string | null;
-  };
-  /** Keyed by chapterSlug. */
-  chapters: Record<string, TranslationChapterDocument>;
-}
-
-// ── API response wrappers ───────────────────────────────────
 
 export interface ApiSuccess<T> {
   ok: true;

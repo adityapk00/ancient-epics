@@ -1,7 +1,7 @@
-import type { AdminIngestionChapterRecord, AdminIngestionSessionDetail, ThinkingLevel } from "@ancient-epics/shared";
+import type { AdminTranslationDetail, ThinkingLevel, TranslationChapterDraft } from "@ancient-epics/shared";
 import { config } from "./config";
 import { buildReasoningPayload } from "./reasoning";
-import { generateChapterWithProvider, type ProviderCallResult } from "./translation-generation";
+import { generateTranslationChapterWithProvider, type ProviderCallResult } from "./translation-generation";
 
 type OpenRouterChatResponse = {
   choices?: Array<{
@@ -19,18 +19,18 @@ export async function generateChapterWithOpenRouter(input: {
   model: string;
   thinkingLevel: ThinkingLevel | null;
   prompt: string;
-  session: AdminIngestionSessionDetail;
-  chapter: AdminIngestionChapterRecord;
-  previousChapters?: AdminIngestionChapterRecord[];
-  nextChapters?: AdminIngestionChapterRecord[];
+  translation: AdminTranslationDetail;
+  chapter: TranslationChapterDraft;
+  previousChapters?: TranslationChapterDraft[];
+  nextChapters?: TranslationChapterDraft[];
   publicAppUrl?: string;
 }): Promise<string> {
-  return generateChapterWithProvider({
+  return generateTranslationChapterWithProvider({
     provider: "openrouter",
     model: input.model,
     thinkingLevel: input.thinkingLevel,
     prompt: input.prompt,
-    session: input.session,
+    translation: input.translation,
     chapter: input.chapter,
     previousChapters: input.previousChapters,
     nextChapters: input.nextChapters,

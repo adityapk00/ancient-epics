@@ -1,16 +1,21 @@
 import {
   buildTranslationChapterKey,
-  type AdminIngestionChapterRecord,
-  type AdminIngestionSessionDetail,
+  type AdminTranslationDetail,
   type AiProvider,
   type ChunkType,
-  type OriginalChapterDocument,
   type ThinkingLevel,
   type TranslationChapterDocument,
+  type TranslationChapterDraft,
+  type TranslationChapterStatus,
 } from "@ancient-epics/shared";
-import { slugify, writeObjectJson } from "./http";
+import { writeObjectJson } from "./http";
 
-type ParsedAiChunk = { originalText: string; translatedText: string; type?: ChunkType };
+type ParsedAiChunk = {
+  originalText: string;
+  translatedText: string;
+  type?: ChunkType;
+};
+
 type ParsedAiChapterPayload = {
   chapterTitle?: string;
   notes?: string;
@@ -31,15 +36,15 @@ export type ProviderCallResult = {
   extractedContent: string;
 };
 
-export async function generateChapterWithProvider(input: {
+export async function generateTranslationChapterWithProvider(input: {
   provider: AiProvider;
   model: string;
   thinkingLevel: ThinkingLevel | null;
   prompt: string;
-  session: AdminIngestionSessionDetail;
-  chapter: AdminIngestionChapterRecord;
-  previousChapters?: AdminIngestionChapterRecord[];
-  nextChapters?: AdminIngestionChapterRecord[];
+  translation: AdminTranslationDetail;
+  chapter: TranslationChapterDraft;
+  previousChapters?: TranslationChapterDraft[];
+  nextChapters?: TranslationChapterDraft[];
   callModel: (input: ProviderCallInput) => Promise<ProviderCallResult>;
   logEntry?: (entry: Record<string, unknown>) => Promise<void>;
 }): Promise<string> {
@@ -54,11 +59,10 @@ export async function generateChapterWithProvider(input: {
   await input.logEntry?.({
     timestamp: new Date().toISOString(),
     provider: input.provider,
-    sessionId: input.session.id,
-    chapterId: input.chapter.id,
+    translationId: input.translation.id,
+    chapterId: input.chapter.chapterId,
     chapterPosition: input.chapter.position,
     chapterSlug: input.chapter.slug,
-    translationId: input.session.translationId,
     model: input.model,
     attempt: "initial",
     requestPayload: initialResult.requestPayload,
@@ -86,11 +90,10 @@ export async function generateChapterWithProvider(input: {
   await input.logEntry?.({
     timestamp: new Date().toISOString(),
     provider: input.provider,
-    sessionId: input.session.id,
-    chapterId: input.chapter.id,
+    translationId: input.translation.id,
+    chapterId: input.chapter.chapterId,
     chapterPosition: input.chapter.position,
     chapterSlug: input.chapter.slug,
-    translationId: input.session.translationId,
     model: input.model,
     attempt: "repair",
     requestPayload: repairedResult.requestPayload,
@@ -107,153 +110,121 @@ export async function generateChapterWithProvider(input: {
   throw new Error(`Model response failed validation after repair: ${repairedValidation.error}`);
 }
 
-export async function persistGeneratedChapter(input: {
+export async function saveTranslationChapterDraft(input: {
   db: D1Database;
-  bucket: R2Bucket;
-  session: AdminIngestionSessionDetail;
-  chapter: AdminIngestionChapterRecord;
+  translation: Pick<AdminTranslationDetail, "id" | "slug">;
+  chapter: TranslationChapterDraft;
   rawResponse: string;
-  statusOnSuccess: AdminIngestionChapterRecord["status"];
-}): Promise<AdminIngestionChapterRecord> {
+  statusOnSuccess: Extract<TranslationChapterStatus, "draft" | "saved">;
+}): Promise<TranslationChapterDraft> {
   const now = new Date().toISOString();
-  let translationSlug: string | undefined;
-
-  if (input.session.translationId) {
-    const translation = await input.db
-      .prepare(`SELECT slug FROM translations WHERE id = ?`)
-      .bind(input.session.translationId)
-      .first<{ slug: string }>();
-    translationSlug = translation?.slug;
-  }
 
   try {
-    const normalized = normalizeGeneratedChapter({
-      session: input.session,
-      chapter: input.chapter,
+    const normalized = normalizeTranslationChapter({
+      translationSlug: input.translation.slug,
       rawResponse: input.rawResponse,
-      translationSlug,
     });
 
     await input.db
       .prepare(
         `
-          UPDATE admin_ingestion_chapters
-          SET status = ?, raw_response = ?, original_document_json = ?, translation_document_json = ?, notes = ?, error_message = NULL, updated_at = ?
+          UPDATE translation_chapters
+          SET status = ?, raw_response = ?, content_json = ?, notes = ?, error_message = NULL, updated_at = ?
           WHERE id = ?
         `,
       )
       .bind(
         input.statusOnSuccess,
         input.rawResponse,
-        JSON.stringify(normalized.originalDocument),
-        JSON.stringify(normalized.translationDocument),
+        JSON.stringify(normalized.content),
         normalized.notes,
         now,
         input.chapter.id,
       )
       .run();
 
-    if (
-      input.session.translationId &&
-      input.session.sourceBookSlug &&
-      input.statusOnSuccess === "saved" &&
-      translationSlug
-    ) {
-      await writeObjectJson(
-        input.bucket,
-        buildTranslationChapterKey(input.session.sourceBookSlug, input.chapter.slug, translationSlug),
-        normalized.translationDocument,
-      );
-
-      await input.db
-        .prepare(
-          `
-            UPDATE translations
-            SET ai_system_prompt = ?, status = 'ready', updated_at = ?
-            WHERE id = ?
-          `,
-        )
-        .bind(input.session.prompt, now, input.session.translationId)
-        .run();
-    }
+    await touchTranslation(input.db, input.translation.id, now);
   } catch (error) {
     const message = error instanceof Error ? error.message : "Failed to parse AI response.";
+
     await input.db
       .prepare(
         `
-          UPDATE admin_ingestion_chapters
+          UPDATE translation_chapters
           SET status = 'error', raw_response = ?, error_message = ?, updated_at = ?
           WHERE id = ?
         `,
       )
       .bind(input.rawResponse, message, now, input.chapter.id)
       .run();
+
+    await touchTranslation(input.db, input.translation.id, now);
   }
 
   const refreshed = await input.db
     .prepare(
       `
         SELECT
-          id,
-          position,
-          title,
-          slug,
-          source_text AS sourceText,
-          source_chapter_slug AS sourceChapterSlug,
           status,
           raw_response AS rawResponse,
-          original_document_json AS originalDocumentJson,
-          translation_document_json AS translationDocumentJson,
+          content_json AS contentJson,
           notes,
           error_message AS errorMessage,
           updated_at AS updatedAt
-        FROM admin_ingestion_chapters
+        FROM translation_chapters
         WHERE id = ?
       `,
     )
     .bind(input.chapter.id)
     .first<{
-      id: string;
-      position: number;
-      title: string;
-      slug: string;
-      sourceText: string;
-      sourceChapterSlug: string | null;
-      status: AdminIngestionChapterRecord["status"];
+      status: TranslationChapterDraft["status"];
       rawResponse: string | null;
-      originalDocumentJson: string | null;
-      translationDocumentJson: string | null;
+      contentJson: string | null;
       notes: string | null;
       errorMessage: string | null;
       updatedAt: string;
     }>();
 
   if (!refreshed) {
-    throw new Error("Generated chapter could not be reloaded.");
+    throw new Error("Draft chapter could not be reloaded.");
   }
 
   return {
-    id: refreshed.id,
-    position: Number(refreshed.position),
-    title: refreshed.title,
-    slug: refreshed.slug,
-    sourceText: refreshed.sourceText,
-    sourceChapterSlug: refreshed.sourceChapterSlug,
+    ...input.chapter,
     status: refreshed.status,
     rawResponse: refreshed.rawResponse,
-    originalDocument: refreshed.originalDocumentJson
-      ? (JSON.parse(refreshed.originalDocumentJson) as OriginalChapterDocument)
-      : null,
-    translationDocument: refreshed.translationDocumentJson
-      ? (JSON.parse(refreshed.translationDocumentJson) as TranslationChapterDocument)
-      : null,
+    content: refreshed.contentJson ? (JSON.parse(refreshed.contentJson) as TranslationChapterDocument) : null,
     notes: refreshed.notes,
     errorMessage: refreshed.errorMessage,
     updatedAt: refreshed.updatedAt,
   };
 }
 
-function formatContextChapters(chapters: AdminIngestionChapterRecord[] | undefined): string {
+export async function publishTranslationChapters(input: {
+  bucket: R2Bucket;
+  bookSlug: string;
+  translationSlug: string;
+  chapters: TranslationChapterDraft[];
+}): Promise<string[]> {
+  const warnings: string[] = [];
+
+  for (const chapter of input.chapters) {
+    if (!chapter.content) {
+      warnings.push(`Chapter ${chapter.position} "${chapter.title}" has no saved translation content.`);
+      continue;
+    }
+
+    await writeObjectJson(
+      input.bucket,
+      buildTranslationChapterKey(input.bookSlug, chapter.slug, input.translationSlug),
+      chapter.content,
+    );
+  }
+
+  return warnings;
+}
+
+function formatContextChapters(chapters: TranslationChapterDraft[] | undefined): string {
   if (!chapters || chapters.length === 0) {
     return "(none)";
   }
@@ -261,8 +232,8 @@ function formatContextChapters(chapters: AdminIngestionChapterRecord[] | undefin
   return chapters
     .map((chapter) => {
       let content = `## ${chapter.title}\nSource Text:\n${chapter.sourceText}`;
-      if (chapter.translationDocument) {
-        const translatedText = chapter.translationDocument.chunks.map((chunk) => chunk.translatedText).join("\n");
+      if (chapter.content) {
+        const translatedText = chapter.content.chunks.map((chunk) => chunk.translatedText).join("\n");
         content += `\n\nTranslated Text:\n${translatedText}`;
       }
       return content;
@@ -271,15 +242,14 @@ function formatContextChapters(chapters: AdminIngestionChapterRecord[] | undefin
 }
 
 function buildGenerationUserPrompt(input: {
-  session: AdminIngestionSessionDetail;
-  chapter: AdminIngestionChapterRecord;
-  previousChapters?: AdminIngestionChapterRecord[];
-  nextChapters?: AdminIngestionChapterRecord[];
+  translation: AdminTranslationDetail;
+  chapter: TranslationChapterDraft;
+  previousChapters?: TranslationChapterDraft[];
+  nextChapters?: TranslationChapterDraft[];
 }): string {
   return [
-    `Project: ${input.session.title}`,
-    `Source mode: ${input.session.sourceMode}`,
-    `Provider: ${input.session.provider}`,
+    `Project: ${input.translation.name}`,
+    `Provider: ${input.translation.provider}`,
     `Chapter title: ${input.chapter.title}`,
     "",
     "Return JSON only.",
@@ -311,38 +281,26 @@ function buildRepairUserPrompt(input: { originalError: string; rawResponse: stri
   ].join("\n");
 }
 
-function normalizeGeneratedChapter(input: {
-  session: AdminIngestionSessionDetail;
-  chapter: AdminIngestionChapterRecord;
+function normalizeTranslationChapter(input: {
+  translationSlug: string;
   rawResponse: string;
-  translationSlug?: string;
 }): {
-  originalDocument: OriginalChapterDocument;
-  translationDocument: TranslationChapterDocument;
+  content: TranslationChapterDocument;
   notes: string | null;
 } {
   const parsed = parseAiChapterPayload(input.rawResponse);
 
-  const originalDocument: OriginalChapterDocument = {
-    bookSlug: input.session.sourceBookSlug ?? slugify(input.session.title),
-    chapterSlug: input.chapter.slug,
-    fullText: input.chapter.sourceText.trim(),
-  };
-
-  const translationDocument: TranslationChapterDocument = {
-    translationSlug: input.translationSlug ?? `${slugify(input.session.title)}-draft`,
-    chunks: parsed.chunks.map((chunk, index) => ({
-      id: `t${index + 1}`,
-      type: chunk.type ?? inferChunkType(chunk.originalText),
-      originalText: chunk.originalText,
-      translatedText: chunk.translatedText,
-      ordinal: index + 1,
-    })),
-  };
-
   return {
-    originalDocument,
-    translationDocument,
+    content: {
+      translationSlug: input.translationSlug,
+      chunks: parsed.chunks.map((chunk, index) => ({
+        id: `t${index + 1}`,
+        type: chunk.type ?? inferChunkType(chunk.originalText),
+        originalText: chunk.originalText,
+        translatedText: chunk.translatedText,
+        ordinal: index + 1,
+      })),
+    },
     notes: parsed.notes?.trim() || null,
   };
 }
@@ -377,12 +335,15 @@ function normalizeAiChunk(value: unknown): ParsedAiChunk | null {
   if (!value || typeof value !== "object") {
     return null;
   }
+
   const entry = value as Record<string, unknown>;
   const originalText = typeof entry.originalText === "string" ? entry.originalText : "";
   const translatedText = typeof entry.translatedText === "string" ? entry.translatedText : "";
+
   if (!originalText.trim() || !translatedText.trim()) {
     return null;
   }
+
   return {
     originalText,
     translatedText,
@@ -400,13 +361,21 @@ function inferChunkType(text: string): ChunkType {
 
 function extractJsonObject(raw: string): string {
   const trimmed = raw.trim();
+
   if (trimmed.startsWith("{") && trimmed.endsWith("}")) {
     return trimmed;
   }
+
   const start = trimmed.indexOf("{");
   const end = trimmed.lastIndexOf("}");
+
   if (start === -1 || end === -1 || end < start) {
     throw new Error("Response did not include a JSON object.");
   }
+
   return trimmed.slice(start, end + 1);
+}
+
+async function touchTranslation(db: D1Database, translationId: string, now: string): Promise<void> {
+  await db.prepare(`UPDATE translations SET updated_at = ? WHERE id = ?`).bind(now, translationId).run();
 }

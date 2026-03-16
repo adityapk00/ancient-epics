@@ -8,6 +8,7 @@
     "dev": "concurrently -n api,web -c cyan,magenta \"pnpm --filter @ancient-epics/api dev\" \"pnpm --filter @ancient-epics/web dev\"",
     "build": "pnpm -r build",
     "lint": "pnpm -r lint",
+    "test": "pnpm --filter @ancient-epics/api test",
     "typecheck": "pnpm -r typecheck",
     "format": "prettier . --write",
     "format:check": "prettier . --check",
