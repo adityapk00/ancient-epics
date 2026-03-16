@@ -53,7 +53,7 @@ pnpm seed:local
 If you need a clean reset:
 
 ```bash
-pnpm seed:nuke
+pnpm seed:local:nuke
 ```
 
 ### Run the apps
@@ -81,8 +81,10 @@ packages/
 - pnpm build
 - pnpm lint
 - pnpm typecheck
+- pnpm format
 - pnpm seed:local
-- pnpm seed:nuke
+- pnpm seed:local:password
+- pnpm seed:local:nuke
 - pnpm smoke
 
 `pnpm smoke` runs against an isolated Wrangler persistence directory, so it does not wipe your normal local D1/R2 state under `.wrangler/state`.
@@ -99,9 +101,3 @@ SMOKE_PERSIST_TO=/tmp/ancient-epics-smoke pnpm smoke
 - Internal local-state override: scripts use `AE_LOCAL_PERSIST_TO` to point Wrangler local D1/R2 commands at a non-default persistence directory. `pnpm smoke` sets this automatically for its isolated run.
 - Frontend: copy apps/web/.env.example to apps/web/.env if you want to override the API origin.
 - API: copy apps/api/.dev.vars.example to apps/api/.dev.vars and add local secrets.
-
-## Contributing
-
-The reader experience depends on strong typography and clear passage relationships. Test UI changes on desktop and mobile, and preserve the source-anchor contract when changing content or rendering code.
-
-Git pushes run a `pre-push` hook that executes `pnpm format:check`. If the hook blocks your push, run `pnpm format`, review the changes, and commit them before pushing again.

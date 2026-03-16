@@ -13,8 +13,8 @@
     "format": "prettier . --write",
     "format:check": "prettier . --check",
     "seed:local": "pnpm --filter @ancient-epics/api seed:local",
-    "seed:password": "pnpm --filter @ancient-epics/api seed:password",
-    "seed:nuke": "pnpm --filter @ancient-epics/api seed:nuke",
+    "seed:local:password": "pnpm --filter @ancient-epics/api seed:local:password",
+    "seed:local:nuke": "pnpm --filter @ancient-epics/api seed:local:nuke",
     "export:local": "pnpm --filter @ancient-epics/api export:local",
     "smoke": "pnpm --filter @ancient-epics/api smoke"
   },

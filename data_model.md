@@ -19,13 +19,17 @@ Details:
 
 ### D1
 
-D1 contains five tables:
+D1 contains eight tables:
 
 - `books`
 - `chapters`
 - `translations`
 - `translation_chapters`
 - `app_settings`
+- `users`
+- `user_sessions`
+- `admin_credentials`
+- `admin_sessions`
 
 ### R2
 
@@ -99,6 +103,7 @@ Translation-level metadata and publishing state for a book.
 - `prompt TEXT NOT NULL`
 - `context_before_chapter_count INTEGER NOT NULL DEFAULT 1`
 - `context_after_chapter_count INTEGER NOT NULL DEFAULT 1`
+- `access_level TEXT NOT NULL CHECK (access_level IN ('public', 'loggedin'))`
 - `status TEXT NOT NULL CHECK (status IN ('draft', 'published'))`
 - `published_at TEXT`
 - `created_at TEXT NOT NULL`
