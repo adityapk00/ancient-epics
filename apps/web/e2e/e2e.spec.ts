@@ -12,7 +12,13 @@ const bookPath = path.join(repoRoot, "texts", "kesh-temple-hymn.txt");
 
 test.describe("End-to-end admin and reader flow", () => {
   test.describe.configure({ mode: "serial" });
-  let fileContents: { book: string; translationJSON: { title: string } & Record<string, unknown> };
+  let fileContents: {
+    book: string;
+    translationJSON: {
+      title: string;
+      chapters?: Array<{ title?: string }>;
+    } & Record<string, unknown>;
+  };
   const testBookTitle = `Kesh Temple Hymn ${Date.now()}`;
 
   test.beforeAll(() => {
@@ -143,4 +149,47 @@ test.describe("End-to-end admin and reader flow", () => {
 
     await expect(page.getByRole("heading", { level: 3, name: "House 2" })).toBeVisible();
   });
+
+  test("Reader flow: traverse every chapter with next and chapter list links", async ({ page }) => {
+    const transName = fileContents.translationJSON.title;
+    const chapterTitles = (fileContents.translationJSON.chapters ?? [])
+      .map((chapter) => chapter.title?.trim())
+      .filter((title): title is string => Boolean(title));
+
+    expect(chapterTitles.length).toBeGreaterThan(1);
+
+    await page.goto("/");
+
+    await expect(page.getByRole("heading", { level: 2, name: "Books" })).toBeVisible();
+
+    const email = `chapterwalker_${Date.now()}@example.com`;
+    const pwd = "readerpassword";
+    await page.getByRole("button", { name: "Sign Up" }).click();
+    await page.getByLabel("Email").fill(email);
+    await page.getByLabel("Password").fill(pwd);
+    await page.getByRole("button", { name: "Sign Up For Free", exact: true }).click();
+    await expect(page.getByText(email)).toBeVisible({ timeout: 10000 });
+
+    await page.getByRole("button", { name: testBookTitle }).click();
+    await expect(page.getByRole("heading", { level: 2, name: testBookTitle })).toBeVisible();
+
+    await page.getByRole("button", { name: transName }).click();
+    await expect(page.getByRole("heading", { level: 3, name: chapterTitles[0] })).toBeVisible();
+
+    for (let index = 1; index < chapterTitles.length; index += 1) {
+      await page.getByRole("button", { name: "Next" }).click();
+      await expect(page.getByRole("heading", { level: 3, name: chapterTitles[index] })).toBeVisible();
+    }
+
+    await expect(page.getByRole("button", { name: "Next" })).toBeDisabled();
+
+    for (const chapterTitle of chapterTitles) {
+      await page.getByRole("button", { name: new RegExp(`Chapter \\d+\\s+${escapeRegExp(chapterTitle)}`) }).click();
+      await expect(page.getByRole("heading", { level: 3, name: chapterTitle })).toBeVisible();
+    }
+  });
 });
+
+function escapeRegExp(value: string) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
