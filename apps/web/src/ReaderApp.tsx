@@ -425,7 +425,11 @@ export default function ReaderApp({ onOpenAdmin }: ReaderAppProps) {
                   )}
 
                   <div className="flex justify-end">
-                    <ChapterNav previousChapter={previousChapter} nextChapter={nextChapter} onOpenChapter={openChapter} />
+                    <ChapterNav
+                      previousChapter={previousChapter}
+                      nextChapter={nextChapter}
+                      onOpenChapter={openChapter}
+                    />
                   </div>
                 </div>
               </div>
