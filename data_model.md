@@ -1,44 +1,51 @@
 # Data Model Reference
 
-This document describes the current Ancient Epics data model as implemented in this repo.
+This document describes the data model that exists in the current simplified codebase. It is meant as a quick onboarding map for how data is stored, loaded, edited, and published.
 
-## Overview
+## Mental Model
 
-- Cloudflare D1 stores relational metadata, publication state, notes, and admin workflow state.
-- Cloudflare R2 stores chapter JSON documents for original texts and published or saved translations.
-- Original chapters are stored as a single canonical `fullText` document per chapter.
-- Translation chapters own their own chunking. There is no shared canonical source-chunk table.
+There are only two persistent stores:
 
-## Storage Responsibilities
+- `D1` holds metadata and admin workspace state.
+- `R2` holds canonical source chapter text and published translation chapter JSON.
+
+Details:
+
+- Source chapters are stored once in R2 as plain full-text documents.
+- Translation drafts live in D1 inside `translation_chapters.content_json`.
+- Published translations are copied to R2 so the reader can load them directly.
+ 
+
+## Storage Split
 
 ### D1
 
-D1 stores these tables:
+D1 contains five tables:
 
 - `books`
 - `chapters`
 - `translations`
-- `users`
-- `notes`
-- `translation_jobs`
+- `translation_chapters`
 - `app_settings`
-- `admin_ingestion_sessions`
-- `admin_ingestion_chapters`
 
 ### R2
 
-R2 stores:
+R2 contains JSON documents under the `epics/` prefix:
 
-- original chapter documents at `epics/{bookSlug}/{chapterSlug}/original.json`
-- translation chapter documents at `epics/{bookSlug}/{chapterSlug}/translations/{translationSlug}.json`
+- Original chapter text: `epics/{bookSlug}/{chapterSlug}/original.json`
+- Published translation chapter: `epics/{bookSlug}/{chapterSlug}/translations/{translationSlug}.json`
 
-Deleting a book or translation removes the corresponding D1 rows and deletes the related R2 objects.
+When a book is deleted, the API deletes `epics/{bookSlug}/...` from R2 and removes the book row from D1. Cascading foreign keys remove related chapters, translations, and translation chapter rows.
 
-## Current D1 Schema
+When a translation is deleted or unpublished, the API deletes its published R2 chapter files. Draft data in D1 is preserved on unpublish and removed on delete.
+
+## D1 Schema
+
+The schema is defined in [0001_initial.sql](/home/adityapk/github/ancient-epics/apps/api/migrations/0001_initial.sql).
 
 ### `books`
 
-Top-level works.
+Top-level work metadata.
 
 - `id TEXT PRIMARY KEY`
 - `slug TEXT NOT NULL UNIQUE`
@@ -47,165 +54,77 @@ Top-level works.
 - `original_language TEXT`
 - `description TEXT`
 - `cover_image_url TEXT`
-- `status TEXT NOT NULL DEFAULT 'draft' CHECK (status IN ('draft', 'published'))`
 - `created_at TEXT NOT NULL`
 - `updated_at TEXT NOT NULL`
-- `published_at TEXT`
 
 Notes:
 
-- Book `status` is derived operationally from whether at least one translation is published.
-- `published_at` is set when the book first becomes published and cleared when no translations remain published.
+- There is no persisted book `status`.
+- A book is considered public only if it has at least one published translation.
+- Public book queries compute `publishedAt` as `MAX(translations.published_at)`; that value is not stored on the `books` table.
 
 ### `chapters`
 
-Book chapter metadata.
+Chapter metadata for a book.
 
 - `id TEXT PRIMARY KEY`
-- `book_id TEXT NOT NULL REFERENCES books(id)`
+- `book_id TEXT NOT NULL REFERENCES books(id) ON DELETE CASCADE`
 - `slug TEXT NOT NULL`
 - `position INTEGER NOT NULL`
 - `title TEXT NOT NULL`
-- `is_preview INTEGER NOT NULL DEFAULT 0`
-- `source_r2_key TEXT NOT NULL`
 - `created_at TEXT NOT NULL`
 - `updated_at TEXT NOT NULL`
-- `published_at TEXT`
 
 Constraints:
 
 - `UNIQUE(book_id, slug)`
 - `UNIQUE(book_id, position)`
 
-Important: chapters no longer have a `status` column. Migration `0002_remove_chapter_status.sql` removed it.
+Notes:
+
+- This table does not store source text.
+- The canonical source text is loaded from the chapter's R2 `original.json`.
 
 ### `translations`
 
-Named translation variants for a book.
+Translation-level metadata and publishing state for a book.
 
 - `id TEXT PRIMARY KEY`
-- `book_id TEXT NOT NULL REFERENCES books(id)`
+- `book_id TEXT NOT NULL REFERENCES books(id) ON DELETE CASCADE`
 - `slug TEXT NOT NULL`
 - `name TEXT NOT NULL`
 - `description TEXT`
-- `ai_system_prompt TEXT`
-- `output_r2_prefix TEXT NOT NULL`
-- `status TEXT NOT NULL DEFAULT 'draft' CHECK (status IN ('draft', 'generating', 'ready', 'published', 'failed'))`
-- `created_at TEXT NOT NULL`
-- `updated_at TEXT NOT NULL`
-- `published_at TEXT`
-
-Constraints:
-
-- `UNIQUE(book_id, slug)`
-
-Notes:
-
-- `ready` is the persisted non-public state used by the admin UI after generation or manual import.
-- `published` exposes the translation to reader endpoints.
-- Setting a published translation back to `ready` unpublishes it.
-
-### `users`
-
-- `id TEXT PRIMARY KEY`
-- `email TEXT NOT NULL UNIQUE`
-- `stripe_customer_id TEXT`
-- `subscription_status TEXT NOT NULL DEFAULT 'free' CHECK (subscription_status IN ('free', 'trial', 'active', 'expired'))`
-- `role TEXT NOT NULL DEFAULT 'reader' CHECK (role IN ('reader', 'admin'))`
-- `created_at TEXT NOT NULL`
-- `updated_at TEXT NOT NULL`
-
-### `notes`
-
-User notes anchored to a translation chunk.
-
-- `id TEXT PRIMARY KEY`
-- `user_id TEXT NOT NULL REFERENCES users(id)`
-- `book_id TEXT NOT NULL REFERENCES books(id)`
-- `chapter_id TEXT NOT NULL REFERENCES chapters(id)`
-- `translation_id TEXT NOT NULL REFERENCES translations(id)`
-- `anchor_id TEXT NOT NULL`
-- `content TEXT NOT NULL`
-- `created_at TEXT NOT NULL`
-- `updated_at TEXT NOT NULL`
-
-Notes:
-
-- `translation_id` is required.
-- `anchor_id` points to a translation-local chunk id like `t1`, `t2`, etc.
-
-### `translation_jobs`
-
-Background translation job bookkeeping.
-
-- `id TEXT PRIMARY KEY`
-- `translation_id TEXT NOT NULL REFERENCES translations(id)`
-- `chapter_id TEXT NOT NULL REFERENCES chapters(id)`
-- `status TEXT NOT NULL CHECK (status IN ('queued', 'running', 'failed', 'completed'))`
-- `started_at TEXT`
-- `completed_at TEXT`
-- `error_message TEXT`
-- `created_at TEXT NOT NULL`
-- `updated_at TEXT NOT NULL`
-
-This table exists in the schema but is not the primary workflow used by the current admin UI, which runs through `admin_ingestion_sessions` and `admin_ingestion_chapters`.
-
-### `app_settings`
-
-Application-wide settings.
-
-- `key TEXT PRIMARY KEY`
-- `value TEXT NOT NULL`
-- `updated_at TEXT NOT NULL`
-
-Current well-known keys in shared types:
-
-- `openrouter_api_key`
-- `google_api_key`
-- `default_translation_model`
-- `admin_ingestion_provider`
-- `admin_ingestion_model`
-- `admin_ingestion_prompt`
-
-### `admin_ingestion_sessions`
-
-Admin translation run metadata. A session can be tied to a translation or be standalone.
-
-- `id TEXT PRIMARY KEY`
-- `title TEXT NOT NULL`
-- `source_mode TEXT NOT NULL CHECK (source_mode IN ('paste', 'existing_story'))`
-- `source_book_slug TEXT`
-- `translation_id TEXT REFERENCES translations(id)`
-- `provider TEXT NOT NULL DEFAULT 'google' CHECK (provider IN ('google', 'openrouter'))`
+- `provider TEXT NOT NULL CHECK (provider IN ('google', 'openrouter'))`
 - `model TEXT NOT NULL`
 - `thinking_level TEXT CHECK (thinking_level IN ('none', 'minimal', 'low', 'medium', 'high', 'xhigh'))`
 - `prompt TEXT NOT NULL`
 - `context_before_chapter_count INTEGER NOT NULL DEFAULT 1`
 - `context_after_chapter_count INTEGER NOT NULL DEFAULT 1`
-- `current_chapter_index INTEGER NOT NULL DEFAULT 0`
+- `status TEXT NOT NULL CHECK (status IN ('draft', 'published'))`
+- `published_at TEXT`
 - `created_at TEXT NOT NULL`
 - `updated_at TEXT NOT NULL`
 
+Constraint:
+
+- `UNIQUE(book_id, slug)`
+
 Notes:
 
-- The current admin translation workspace uses one active session per translation.
-- Exported translation JSON from the admin UI is currently the serialized `AdminIngestionSessionDetail`, not `TranslationExportArchive`.
+- `draft` means admin-only.
+- `published` means the translation is reader-visible and its saved chapter documents should exist in R2.
+- Publishing does not create a second draft copy; the same normalized content in `translation_chapters.content_json` is written out to R2.
 
-### `admin_ingestion_chapters`
+### `translation_chapters`
 
-Per-session working chapter state.
+Per-chapter admin workspace state for a translation.
 
 - `id TEXT PRIMARY KEY`
-- `session_id TEXT NOT NULL REFERENCES admin_ingestion_sessions(id) ON DELETE CASCADE`
-- `position INTEGER NOT NULL`
-- `title TEXT NOT NULL`
-- `slug TEXT NOT NULL`
-- `source_text TEXT NOT NULL`
-- `source_chapter_slug TEXT`
-- `status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'generated', 'saved', 'error'))`
+- `translation_id TEXT NOT NULL REFERENCES translations(id) ON DELETE CASCADE`
+- `chapter_id TEXT NOT NULL REFERENCES chapters(id) ON DELETE CASCADE`
+- `status TEXT NOT NULL CHECK (status IN ('empty', 'draft', 'saved', 'error'))`
 - `raw_response TEXT`
-- `original_document_json TEXT`
-- `translation_document_json TEXT`
+- `content_json TEXT`
 - `notes TEXT`
 - `error_message TEXT`
 - `created_at TEXT NOT NULL`
@@ -213,16 +132,42 @@ Per-session working chapter state.
 
 Constraint:
 
-- `UNIQUE(session_id, position)`
+- `UNIQUE(translation_id, chapter_id)`
 
-Notes:
+Status meanings:
 
-- `raw_response` stores the raw model JSON or imported JSON payload.
-- `original_document_json` stores a normalized `OriginalChapterDocument`.
-- `translation_document_json` stores a normalized `TranslationChapterDocument`.
-- `saved` means the normalized chapter was successfully persisted and, for translation sessions, written to R2.
+- `empty`: placeholder row created when the translation is created.
+- `draft`: parsed successfully from a model/import/manual edit, but not yet explicitly saved for publish.
+- `saved`: parsed successfully and considered ready to publish.
+- `error`: the last save/generate attempt failed normalization or parsing.
 
-## R2 Document Schemas
+Important behavior:
+
+- One `translation_chapters` row exists for every `(translation, chapter)` pair.
+- `raw_response` is the exact JSON text returned by the model or entered by the admin editor.
+- `content_json` stores the normalized `TranslationChapterDocument`.
+- `notes` is extracted from the raw response JSON, not entered separately in D1.
+- Reader APIs do not use this table directly; admin APIs do.
+
+### `app_settings`
+
+Simple key/value settings used by the admin UI and generation endpoints.
+
+- `key TEXT PRIMARY KEY`
+- `value TEXT NOT NULL`
+- `updated_at TEXT NOT NULL`
+
+Current well-known keys from shared types:
+
+- `openrouter_api_key`
+- `google_api_key`
+- `default_provider`
+- `default_model`
+- `default_prompt`
+
+## R2 Documents
+
+R2 path helpers live in [r2.ts](/home/adityapk/github/ancient-epics/packages/shared/src/r2.ts).
 
 ### `OriginalChapterDocument`
 
@@ -232,18 +177,21 @@ Stored at `epics/{bookSlug}/{chapterSlug}/original.json`.
 {
   "bookSlug": "iliad",
   "chapterSlug": "book-1-the-rage",
-  "fullText": "Full chapter source text..."
+  "fullText": "Sing, goddess, the rage..."
 }
 ```
 
 Notes:
 
-- `fullText` is the canonical source text for the chapter.
-- Original chapter documents do not define canonical chunk boundaries.
+- This is the only persisted source-text representation.
+- There is no source chunk table or source chunk JSON format.
 
 ### `TranslationChapterDocument`
 
-Stored at `epics/{bookSlug}/{chapterSlug}/translations/{translationSlug}.json`.
+Stored in two places:
+
+- In D1 `translation_chapters.content_json` for draft/admin state
+- In R2 `epics/{bookSlug}/{chapterSlug}/translations/{translationSlug}.json` for published reader state
 
 ```json
 {
@@ -252,150 +200,143 @@ Stored at `epics/{bookSlug}/{chapterSlug}/translations/{translationSlug}.json`.
     {
       "id": "t1",
       "type": "verse",
-      "originalText": "Source passage text...",
-      "translatedText": "Rendered translation text...",
+      "originalText": "Sing, goddess, the rage...",
+      "translatedText": "O goddess, sing Achilles' rage...",
       "ordinal": 1
     }
   ]
 }
 ```
 
-Notes:
+Chunk fields:
 
-- Chunking is translation-owned.
-- Different translations may split the same chapter differently.
-- Each chunk carries both the source passage and the translated passage.
-- Chunk ids are translation-local and are used for note anchors.
+- `id`: assigned by the app during normalization, typically `t1`, `t2`, ...
+- `type`: `"prose"` or `"verse"`
+- `originalText`: the source slice for this chunk
+- `translatedText`: the translated slice
+- `ordinal`: 1-based display/order field
 
-## Shared TypeScript Shapes
+Important invariant:
 
-Canonical shared types live in [types.ts](/home/adityapk/github/ancient-epics/packages/shared/src/types.ts).
+- The concatenation of all chunk `originalText` values should reconstruct the full chapter source text. Validation warns if it does not.
 
-Important shapes:
+## Shared Runtime Types
 
-- `OriginalChapterDocument`
-- `TranslationChapterDocument`
-- `TranslationChunk`
-- `BookSummary`
-- `ChapterSummary`
-- `TranslationSummary`
-- `AdminIngestionSessionDetail`
-- `AdminIngestionChapterRecord`
-- `AdminTranslationValidationPayload`
-- `BookExportArchive`
-- `TranslationExportArchive`
+The API and frontend share their contract via [types.ts](/home/adityapk/github/ancient-epics/packages/shared/src/types.ts).
 
-## Creation, Generation, Import, and Publish Flow
+The most important runtime shapes are:
 
-### Book creation
+- `BookSummary`: public/admin book list item
+- `BookDetail`: book metadata plus `chapters` and visible `translations`
+- `TranslationSummary`: lightweight translation metadata
+- `ReaderChapterPayload`: source chapter plus optional published translation content
+- `AdminBookSourcePayload`: full book metadata plus source chapter text for admin views
+- `AdminTranslationSummary`: translation metadata plus chapter counts
+- `AdminTranslationDetail`: translation metadata plus full `TranslationChapterDraft[]`
+- `TranslationDraftArchive`: export/import format for translation drafts
 
-When a book is created:
+## Data Flow
 
-1. A row is inserted into `books`.
-2. A row is inserted into `chapters` for each staged chapter.
-3. Each chapter gets an R2 `original.json` document with canonical `fullText`.
+### 1. Book creation
 
-### Translation creation
+When an admin creates a book:
 
-When a translation is created:
+1. A `books` row is inserted.
+2. A `chapters` row is inserted for each normalized chapter.
+3. An `OriginalChapterDocument` is written to R2 for each chapter.
 
-1. A row is inserted into `translations` with status `draft`.
-2. A matching `admin_ingestion_session` is created from the book's chapters.
-3. Each chapter begins in `pending`.
+Source text never goes into D1 directly.
 
-### Translation generation
+### 2. Translation creation
 
-The generation prompt requires this JSON shape:
+When an admin creates a translation:
 
-```json
-{
-  "chapterTitle": "string",
-  "notes": "string",
-  "chunks": [
-    {
-      "originalText": "string",
-      "translatedText": "string",
-      "type": "verse"
-    }
-  ]
-}
-```
+1. A `translations` row is inserted with `status = 'draft'`.
+2. The API creates one `translation_chapters` row per source chapter.
+3. Each row starts as `status = 'empty'` with no content.
 
-Normalization rules in the API:
+### 3. Generation or manual save
 
-- the app assigns chunk `id` values as `t1`, `t2`, etc.
-- the app assigns `ordinal`
-- missing `type` values are inferred from the source text
-- normalized `OriginalChapterDocument` and `TranslationChapterDocument` are written into `admin_ingestion_chapters`
-- when a chapter is saved for a translation-backed session, the normalized `TranslationChapterDocument` is written to R2
+When a chapter is generated or manually saved:
 
-### Translation import
+1. The model or editor provides `raw_response` JSON.
+2. The API normalizes that JSON into a `TranslationChapterDocument`.
+3. On success, D1 stores:
+   - `raw_response`
+   - `content_json`
+   - `notes`
+   - `status = 'draft'` or `status = 'saved'`
+4. On failure, D1 stores:
+   - `raw_response`
+   - `error_message`
+   - `status = 'error'`
 
-The admin import endpoint currently accepts an exported `AdminIngestionSessionDetail` payload.
+Drafts are not written to R2.
 
-During import:
+### 4. Publish
 
-- a fresh translation row is created
-- a fresh admin session is created for the target book
-- imported chapter content is matched onto the target book's chapter list
-- stale ids are discarded
-- `sourceBookSlug`, `translationSlug`, chapter-local chunk ids, and normalized documents are regenerated against the target book/translation
+When an admin publishes a translation:
 
-### Publishing
+1. Every chapter is ensured to have normalized saved content.
+2. Validation checks that required fields exist and chunk source text reconstructs the chapter source.
+3. Each chapter's `TranslationChapterDocument` is written to R2.
+4. The `translations` row is updated to `status = 'published'`.
 
-Publishing a translation:
+The reader experience depends on those R2 translation files existing.
 
-1. materializes all saved translation chapter documents into R2
-2. sets the translation status to `published`
-3. updates the parent book status to `published`
+### 5. Unpublish
 
-Unpublishing a translation:
+When an admin unpublishes a translation:
 
-- sets the translation back to `ready`
-- clears `published_at` for that translation
-- re-synchronizes the parent book status based on whether any translations remain published
+1. Published translation chapter files are deleted from R2.
+2. The `translations` row is set back to `status = 'draft'`.
+3. Draft chapter data in `translation_chapters` remains intact.
 
-## Validation
+### 6. Reader load path
 
-Current translation validation checks:
+Reader endpoints work like this:
 
-- `originalDocument.fullText` exists
-- the translation has at least one chunk
-- each chunk has non-empty `originalText`
-- each chunk has non-empty `translatedText`
-- concatenating all chunk `originalText` values reconstructs the chapter `fullText`
+1. Query D1 for the book/chapter/translation metadata.
+2. Load source text from the chapter `original.json` in R2.
+3. If a translation slug is requested and published, load the published translation JSON from R2.
+4. Return a `ReaderChapterPayload`.
 
-This catches dropped, duplicated, or reordered source text during generation or manual editing.
+Reader APIs never read unpublished draft content from `translation_chapters`.
 
-## Admin UI Model
+### 7. Admin load path
 
-The admin translation workspace edits one paired chunk list per chapter:
+Admin endpoints work like this:
 
-- one row per translation chunk
-- left side edits `originalText`
-- right side edits `translatedText`
-- one `type` per row
+1. Query D1 for books, chapters, translations, and translation chapter rows.
+2. Load source text from each chapter's `original.json`.
+3. Parse `translation_chapters.content_json` into `TranslationChapterDocument` when present.
+4. Return admin payloads that combine D1 metadata with R2 source text.
 
-The raw JSON editor uses the same shape expected from generation and import repair:
+## Import / Export Format
 
-```json
-{
-  "chapterTitle": "string",
-  "notes": "string",
-  "chunks": [
-    {
-      "originalText": "string",
-      "translatedText": "string",
-      "type": "prose"
-    }
-  ]
-}
-```
+The current archive format is `TranslationDraftArchive` with `version: 2`.
 
-## Important Consequences
+It stores:
 
-- There is no canonical original chunk list shared across translations.
-- Cross-translation alignment is not based on source chunk ids.
-- Original passage boundaries are defined per translation.
-- Notes are stable only within a specific translation, not across all translations.
-- The admin session tables are not just temporary scratch state; they are the working source of truth for draft and ready translation workflows.
+- translation metadata
+- per-chapter status
+- per-chapter `rawResponse`
+- per-chapter normalized `content`
+- per-chapter `notes`
+
+Imports create a new `translations` row plus fresh `translation_chapters` rows, then replay the archived chapter state into those rows.
+
+The import code still accepts some legacy session-shaped payloads, but the canonical format now is `TranslationDraftArchive`.
+
+## What No Longer Exists
+
+If you see older docs or assumptions, ignore these concepts unless they are reintroduced in code:
+
+- `users`
+- `notes`
+- `translation_jobs`
+- `admin_ingestion_sessions`
+- `admin_ingestion_chapters`
+- book-level persisted publish state
+- chapter-level persisted source chunking
+- draft translations stored in R2
