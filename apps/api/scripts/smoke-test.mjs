@@ -189,12 +189,12 @@ try {
   }
 
   console.log("\n🧹  Nuking local D1 + R2 state…");
-  runNodeScript("seed-nuke.mjs", "seed:local:nuke");
+  runNodeScript("seed-nuke.mjs", "local:db:nuke");
 
   console.log("🌱  Re-seeding…");
-  runNodeScript("seed-local.mjs", "seed:local");
+  runNodeScript("seed-local.mjs", "local:db:seed");
   console.log("🔐  Seeding admin password…");
-  runNodeScript("seed-password.mjs", "seed:local:password", [SMOKE_ADMIN_PASSWORD]);
+  runNodeScript("seed-password.mjs", "local:admin:password", [SMOKE_ADMIN_PASSWORD]);
 
   await startServer();
 

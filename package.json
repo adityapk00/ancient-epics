@@ -12,9 +12,9 @@
     "typecheck": "pnpm -r typecheck",
     "format": "prettier . --write",
     "format:check": "prettier . --check",
-    "seed:local": "pnpm --filter @ancient-epics/api seed:local",
-    "seed:local:password": "pnpm --filter @ancient-epics/api seed:local:password",
-    "seed:local:nuke": "pnpm --filter @ancient-epics/api seed:local:nuke",
+    "local:db:seed": "pnpm --filter @ancient-epics/api local:db:seed",
+    "local:admin:password": "pnpm --filter @ancient-epics/api local:admin:password",
+    "local:db:nuke": "pnpm --filter @ancient-epics/api local:db:nuke",
     "export:local": "pnpm --filter @ancient-epics/api export:local",
     "smoke": "pnpm --filter @ancient-epics/api smoke"
   },

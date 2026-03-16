@@ -43,7 +43,7 @@ packages/
 2. Seed local D1 and R2 state.
 
    ```bash
-   pnpm seed:local
+   pnpm local:db:seed
    ```
 
 3. Start the frontend and Worker together.
