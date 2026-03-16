@@ -1,0 +1,616 @@
+{
+  "id": "e89fd3b2-4f22-41b9-82e6-0500d5fd6267",
+  "title": "English/Preserve Meter",
+  "sourceMode": "existing_story",
+  "sourceBookSlug": "kesh-temple-hymn",
+  "translationId": "4b0c9077-93ae-4d4b-8056-1501b0b147b7",
+  "provider": "google",
+  "model": "gemini-3-flash-preview",
+  "thinkingLevel": "none",
+  "contextBeforeChapterCount": 1,
+  "contextAfterChapterCount": 0,
+  "currentChapterIndex": 4,
+  "chapterCount": 8,
+  "createdAt": "2026-03-10T00:39:41.633Z",
+  "updatedAt": "2026-03-15T22:22:09.020Z",
+  "prompt": "You are preparing a bilingual reading edition for Kesh Temple Hymn. Translate to modern english.\n\nSplit the source chapter into paired bilingual chunks that preserve all source content. Return JSON only with this shape: {\"chapterTitle\": string, \"notes\": string, \"chunks\": [{\"originalText\": string, \"translatedText\": string, \"type\": \"verse\" | \"prose\"}]}. The concatenation of all originalText values must exactly reproduce the source chapter without dropping or duplicating content.",
+  "chapters": [
+    {
+      "id": "82f7aa9d-f3c8-46f9-9e21-228cf6a33f8c",
+      "position": 1,
+      "title": "House 1",
+      "slug": "house-1",
+      "sourceText": "nam2-nun-e nam2-nun-e e2-ta nam-ta-ab-ed2\nden-lil2 nam2-nun-e e2-ta nam-ta-ab-ed2\nnam2-nun-e nam-lugal-la e2-ta nam-ta-ab-ed2\nden-lil2 kur-kur-ra igi mi-ni-in-il2-il2-i\nden-lil2-ra kur ni2-ba mu-na-il2-il2-i\nan ub-da 4 den-lil2-ra jickiri6-gin7 mu-na-sig7\nkecki saj il2 mu-na-ni-in-jal2\nkecki kur-kur-ra saj il2-bi\nden-lil2-le kecki za3-mi2 am3-ma-ab-be2\ndnisaba nu-ka-ac-bi-im\ninim-bi-ta sa-gin7 im-da-an-sur\ndub-ba sar-sar cu-ce3 al-ja2-ja2\ne2 muc3 kalam-ma gud huc aratta\ne2 kecki muc3 kalam-ma gud huc aratta\nhur-saj-da mu2-a an-da gu2 la2-a\ne2-kur-da mu2-a kur-ra saj il2-bi\nabzu-gin7 ri-a hur-saj-gin7 sig7-sig7-ga\nkecki-gin7 rib-ba lu2 ci-in-ga-tum2-mu\nur-saj-bi dacac7-gi4-gin7 rib-ba ama ci-in-ga-u3-tud\nnin-bi dnin-tud-gin7 rib-ba-ra a-ba-a igi mu-ni-in-du8\ne2 1-kam-ma",
+      "sourceChapterSlug": "house-1",
+      "status": "saved",
+      "rawResponse": "{\n  \"chapterTitle\": \"House 1\",\n  \"notes\": \"The opening of the Kesh Temple Hymn describes the divine origins of the temple, its praise by Enlil, and its architectural majesty, comparing it to the Abzu and the mountains.\",\n  \"chunks\": [\n    {\n      \"originalText\": \"nam2-nun-e nam2-nun-e e2-ta nam-ta-ab-ed2\\nden-lil2 nam2-nun-e e2-ta nam-ta-ab-ed2\\nnam2-nun-e nam-lugal-la e2-ta nam-ta-ab-ed2\\n\",\n      \"translatedText\": \"The princely one, the princely one, from the house came forth,\\nEnlil, the princely one, from the house came forth,\\nThe princely one, in kingship, from the house came forth.\",\n      \"type\": \"verse\"\n    },\n    {\n      \"originalText\": \"den-lil2 kur-kur-ra igi mi-ni-in-il2-il2-i\\nden-lil2-ra kur ni2-ba mu-na-il2-il2-i\\n\",\n      \"translatedText\": \"Enlil upon the lands his eyes did lift and gaze,\\nTo Enlil all the lands their own heads lift and raise.\",\n      \"type\": \"verse\"\n    },\n    {\n      \"originalText\": \"an ub-da 4 den-lil2-ra jickiri6-gin7 mu-na-sig7\\nkecki saj il2 mu-na-ni-in-jal2\\n\",\n      \"translatedText\": \"The four corners of heaven for Enlil like a garden grew green,\\nAnd Kesh with its head held high was a sight to be seen.\",\n      \"type\": \"verse\"\n    },\n    {\n      \"originalText\": \"kecki kur-kur-ra saj il2-bi\\nden-lil2-le kecki za3-mi2 am3-ma-ab-be2\\n\",\n      \"translatedText\": \"Kesh, among the lands, its head is lifted high,\\nEnlil for Kesh a song of praise did then glorify.\",\n      \"type\": \"verse\"\n    },\n    {\n      \"originalText\": \"dnisaba nu-ka-ac-bi-im\\ninim-bi-ta sa-gin7 im-da-an-sur\\n\",\n      \"translatedText\": \"Nisaba was its arbiter, its word and its guide,\\nWith those words, like a net, she wove them side by side.\",\n      \"type\": \"verse\"\n    },\n    {\n      \"originalText\": \"dub-ba sar-sar cu-ce3 al-ja2-ja2\\ne2 muc3 kalam-ma gud huc aratta\\ne2 kecki muc3 kalam-ma gud huc aratta\\n\",\n      \"translatedText\": \"Written on the tablets, held within the hand,\\nHouse, the jewel of the land, fierce bull of Aratta's land,\\nHouse of Kesh, the jewel of the land, fierce bull of Aratta's land.\",\n      \"type\": \"verse\"\n    },\n    {\n      \"originalText\": \"hur-saj-da mu2-a an-da gu2 la2-a\\ne2-kur-da mu2-a kur-ra saj il2-bi\\n\",\n      \"translatedText\": \"Grown with the mountain, reaching to the sky,\\nGrown with the Ekur, lifting its head on high.\",\n      \"type\": \"verse\"\n    },\n    {\n      \"originalText\": \"abzu-gin7 ri-a hur-saj-gin7 sig7-sig7-ga\\nkecki-gin7 rib-ba lu2 ci-in-ga-tum2-mu\\n\",\n      \"translatedText\": \"Founded like the Abzu, green like the mountain range,\\nWill any man bring forth a thing so great and strange?\",\n      \"type\": \"verse\"\n    },\n    {\n      \"originalText\": \"ur-saj-bi dacac7-gi4-gin7 rib-ba ama ci-in-ga-u3-tud\\nnin-bi dnin-tud-gin7 rib-ba-ra a-ba-a igi mu-ni-in-du8\\n\",\n      \"translatedText\": \"Will any mother bear a hero like Ashgi, so bold?\\nWho has seen a lady like Nintud, of beauty untold?\",\n      \"type\": \"verse\"\n    },\n    {\n      \"originalText\": \"e2 1-kam-ma\",\n      \"translatedText\": \"The first house.\",\n      \"type\": \"verse\"\n    }\n  ]\n}",
+      "originalDocument": {
+        "bookSlug": "kesh-temple-hymn",
+        "chapterSlug": "house-1",
+        "fullText": "nam2-nun-e nam2-nun-e e2-ta nam-ta-ab-ed2\nden-lil2 nam2-nun-e e2-ta nam-ta-ab-ed2\nnam2-nun-e nam-lugal-la e2-ta nam-ta-ab-ed2\nden-lil2 kur-kur-ra igi mi-ni-in-il2-il2-i\nden-lil2-ra kur ni2-ba mu-na-il2-il2-i\nan ub-da 4 den-lil2-ra jickiri6-gin7 mu-na-sig7\nkecki saj il2 mu-na-ni-in-jal2\nkecki kur-kur-ra saj il2-bi\nden-lil2-le kecki za3-mi2 am3-ma-ab-be2\ndnisaba nu-ka-ac-bi-im\ninim-bi-ta sa-gin7 im-da-an-sur\ndub-ba sar-sar cu-ce3 al-ja2-ja2\ne2 muc3 kalam-ma gud huc aratta\ne2 kecki muc3 kalam-ma gud huc aratta\nhur-saj-da mu2-a an-da gu2 la2-a\ne2-kur-da mu2-a kur-ra saj il2-bi\nabzu-gin7 ri-a hur-saj-gin7 sig7-sig7-ga\nkecki-gin7 rib-ba lu2 ci-in-ga-tum2-mu\nur-saj-bi dacac7-gi4-gin7 rib-ba ama ci-in-ga-u3-tud\nnin-bi dnin-tud-gin7 rib-ba-ra a-ba-a igi mu-ni-in-du8\ne2 1-kam-ma"
+      },
+      "translationDocument": {
+        "translationSlug": "english-preserve-meter",
+        "chunks": [
+          {
+            "id": "t1",
+            "type": "verse",
+            "originalText": "nam2-nun-e nam2-nun-e e2-ta nam-ta-ab-ed2\nden-lil2 nam2-nun-e e2-ta nam-ta-ab-ed2\nnam2-nun-e nam-lugal-la e2-ta nam-ta-ab-ed2\n",
+            "translatedText": "The princely one, the princely one, from the house came forth,\nEnlil, the princely one, from the house came forth,\nThe princely one, in kingship, from the house came forth.",
+            "ordinal": 1
+          },
+          {
+            "id": "t2",
+            "type": "verse",
+            "originalText": "den-lil2 kur-kur-ra igi mi-ni-in-il2-il2-i\nden-lil2-ra kur ni2-ba mu-na-il2-il2-i\n",
+            "translatedText": "Enlil upon the lands his eyes did lift and gaze,\nTo Enlil all the lands their own heads lift and raise.",
+            "ordinal": 2
+          },
+          {
+            "id": "t3",
+            "type": "verse",
+            "originalText": "an ub-da 4 den-lil2-ra jickiri6-gin7 mu-na-sig7\nkecki saj il2 mu-na-ni-in-jal2\n",
+            "translatedText": "The four corners of heaven for Enlil like a garden grew green,\nAnd Kesh with its head held high was a sight to be seen.",
+            "ordinal": 3
+          },
+          {
+            "id": "t4",
+            "type": "verse",
+            "originalText": "kecki kur-kur-ra saj il2-bi\nden-lil2-le kecki za3-mi2 am3-ma-ab-be2\n",
+            "translatedText": "Kesh, among the lands, its head is lifted high,\nEnlil for Kesh a song of praise did then glorify.",
+            "ordinal": 4
+          },
+          {
+            "id": "t5",
+            "type": "verse",
+            "originalText": "dnisaba nu-ka-ac-bi-im\ninim-bi-ta sa-gin7 im-da-an-sur\n",
+            "translatedText": "Nisaba was its arbiter, its word and its guide,\nWith those words, like a net, she wove them side by side.",
+            "ordinal": 5
+          },
+          {
+            "id": "t6",
+            "type": "verse",
+            "originalText": "dub-ba sar-sar cu-ce3 al-ja2-ja2\ne2 muc3 kalam-ma gud huc aratta\ne2 kecki muc3 kalam-ma gud huc aratta\n",
+            "translatedText": "Written on the tablets, held within the hand,\nHouse, the jewel of the land, fierce bull of Aratta's land,\nHouse of Kesh, the jewel of the land, fierce bull of Aratta's land.",
+            "ordinal": 6
+          },
+          {
+            "id": "t7",
+            "type": "verse",
+            "originalText": "hur-saj-da mu2-a an-da gu2 la2-a\ne2-kur-da mu2-a kur-ra saj il2-bi\n",
+            "translatedText": "Grown with the mountain, reaching to the sky,\nGrown with the Ekur, lifting its head on high.",
+            "ordinal": 7
+          },
+          {
+            "id": "t8",
+            "type": "verse",
+            "originalText": "abzu-gin7 ri-a hur-saj-gin7 sig7-sig7-ga\nkecki-gin7 rib-ba lu2 ci-in-ga-tum2-mu\n",
+            "translatedText": "Founded like the Abzu, green like the mountain range,\nWill any man bring forth a thing so great and strange?",
+            "ordinal": 8
+          },
+          {
+            "id": "t9",
+            "type": "verse",
+            "originalText": "ur-saj-bi dacac7-gi4-gin7 rib-ba ama ci-in-ga-u3-tud\nnin-bi dnin-tud-gin7 rib-ba-ra a-ba-a igi mu-ni-in-du8\n",
+            "translatedText": "Will any mother bear a hero like Ashgi, so bold?\nWho has seen a lady like Nintud, of beauty untold?",
+            "ordinal": 9
+          },
+          {
+            "id": "t10",
+            "type": "verse",
+            "originalText": "e2 1-kam-ma",
+            "translatedText": "The first house.",
+            "ordinal": 10
+          }
+        ]
+      },
+      "notes": "The opening of the Kesh Temple Hymn describes the divine origins of the temple, its praise by Enlil, and its architectural majesty, comparing it to the Abzu and the mountains.",
+      "errorMessage": null,
+      "updatedAt": "2026-03-15T22:22:09.028Z"
+    },
+    {
+      "id": "54b5d6ef-e79d-4cfa-af72-7bf01aa9c591",
+      "position": 2,
+      "title": "House 2",
+      "slug": "house-2",
+      "sourceText": "e2 dug3 ki dug3-ga du3-a\ne2 kecki ki dug3-ga du3-a\nma2-gur8 nun-gin7 an-na dirig-ga\nma2-gur8 kug-gin7 ka2 si ri-a\nma2 an-na-gin7 muc3 kur-kur-ra\nu5 ma2 ban3-da-gin7 pec10-ta sur-sur-ra\ne2 gud-gin7 ur5 ca4 ninda2-gin7 gu3 nun di\ne2 cag4-bi-ta lipic kalam-ma\na-ga-bi-ta zi ki-en-gi-ra\ne2 eb gal an-ne2 us2-sa\ne2 zid-da gal an-ne2 us2-sa\ne2 men gal an-ne2 us2-sa\ne2 dtir-an-na an-ne2 us2-sa\ne2 muc3-bi an cag4-ga la2-a\nte-me-bi abzu-a sig9-ga\njissu-bi kur-kur-ra dul-la\ne2 an-ne2 ki jar-ra den-lil2-le za3-mi2 dug4-ga\nama dnin-tu-ra ec-bar kij2 dug4-ga\ne2 kecki gurun-na sig7-ga\nkecki-gin7 rib-ba lu2 ci-in-ga-tum2-mu\nur-saj-bi dacac7-gi4-gin7 rib-ba ama ci-in-ga-u3-tud\nnin-bi dnin-tud-gin7 rib-ba-ra a-ba-a igi mu-ni-in-du8\ne2 2-kam-ma",
+      "sourceChapterSlug": "house-2",
+      "status": "saved",
+      "rawResponse": "{\n  \"chapterTitle\": \"House 2\",\n  \"notes\": \"The second house of the Kesh Temple Hymn describes the temple's physical and spiritual grandeur using maritime and celestial imagery, emphasizing its foundation in the Abzu and its reach toward the heavens.\",\n  \"chunks\": [\n    {\n      \"originalText\": \"e2 dug3 ki dug3-ga du3-a\\ne2 kecki ki dug3-ga du3-a\\n\",\n      \"translatedText\": \"Good house, built in a place so good and fair,\\nKesh house, built in a place so good and fair.\",\n      \"type\": \"verse\"\n    },\n    {\n      \"originalText\": \"ma2-gur8 nun-gin7 an-na dirig-ga\\nma2-gur8 kug-gin7 ka2 si ri-a\\nma2 an-na-gin7 muc3 kur-kur-ra\\nu5 ma2 ban3-da-gin7 pec10-ta sur-sur-ra\\n\",\n      \"translatedText\": \"Like a princely barge, it floats upon the sky,\\nLike a holy barge, with horns it sails on high.\\nLike the boat of heaven, the jewel of the land,\\nLike a cabin boat, it glides from off the strand.\",\n      \"type\": \"verse\"\n    },\n    {\n      \"originalText\": \"e2 gud-gin7 ur5 ca4 ninda2-gin7 gu3 nun di\\ne2 cag4-bi-ta lipic kalam-ma\\na-ga-bi-ta zi ki-en-gi-ra\\n\",\n      \"translatedText\": \"House like a lowing bull, like a bull that bellows loud,\\nWithin its heart, the land's own pulse is proud.\\nFrom its rear, the life of Sumer is endowed.\",\n      \"type\": \"verse\"\n    },\n    {\n      \"originalText\": \"e2 eb gal an-ne2 us2-sa\\ne2 zid-da gal an-ne2 us2-sa\\ne2 men gal an-ne2 us2-sa\\ne2 dtir-an-na an-ne2 us2-sa\\n\",\n      \"translatedText\": \"Great shrine of the heavens, reaching to the sky,\\nGreat righteous house, reaching to the sky,\\nGreat crown of a house, reaching to the sky,\\nHouse of the rainbow, reaching to the sky.\",\n      \"type\": \"verse\"\n    },\n    {\n      \"originalText\": \"e2 muc3-bi an cag4-ga la2-a\\nte-me-bi abzu-a sig9-ga\\njissu-bi kur-kur-ra dul-la\\n\",\n      \"translatedText\": \"Its jewel in heaven's heart, a wondrous view,\\nIts foundations in the Abzu deep are laid,\\nIts shadow over all the lands is displayed.\",\n      \"type\": \"verse\"\n    },\n    {\n      \"originalText\": \"e2 an-ne2 ki jar-ra den-lil2-le za3-mi2 dug4-ga\\nama dnin-tu-ra ec-bar kij2 dug4-ga\\ne2 kecki gurun-na sig7-ga\\n\",\n      \"translatedText\": \"House founded by An, by Enlil praised in song,\\nFor Mother Nintu, where the oracles belong.\\nHouse of Kesh, with fruit it grows so green.\",\n      \"type\": \"verse\"\n    },\n    {\n      \"originalText\": \"kecki-gin7 rib-ba lu2 ci-in-ga-tum2-mu\\nur-saj-bi dacac7-gi4-gin7 rib-ba ama ci-in-ga-u3-tud\\nnin-bi dnin-tud-gin7 rib-ba-ra a-ba-a igi mu-ni-in-du8\\n\",\n      \"translatedText\": \"Will any man bring forth a thing so great as Kesh has been?\\nWill any mother bear a hero like Ashgi, so bold?\\nWho has seen a lady like Nintud, of beauty untold?\",\n      \"type\": \"verse\"\n    },\n    {\n      \"originalText\": \"e2 2-kam-ma\",\n      \"translatedText\": \"The second house.\",\n      \"type\": \"verse\"\n    }\n  ]\n}",
+      "originalDocument": {
+        "bookSlug": "kesh-temple-hymn",
+        "chapterSlug": "house-2",
+        "fullText": "e2 dug3 ki dug3-ga du3-a\ne2 kecki ki dug3-ga du3-a\nma2-gur8 nun-gin7 an-na dirig-ga\nma2-gur8 kug-gin7 ka2 si ri-a\nma2 an-na-gin7 muc3 kur-kur-ra\nu5 ma2 ban3-da-gin7 pec10-ta sur-sur-ra\ne2 gud-gin7 ur5 ca4 ninda2-gin7 gu3 nun di\ne2 cag4-bi-ta lipic kalam-ma\na-ga-bi-ta zi ki-en-gi-ra\ne2 eb gal an-ne2 us2-sa\ne2 zid-da gal an-ne2 us2-sa\ne2 men gal an-ne2 us2-sa\ne2 dtir-an-na an-ne2 us2-sa\ne2 muc3-bi an cag4-ga la2-a\nte-me-bi abzu-a sig9-ga\njissu-bi kur-kur-ra dul-la\ne2 an-ne2 ki jar-ra den-lil2-le za3-mi2 dug4-ga\nama dnin-tu-ra ec-bar kij2 dug4-ga\ne2 kecki gurun-na sig7-ga\nkecki-gin7 rib-ba lu2 ci-in-ga-tum2-mu\nur-saj-bi dacac7-gi4-gin7 rib-ba ama ci-in-ga-u3-tud\nnin-bi dnin-tud-gin7 rib-ba-ra a-ba-a igi mu-ni-in-du8\ne2 2-kam-ma"
+      },
+      "translationDocument": {
+        "translationSlug": "english-preserve-meter",
+        "chunks": [
+          {
+            "id": "t1",
+            "type": "verse",
+            "originalText": "e2 dug3 ki dug3-ga du3-a\ne2 kecki ki dug3-ga du3-a\n",
+            "translatedText": "Good house, built in a place so good and fair,\nKesh house, built in a place so good and fair.",
+            "ordinal": 1
+          },
+          {
+            "id": "t2",
+            "type": "verse",
+            "originalText": "ma2-gur8 nun-gin7 an-na dirig-ga\nma2-gur8 kug-gin7 ka2 si ri-a\nma2 an-na-gin7 muc3 kur-kur-ra\nu5 ma2 ban3-da-gin7 pec10-ta sur-sur-ra\n",
+            "translatedText": "Like a princely barge, it floats upon the sky,\nLike a holy barge, with horns it sails on high.\nLike the boat of heaven, the jewel of the land,\nLike a cabin boat, it glides from off the strand.",
+            "ordinal": 2
+          },
+          {
+            "id": "t3",
+            "type": "verse",
+            "originalText": "e2 gud-gin7 ur5 ca4 ninda2-gin7 gu3 nun di\ne2 cag4-bi-ta lipic kalam-ma\na-ga-bi-ta zi ki-en-gi-ra\n",
+            "translatedText": "House like a lowing bull, like a bull that bellows loud,\nWithin its heart, the land's own pulse is proud.\nFrom its rear, the life of Sumer is endowed.",
+            "ordinal": 3
+          },
+          {
+            "id": "t4",
+            "type": "verse",
+            "originalText": "e2 eb gal an-ne2 us2-sa\ne2 zid-da gal an-ne2 us2-sa\ne2 men gal an-ne2 us2-sa\ne2 dtir-an-na an-ne2 us2-sa\n",
+            "translatedText": "Great shrine of the heavens, reaching to the sky,\nGreat righteous house, reaching to the sky,\nGreat crown of a house, reaching to the sky,\nHouse of the rainbow, reaching to the sky.",
+            "ordinal": 4
+          },
+          {
+            "id": "t5",
+            "type": "verse",
+            "originalText": "e2 muc3-bi an cag4-ga la2-a\nte-me-bi abzu-a sig9-ga\njissu-bi kur-kur-ra dul-la\n",
+            "translatedText": "Its jewel in heaven's heart, a wondrous view,\nIts foundations in the Abzu deep are laid,\nIts shadow over all the lands is displayed.",
+            "ordinal": 5
+          },
+          {
+            "id": "t6",
+            "type": "verse",
+            "originalText": "e2 an-ne2 ki jar-ra den-lil2-le za3-mi2 dug4-ga\nama dnin-tu-ra ec-bar kij2 dug4-ga\ne2 kecki gurun-na sig7-ga\n",
+            "translatedText": "House founded by An, by Enlil praised in song,\nFor Mother Nintu, where the oracles belong.\nHouse of Kesh, with fruit it grows so green.",
+            "ordinal": 6
+          },
+          {
+            "id": "t7",
+            "type": "verse",
+            "originalText": "kecki-gin7 rib-ba lu2 ci-in-ga-tum2-mu\nur-saj-bi dacac7-gi4-gin7 rib-ba ama ci-in-ga-u3-tud\nnin-bi dnin-tud-gin7 rib-ba-ra a-ba-a igi mu-ni-in-du8\n",
+            "translatedText": "Will any man bring forth a thing so great as Kesh has been?\nWill any mother bear a hero like Ashgi, so bold?\nWho has seen a lady like Nintud, of beauty untold?",
+            "ordinal": 7
+          },
+          {
+            "id": "t8",
+            "type": "verse",
+            "originalText": "e2 2-kam-ma",
+            "translatedText": "The second house.",
+            "ordinal": 8
+          }
+        ]
+      },
+      "notes": "The second house of the Kesh Temple Hymn describes the temple's physical and spiritual grandeur using maritime and celestial imagery, emphasizing its foundation in the Abzu and its reach toward the heavens.",
+      "errorMessage": null,
+      "updatedAt": "2026-03-15T22:22:09.038Z"
+    },
+    {
+      "id": "26ebbb13-3c0c-40ba-ac2a-d909d78910e9",
+      "position": 3,
+      "title": "House 3",
+      "slug": "house-3",
+      "sourceText": "e2 an-ce3 10 car2iku ki-ce3 5 car2iku\ne2 an-ce3 10 bur3iku ki-ce3 5 bur3iku\ne2 an-ce3 alim ki-ce3 lu-lim\ne2 an-ce3 ceg9-bar ki-ce3 tarah-mac\ne2 an-ce3 ceg9-bar gun3-a ki-ce3 tarah-mac sig7-ga\ne2 an-ce3 muc mir-re-gin7 sig7-ga ki-ce3 u5mucen-gin7 a-e cu2-a\ne2 an-ce3 ud-gin7 ed2-a ki-ce3 iti6-gin7 barag2-ga\ne2 an-ce3 cita2 cul ki-ce3 jictun3-am3\ne2 an-ce3 kur-ra-am3 ki-ce3 idim-ma-am3\ne2 an-ce3 3-kam-bi na-nam\nkecki-gin7 rib-ba lu2 ci-in-ga-an-tum2-mu\nur-saj-bi dacac7-gi4-gin7 rib-ba ama ci-in-ga-u3-tud\nnin-bi dnin-tud-gin7 rib-ba-ra a-ba-a igi mu-ni-in-du8\ne2 3-kam-ma",
+      "sourceChapterSlug": "house-3",
+      "status": "saved",
+      "rawResponse": "{\n  \"chapterTitle\": \"House 3\",\n  \"notes\": \"This section emphasizes the cosmic dimensions and dual nature of the temple, contrasting its heavenly height with its earthly depth using animal, celestial, and elemental metaphors.\",\n  \"chunks\": [\n    {\n      \"originalText\": \"e2 an-ce3 10 car2iku ki-ce3 5 car2iku\\ne2 an-ce3 10 bur3iku ki-ce3 5 bur3iku\\n\",\n      \"translatedText\": \"Ten units high to heaven, five units deep in earth,\\nTen measures high to heaven, five measures deep in earth.\\n\",\n      \"type\": \"verse\"\n    },\n    {\n      \"originalText\": \"e2 an-ce3 alim ki-ce3 lu-lim\\ne2 an-ce3 ceg9-bar ki-ce3 tarah-mac\\ne2 an-ce3 ceg9-bar gun3-a ki-ce3 tarah-mac sig7-ga\\n\",\n      \"translatedText\": \"A bison for the heavens, a stag for earth below,\\nA wild ram for the heavens, a goat for earth below,\\nA dappled ram for heaven, a fair goat for the earth.\\n\",\n      \"type\": \"verse\"\n    },\n    {\n      \"originalText\": \"e2 an-ce3 muc mir-re-gin7 sig7-ga ki-ce3 u5mucen-gin7 a-e cu2-a\\ne2 an-ce3 ud-gin7 ed2-a ki-ce3 iti6-gin7 barag2-ga\\n\",\n      \"translatedText\": \"Like fierce snakes in the heavens, like ducks on water's berth,\\nLike sun that rises heavenward, like moon on earth outspread.\\n\",\n      \"type\": \"verse\"\n    },\n    {\n      \"originalText\": \"e2 an-ce3 cita2 cul ki-ce3 jictun3-am3\\ne2 an-ce3 kur-ra-am3 ki-ce3 idim-ma-am3\\n\",\n      \"translatedText\": \"A hero's mace for heaven, an axe for earth's own bed,\\nA mountain for the heavens, a spring for earth's own floor.\\n\",\n      \"type\": \"verse\"\n    },\n    {\n      \"originalText\": \"e2 an-ce3 3-kam-bi na-nam\\n\",\n      \"translatedText\": \"The house for the third time is truly this and more.\\n\",\n      \"type\": \"verse\"\n    },\n    {\n      \"originalText\": \"kecki-gin7 rib-ba lu2 ci-in-ga-an-tum2-mu\\nur-saj-bi dacac7-gi4-gin7 rib-ba ama ci-in-ga-u3-tud\\nnin-bi dnin-tud-gin7 rib-ba-ra a-ba-a igi mu-ni-in-du8\\ne2 3-kam-ma\",\n      \"translatedText\": \"Will any man bring forth a thing so great as Kesh has been?\\nWill any mother bear a hero like Ashgi, so bold?\\nWho has seen a lady like Nintud, of beauty untold?\\nThe third house.\",\n      \"type\": \"verse\"\n    }\n  ]\n}",
+      "originalDocument": {
+        "bookSlug": "kesh-temple-hymn",
+        "chapterSlug": "house-3",
+        "fullText": "e2 an-ce3 10 car2iku ki-ce3 5 car2iku\ne2 an-ce3 10 bur3iku ki-ce3 5 bur3iku\ne2 an-ce3 alim ki-ce3 lu-lim\ne2 an-ce3 ceg9-bar ki-ce3 tarah-mac\ne2 an-ce3 ceg9-bar gun3-a ki-ce3 tarah-mac sig7-ga\ne2 an-ce3 muc mir-re-gin7 sig7-ga ki-ce3 u5mucen-gin7 a-e cu2-a\ne2 an-ce3 ud-gin7 ed2-a ki-ce3 iti6-gin7 barag2-ga\ne2 an-ce3 cita2 cul ki-ce3 jictun3-am3\ne2 an-ce3 kur-ra-am3 ki-ce3 idim-ma-am3\ne2 an-ce3 3-kam-bi na-nam\nkecki-gin7 rib-ba lu2 ci-in-ga-an-tum2-mu\nur-saj-bi dacac7-gi4-gin7 rib-ba ama ci-in-ga-u3-tud\nnin-bi dnin-tud-gin7 rib-ba-ra a-ba-a igi mu-ni-in-du8\ne2 3-kam-ma"
+      },
+      "translationDocument": {
+        "translationSlug": "english-preserve-meter",
+        "chunks": [
+          {
+            "id": "t1",
+            "type": "verse",
+            "originalText": "e2 an-ce3 10 car2iku ki-ce3 5 car2iku\ne2 an-ce3 10 bur3iku ki-ce3 5 bur3iku\n",
+            "translatedText": "Ten units high to heaven, five units deep in earth,\nTen measures high to heaven, five measures deep in earth.\n",
+            "ordinal": 1
+          },
+          {
+            "id": "t2",
+            "type": "verse",
+            "originalText": "e2 an-ce3 alim ki-ce3 lu-lim\ne2 an-ce3 ceg9-bar ki-ce3 tarah-mac\ne2 an-ce3 ceg9-bar gun3-a ki-ce3 tarah-mac sig7-ga\n",
+            "translatedText": "A bison for the heavens, a stag for earth below,\nA wild ram for the heavens, a goat for earth below,\nA dappled ram for heaven, a fair goat for the earth.\n",
+            "ordinal": 2
+          },
+          {
+            "id": "t3",
+            "type": "verse",
+            "originalText": "e2 an-ce3 muc mir-re-gin7 sig7-ga ki-ce3 u5mucen-gin7 a-e cu2-a\ne2 an-ce3 ud-gin7 ed2-a ki-ce3 iti6-gin7 barag2-ga\n",
+            "translatedText": "Like fierce snakes in the heavens, like ducks on water's berth,\nLike sun that rises heavenward, like moon on earth outspread.\n",
+            "ordinal": 3
+          },
+          {
+            "id": "t4",
+            "type": "verse",
+            "originalText": "e2 an-ce3 cita2 cul ki-ce3 jictun3-am3\ne2 an-ce3 kur-ra-am3 ki-ce3 idim-ma-am3\n",
+            "translatedText": "A hero's mace for heaven, an axe for earth's own bed,\nA mountain for the heavens, a spring for earth's own floor.\n",
+            "ordinal": 4
+          },
+          {
+            "id": "t5",
+            "type": "verse",
+            "originalText": "e2 an-ce3 3-kam-bi na-nam\n",
+            "translatedText": "The house for the third time is truly this and more.\n",
+            "ordinal": 5
+          },
+          {
+            "id": "t6",
+            "type": "verse",
+            "originalText": "kecki-gin7 rib-ba lu2 ci-in-ga-an-tum2-mu\nur-saj-bi dacac7-gi4-gin7 rib-ba ama ci-in-ga-u3-tud\nnin-bi dnin-tud-gin7 rib-ba-ra a-ba-a igi mu-ni-in-du8\ne2 3-kam-ma",
+            "translatedText": "Will any man bring forth a thing so great as Kesh has been?\nWill any mother bear a hero like Ashgi, so bold?\nWho has seen a lady like Nintud, of beauty untold?\nThe third house.",
+            "ordinal": 6
+          }
+        ]
+      },
+      "notes": "This section emphasizes the cosmic dimensions and dual nature of the temple, contrasting its heavenly height with its earthly depth using animal, celestial, and elemental metaphors.",
+      "errorMessage": null,
+      "updatedAt": "2026-03-15T22:22:09.042Z"
+    },
+    {
+      "id": "77b519dd-dd3c-4faf-abc0-67f8bfd2db73",
+      "position": 4,
+      "title": "House 4",
+      "slug": "house-4",
+      "sourceText": "iriki ga-am3 iriki ga-am3 cag4-bi a-ba mu-zu\ne2 kecki iriki ga-am3 cag4-bi a-ba mu-zu\ncag4-bi ur-saj-ur-saj-e-ne si mu-un-si-sa2-e-ne\nec-bar kij2 dug4-ga cu gal mu-un-du7-du7\ne2 gud du7-du7-dam gu2 am3-ma-gur-re\ne2 gud car2-a al-gu7-e\ne2 udu car2-a-am3 al-gu7-e\nX X-ma-am3 gu2-bi luh-luh-ha\nbarag-barag-e-ne gu2-ne am3-ma-jal2-le-ne\njictaskarin-da men an-da-gur3-ru\njicasal2-gin7 an-da-tal2-tal2 sal-la\nhur-saj-da an-da-sig7-sig7-ga\nkecki-gin7 rib-ba lu2 ci-in-ga-an-tum2-mu\nur-saj-bi dacac7-gi4-gin7 rib-ba ama ci-in-ga-u3-tud\nnin-bi dnin-tud-gin7 rib-ba-ra a-ba-a igi mu-ni-in-du8\ne2 4-kam-ma",
+      "sourceChapterSlug": "house-4",
+      "status": "saved",
+      "rawResponse": "{\n  \"chapterTitle\": \"House 4\",\n  \"notes\": \"This section describes the temple as a bustling city and a site of ritual perfection, using animal and nature imagery to convey its majesty.\",\n  \"chunks\": [\n    {\n      \"originalText\": \"iriki ga-am3 iriki ga-am3 cag4-bi a-ba mu-zu\\ne2 kecki iriki ga-am3 cag4-bi a-ba mu-zu\\n\",\n      \"translatedText\": \"A city, oh, a city! Who knows what lies within?\\nThe house of Kesh, a city! Who knows what lies within?\",\n      \"type\": \"verse\"\n    },\n    {\n      \"originalText\": \"cag4-bi ur-saj-ur-saj-e-ne si mu-un-si-sa2-e-ne\\nec-bar kij2 dug4-ga cu gal mu-un-du7-du7\\n\",\n      \"translatedText\": \"Within its walls the heroes set all things in their place,\\nDecisions made and labors done with perfect, holy grace.\",\n      \"type\": \"verse\"\n    },\n    {\n      \"originalText\": \"e2 gud du7-du7-dam gu2 am3-ma-gur-re\\ne2 gud car2-a al-gu7-e\\ne2 udu car2-a-am3 al-gu7-e\\n\",\n      \"translatedText\": \"The house is like a perfect bull that bellows loud and deep,\\nIt eats a myriad of bulls, a harvest it shall keep,\\nIt eats a myriad of rams, and flocks of grazing sheep.\",\n      \"type\": \"verse\"\n    },\n    {\n      \"originalText\": \"X X-ma-am3 gu2-bi luh-luh-ha\\nbarag-barag-e-ne gu2-ne am3-ma-jal2-le-ne\\n\",\n      \"translatedText\": \"Its neck is washed and purified within the sacred hall,\\nThe rulers bow their heads to it, the masters of them all.\",\n      \"type\": \"verse\"\n    },\n    {\n      \"originalText\": \"jictaskarin-da men an-da-gur3-ru\\njicasal2-gin7 an-da-tal2-tal2 sal-la\\nhur-saj-da an-da-sig7-sig7-ga\\n\",\n      \"translatedText\": \"With boxwood crown it stands aloft, a glory to behold,\\nLike poplars spreading wide and far, its branches manifold,\\nAs verdant as the mountain range, in beauty yet untold.\",\n      \"type\": \"verse\"\n    },\n    {\n      \"originalText\": \"kecki-gin7 rib-ba lu2 ci-in-ga-an-tum2-mu\\nur-saj-bi dacac7-gi4-gin7 rib-ba ama ci-in-ga-u3-tud\\nnin-bi dnin-tud-gin7 rib-ba-ra a-ba-a igi mu-ni-in-du8\\n\",\n      \"translatedText\": \"Will any man bring forth a thing so great as Kesh has been?\\nWill any mother bear a hero like Ashgi, so bold?\\nWho has seen a lady like Nintud, of beauty untold?\",\n      \"type\": \"verse\"\n    },\n    {\n      \"originalText\": \"e2 4-kam-ma\",\n      \"translatedText\": \"The fourth house.\",\n      \"type\": \"verse\"\n    }\n  ]\n}",
+      "originalDocument": {
+        "bookSlug": "kesh-temple-hymn",
+        "chapterSlug": "house-4",
+        "fullText": "iriki ga-am3 iriki ga-am3 cag4-bi a-ba mu-zu\ne2 kecki iriki ga-am3 cag4-bi a-ba mu-zu\ncag4-bi ur-saj-ur-saj-e-ne si mu-un-si-sa2-e-ne\nec-bar kij2 dug4-ga cu gal mu-un-du7-du7\ne2 gud du7-du7-dam gu2 am3-ma-gur-re\ne2 gud car2-a al-gu7-e\ne2 udu car2-a-am3 al-gu7-e\nX X-ma-am3 gu2-bi luh-luh-ha\nbarag-barag-e-ne gu2-ne am3-ma-jal2-le-ne\njictaskarin-da men an-da-gur3-ru\njicasal2-gin7 an-da-tal2-tal2 sal-la\nhur-saj-da an-da-sig7-sig7-ga\nkecki-gin7 rib-ba lu2 ci-in-ga-an-tum2-mu\nur-saj-bi dacac7-gi4-gin7 rib-ba ama ci-in-ga-u3-tud\nnin-bi dnin-tud-gin7 rib-ba-ra a-ba-a igi mu-ni-in-du8\ne2 4-kam-ma"
+      },
+      "translationDocument": {
+        "translationSlug": "english-preserve-meter",
+        "chunks": [
+          {
+            "id": "t1",
+            "type": "verse",
+            "originalText": "iriki ga-am3 iriki ga-am3 cag4-bi a-ba mu-zu\ne2 kecki iriki ga-am3 cag4-bi a-ba mu-zu\n",
+            "translatedText": "A city, oh, a city! Who knows what lies within?\nThe house of Kesh, a city! Who knows what lies within?",
+            "ordinal": 1
+          },
+          {
+            "id": "t2",
+            "type": "verse",
+            "originalText": "cag4-bi ur-saj-ur-saj-e-ne si mu-un-si-sa2-e-ne\nec-bar kij2 dug4-ga cu gal mu-un-du7-du7\n",
+            "translatedText": "Within its walls the heroes set all things in their place,\nDecisions made and labors done with perfect, holy grace.",
+            "ordinal": 2
+          },
+          {
+            "id": "t3",
+            "type": "verse",
+            "originalText": "e2 gud du7-du7-dam gu2 am3-ma-gur-re\ne2 gud car2-a al-gu7-e\ne2 udu car2-a-am3 al-gu7-e\n",
+            "translatedText": "The house is like a perfect bull that bellows loud and deep,\nIt eats a myriad of bulls, a harvest it shall keep,\nIt eats a myriad of rams, and flocks of grazing sheep.",
+            "ordinal": 3
+          },
+          {
+            "id": "t4",
+            "type": "verse",
+            "originalText": "X X-ma-am3 gu2-bi luh-luh-ha\nbarag-barag-e-ne gu2-ne am3-ma-jal2-le-ne\n",
+            "translatedText": "Its neck is washed and purified within the sacred hall,\nThe rulers bow their heads to it, the masters of them all.",
+            "ordinal": 4
+          },
+          {
+            "id": "t5",
+            "type": "verse",
+            "originalText": "jictaskarin-da men an-da-gur3-ru\njicasal2-gin7 an-da-tal2-tal2 sal-la\nhur-saj-da an-da-sig7-sig7-ga\n",
+            "translatedText": "With boxwood crown it stands aloft, a glory to behold,\nLike poplars spreading wide and far, its branches manifold,\nAs verdant as the mountain range, in beauty yet untold.",
+            "ordinal": 5
+          },
+          {
+            "id": "t6",
+            "type": "verse",
+            "originalText": "kecki-gin7 rib-ba lu2 ci-in-ga-an-tum2-mu\nur-saj-bi dacac7-gi4-gin7 rib-ba ama ci-in-ga-u3-tud\nnin-bi dnin-tud-gin7 rib-ba-ra a-ba-a igi mu-ni-in-du8\n",
+            "translatedText": "Will any man bring forth a thing so great as Kesh has been?\nWill any mother bear a hero like Ashgi, so bold?\nWho has seen a lady like Nintud, of beauty untold?",
+            "ordinal": 6
+          },
+          {
+            "id": "t7",
+            "type": "verse",
+            "originalText": "e2 4-kam-ma",
+            "translatedText": "The fourth house.",
+            "ordinal": 7
+          }
+        ]
+      },
+      "notes": "This section describes the temple as a bustling city and a site of ritual perfection, using animal and nature imagery to convey its majesty.",
+      "errorMessage": null,
+      "updatedAt": "2026-03-15T22:22:09.046Z"
+    },
+    {
+      "id": "b75d2720-c0a8-40d6-92d8-4ca0d424bcfb",
+      "position": 5,
+      "title": "House 5",
+      "slug": "house-5",
+      "sourceText": "e2 pirij u3-tud cag4-bi ur-saj su3-ud\ne2 kecki pirij u3-tud cag4-bi ur-saj su3-ud\ncag4-bi ur-saj-ur-saj-e-ne si mu-un-si-sa2\ndnin-hur-saj-ja2 ucum-gal-am3 cag4 im-mi-in-tuc\ndnin-tud ama gal-la tud-tud mu-un-ja2-ja2\ndcul-pa-ed2 ensi2-ke4 nam-en mu-un-na-ak\ndacac7-gi4 ur-saj mezej mu-un-gu7-e\nduru3-mac nijir-gal edin-na mu-un-da-an-til3\ne2 lulim gu2-e am3-ma-gur-re\nkecki-gin7 rib-ba lu2 ci-in-ga-tum2-mu\nur-saj-bi dacac7-gi4-gin7 rib-ba ama ci-in-ga-u3-tud\nnin-bi dnin-tud-gin7 rib-ba-ra a-ba-a igi mu-ni-in-du8\ne2 5-kam-ma",
+      "sourceChapterSlug": "house-5",
+      "status": "saved",
+      "rawResponse": "{\n  \"chapterTitle\": \"House 5\",\n  \"notes\": \"This section focuses on the divine inhabitants and the birthing power of the temple, identifying it as a place where lions are born and heroes dwell.\",\n  \"chunks\": [\n    {\n      \"originalText\": \"e2 pirij u3-tud cag4-bi ur-saj su3-ud\\ne2 kecki pirij u3-tud cag4-bi ur-saj su3-ud\",\n      \"translatedText\": \"A house where lions are brought to birth, its heart a hero's pride,\\nThe house of Kesh where lions are born, with heroes deep inside.\",\n      \"type\": \"verse\"\n    },\n    {\n      \"originalText\": \"cag4-bi ur-saj-ur-saj-e-ne si mu-un-si-sa2\",\n      \"translatedText\": \"Within its walls the heroes set all things in order there,\",\n      \"type\": \"verse\"\n    },\n    {\n      \"originalText\": \"dnin-hur-saj-ja2 ucum-gal-am3 cag4 im-mi-in-tuc\",\n      \"translatedText\": \"Ninhursag, the Great Dragon, sits within the sacred air.\",\n      \"type\": \"verse\"\n    },\n    {\n      \"originalText\": \"dnin-tud ama gal-la tud-tud mu-un-ja2-ja2\",\n      \"translatedText\": \"Nintud, the Great Mother, brings the births to light and life,\",\n      \"type\": \"verse\"\n    },\n    {\n      \"originalText\": \"dcul-pa-ed2 ensi2-ke4 nam-en mu-un-na-ak\",\n      \"translatedText\": \"Shulpae, the administrator, rules as lord and priest,\",\n      \"type\": \"verse\"\n    },\n    {\n      \"originalText\": \"dacac7-gi4 ur-saj mezej mu-un-gu7-e\",\n      \"translatedText\": \"Ashgi, the hero, eats the fat of the sacrificial feast.\",\n      \"type\": \"verse\"\n    },\n    {\n      \"originalText\": \"duru3-mac nijir-gal edin-na mu-un-da-an-til3\",\n      \"translatedText\": \"Urumash, the great herald, dwells upon the open plain,\",\n      \"type\": \"verse\"\n    },\n    {\n      \"originalText\": \"e2 lulim gu2-e am3-ma-gur-re\",\n      \"translatedText\": \"The house is like a stag that bellows loud across the main.\",\n      \"type\": \"verse\"\n    },\n    {\n      \"originalText\": \"kecki-gin7 rib-ba lu2 ci-in-ga-tum2-mu\\nur-saj-bi dacac7-gi4-gin7 rib-ba ama ci-in-ga-u3-tud\\nnin-bi dnin-tud-gin7 rib-ba-ra a-ba-a igi mu-ni-in-du8\",\n      \"translatedText\": \"Will any man bring forth a thing so great as Kesh has been?\\nWill any mother bear a hero like Ashgi, so bold?\\nWho has seen a lady like Nintud, of beauty untold?\",\n      \"type\": \"verse\"\n    },\n    {\n      \"originalText\": \"e2 5-kam-ma\",\n      \"translatedText\": \"The fifth house. \",\n      \"type\": \"verse\"\n    }\n  ]\n}",
+      "originalDocument": {
+        "bookSlug": "kesh-temple-hymn",
+        "chapterSlug": "house-5",
+        "fullText": "e2 pirij u3-tud cag4-bi ur-saj su3-ud\ne2 kecki pirij u3-tud cag4-bi ur-saj su3-ud\ncag4-bi ur-saj-ur-saj-e-ne si mu-un-si-sa2\ndnin-hur-saj-ja2 ucum-gal-am3 cag4 im-mi-in-tuc\ndnin-tud ama gal-la tud-tud mu-un-ja2-ja2\ndcul-pa-ed2 ensi2-ke4 nam-en mu-un-na-ak\ndacac7-gi4 ur-saj mezej mu-un-gu7-e\nduru3-mac nijir-gal edin-na mu-un-da-an-til3\ne2 lulim gu2-e am3-ma-gur-re\nkecki-gin7 rib-ba lu2 ci-in-ga-tum2-mu\nur-saj-bi dacac7-gi4-gin7 rib-ba ama ci-in-ga-u3-tud\nnin-bi dnin-tud-gin7 rib-ba-ra a-ba-a igi mu-ni-in-du8\ne2 5-kam-ma"
+      },
+      "translationDocument": {
+        "translationSlug": "english-preserve-meter",
+        "chunks": [
+          {
+            "id": "t1",
+            "type": "verse",
+            "originalText": "e2 pirij u3-tud cag4-bi ur-saj su3-ud\ne2 kecki pirij u3-tud cag4-bi ur-saj su3-ud",
+            "translatedText": "A house where lions are brought to birth, its heart a hero's pride,\nThe house of Kesh where lions are born, with heroes deep inside.",
+            "ordinal": 1
+          },
+          {
+            "id": "t2",
+            "type": "verse",
+            "originalText": "cag4-bi ur-saj-ur-saj-e-ne si mu-un-si-sa2",
+            "translatedText": "Within its walls the heroes set all things in order there,",
+            "ordinal": 2
+          },
+          {
+            "id": "t3",
+            "type": "verse",
+            "originalText": "dnin-hur-saj-ja2 ucum-gal-am3 cag4 im-mi-in-tuc",
+            "translatedText": "Ninhursag, the Great Dragon, sits within the sacred air.",
+            "ordinal": 3
+          },
+          {
+            "id": "t4",
+            "type": "verse",
+            "originalText": "dnin-tud ama gal-la tud-tud mu-un-ja2-ja2",
+            "translatedText": "Nintud, the Great Mother, brings the births to light and life,",
+            "ordinal": 4
+          },
+          {
+            "id": "t5",
+            "type": "verse",
+            "originalText": "dcul-pa-ed2 ensi2-ke4 nam-en mu-un-na-ak",
+            "translatedText": "Shulpae, the administrator, rules as lord and priest,",
+            "ordinal": 5
+          },
+          {
+            "id": "t6",
+            "type": "verse",
+            "originalText": "dacac7-gi4 ur-saj mezej mu-un-gu7-e",
+            "translatedText": "Ashgi, the hero, eats the fat of the sacrificial feast.",
+            "ordinal": 6
+          },
+          {
+            "id": "t7",
+            "type": "verse",
+            "originalText": "duru3-mac nijir-gal edin-na mu-un-da-an-til3",
+            "translatedText": "Urumash, the great herald, dwells upon the open plain,",
+            "ordinal": 7
+          },
+          {
+            "id": "t8",
+            "type": "verse",
+            "originalText": "e2 lulim gu2-e am3-ma-gur-re",
+            "translatedText": "The house is like a stag that bellows loud across the main.",
+            "ordinal": 8
+          },
+          {
+            "id": "t9",
+            "type": "verse",
+            "originalText": "kecki-gin7 rib-ba lu2 ci-in-ga-tum2-mu\nur-saj-bi dacac7-gi4-gin7 rib-ba ama ci-in-ga-u3-tud\nnin-bi dnin-tud-gin7 rib-ba-ra a-ba-a igi mu-ni-in-du8",
+            "translatedText": "Will any man bring forth a thing so great as Kesh has been?\nWill any mother bear a hero like Ashgi, so bold?\nWho has seen a lady like Nintud, of beauty untold?",
+            "ordinal": 9
+          },
+          {
+            "id": "t10",
+            "type": "verse",
+            "originalText": "e2 5-kam-ma",
+            "translatedText": "The fifth house. ",
+            "ordinal": 10
+          }
+        ]
+      },
+      "notes": "This section focuses on the divine inhabitants and the birthing power of the temple, identifying it as a place where lions are born and heroes dwell.",
+      "errorMessage": null,
+      "updatedAt": "2026-03-15T22:22:09.050Z"
+    },
+    {
+      "id": "bec8001b-9b8d-46de-bff7-03dbd7999f91",
+      "position": 6,
+      "title": "House 6",
+      "slug": "house-6",
+      "sourceText": "e2 lu2 10-e 10-e nam-mi-in-tuc\ne2 kecki-ka lu2 10-e 10-e nam-mi-in-tuc\nlugal-bi ucumgal-am3 an-na dirig-ga\nnin-bi dnin-hur-saj-ja2-am3 gu2 ki-ce3 ma-al\ne2 ensi2-bi dacac7-gi4-am3\nnu-gig-bi dnin-tud-ra\nkecki-gin7 rib-ba lu2 ci-in-ga-tum2-mu\nur-saj-bi dacac7-gi4-gin7 rib-ba ama ci-in-ga-u3-tud\nnin-bi dnin-tud-gin7 rib-ba-ra a-ba-a igi mu-ni-in-du8\ne2 6-kam-ma",
+      "sourceChapterSlug": "house-6",
+      "status": "saved",
+      "rawResponse": "{\n  \"chapterTitle\": \"House 6\",\n  \"notes\": \"This section describes the inhabitants and divine hierarchy of the temple, emphasizing the sheer number of people (ten by ten) and the celestial and earthly roles of its deities.\",\n  \"chunks\": [\n    {\n      \"originalText\": \"e2 lu2 10-e 10-e nam-mi-in-tuc\\ne2 kecki-ka lu2 10-e 10-e nam-mi-in-tuc\\n\",\n      \"translatedText\": \"The house where ten by ten the people dwell within its gate,\\nThe house of Kesh where ten by ten the people congregate.\\n\",\n      \"type\": \"verse\"\n    },\n    {\n      \"originalText\": \"lugal-bi ucumgal-am3 an-na dirig-ga\\nnin-bi dnin-hur-saj-ja2-am3 gu2 ki-ce3 ma-al\\n\",\n      \"translatedText\": \"Its king is like a dragon great, who floats across the sky,\\nIts lady is Ninhursag, who to earth bows low and nigh.\\n\",\n      \"type\": \"verse\"\n    },\n    {\n      \"originalText\": \"e2 ensi2-bi dacac7-gi4-am3\\nnu-gig-bi dnin-tud-ra\\n\",\n      \"translatedText\": \"The governor of this great house is Ashgi, bold and strong,\\nIts high priestess is Nintud, to whom all births belong.\\n\",\n      \"type\": \"verse\"\n    },\n    {\n      \"originalText\": \"kecki-gin7 rib-ba lu2 ci-in-ga-tum2-mu\\nur-saj-bi dacac7-gi4-gin7 rib-ba ama ci-in-ga-u3-tud\\nnin-bi dnin-tud-gin7 rib-ba-ra a-ba-a igi mu-ni-in-du8\\n\",\n      \"translatedText\": \"Will any man bring forth a thing so great as Kesh has been?\\nWill any mother bear a hero like Ashgi, so bold?\\nWho has seen a lady like Nintud, of beauty untold?\\n\",\n      \"type\": \"verse\"\n    },\n    {\n      \"originalText\": \"e2 6-kam-ma\",\n      \"translatedText\": \"The sixth house.\",\n      \"type\": \"verse\"\n    }\n  ]\n}",
+      "originalDocument": {
+        "bookSlug": "kesh-temple-hymn",
+        "chapterSlug": "house-6",
+        "fullText": "e2 lu2 10-e 10-e nam-mi-in-tuc\ne2 kecki-ka lu2 10-e 10-e nam-mi-in-tuc\nlugal-bi ucumgal-am3 an-na dirig-ga\nnin-bi dnin-hur-saj-ja2-am3 gu2 ki-ce3 ma-al\ne2 ensi2-bi dacac7-gi4-am3\nnu-gig-bi dnin-tud-ra\nkecki-gin7 rib-ba lu2 ci-in-ga-tum2-mu\nur-saj-bi dacac7-gi4-gin7 rib-ba ama ci-in-ga-u3-tud\nnin-bi dnin-tud-gin7 rib-ba-ra a-ba-a igi mu-ni-in-du8\ne2 6-kam-ma"
+      },
+      "translationDocument": {
+        "translationSlug": "english-preserve-meter",
+        "chunks": [
+          {
+            "id": "t1",
+            "type": "verse",
+            "originalText": "e2 lu2 10-e 10-e nam-mi-in-tuc\ne2 kecki-ka lu2 10-e 10-e nam-mi-in-tuc\n",
+            "translatedText": "The house where ten by ten the people dwell within its gate,\nThe house of Kesh where ten by ten the people congregate.\n",
+            "ordinal": 1
+          },
+          {
+            "id": "t2",
+            "type": "verse",
+            "originalText": "lugal-bi ucumgal-am3 an-na dirig-ga\nnin-bi dnin-hur-saj-ja2-am3 gu2 ki-ce3 ma-al\n",
+            "translatedText": "Its king is like a dragon great, who floats across the sky,\nIts lady is Ninhursag, who to earth bows low and nigh.\n",
+            "ordinal": 2
+          },
+          {
+            "id": "t3",
+            "type": "verse",
+            "originalText": "e2 ensi2-bi dacac7-gi4-am3\nnu-gig-bi dnin-tud-ra\n",
+            "translatedText": "The governor of this great house is Ashgi, bold and strong,\nIts high priestess is Nintud, to whom all births belong.\n",
+            "ordinal": 3
+          },
+          {
+            "id": "t4",
+            "type": "verse",
+            "originalText": "kecki-gin7 rib-ba lu2 ci-in-ga-tum2-mu\nur-saj-bi dacac7-gi4-gin7 rib-ba ama ci-in-ga-u3-tud\nnin-bi dnin-tud-gin7 rib-ba-ra a-ba-a igi mu-ni-in-du8\n",
+            "translatedText": "Will any man bring forth a thing so great as Kesh has been?\nWill any mother bear a hero like Ashgi, so bold?\nWho has seen a lady like Nintud, of beauty untold?\n",
+            "ordinal": 4
+          },
+          {
+            "id": "t5",
+            "type": "verse",
+            "originalText": "e2 6-kam-ma",
+            "translatedText": "The sixth house.",
+            "ordinal": 5
+          }
+        ]
+      },
+      "notes": "This section describes the inhabitants and divine hierarchy of the temple, emphasizing the sheer number of people (ten by ten) and the celestial and earthly roles of its deities.",
+      "errorMessage": null,
+      "updatedAt": "2026-03-15T22:22:09.053Z"
+    },
+    {
+      "id": "3b71d8f1-2ad5-4eb4-84bf-b8851a33f5c8",
+      "position": 7,
+      "title": "House 7",
+      "slug": "house-7",
+      "sourceText": "e2 u3-tud kug-ga cag4-bi a-ba mu-zu\ne2 kecki u3-tud kug-ga cag4-bi a-ba mu-zu\ne2 caj4-mac-bi a-da-ab-ba\nal-jar-bi kuccem3-am3\ntigi-bi cem5-ma-am3\nza-am-za-am-bi gi-di-da-am3\ne2 nar-bi u3-ma-am3\nsipa-bi ud-da-am3\ne2 lu2 tigi-ba nar mu-un-tar-re\nzam-zam-ma u3-ma mu-un-tar-re\ne2 a-tu5-a-ba gud huc-am3\nluh-luh-ha-ba ud-gin7 car2-ra-am3\nkecki-gin7 rib-ba lu2 ci-in-ga-tum2-mu\nur-saj-bi dacac7-gi4-gin7 rib-ba ama ci-in-ga-u3-tud\nnin-bi dnin-tud-gin7 rib-ba-ra a-ba-a igi mu-ni-in-du8\ne2 7-kam-ma",
+      "sourceChapterSlug": "house-7",
+      "status": "saved",
+      "rawResponse": "{\n  \"chapterTitle\": \"House 7\",\n  \"notes\": \"This section focuses on the musical and ritual life within the temple, highlighting the instruments and the divine atmosphere of the ceremonies.\",\n  \"chunks\": [\n    {\n      \"originalText\": \"e2 u3-tud kug-ga cag4-bi a-ba mu-zu\\ne2 kecki u3-tud kug-ga cag4-bi a-ba mu-zu\",\n      \"translatedText\": \"The house of holy birth—who knows its inner heart?\\nThe house of Kesh, of holy birth—who knows its inner heart?\",\n      \"type\": \"verse\"\n    },\n    {\n      \"originalText\": \"e2 caj4-mac-bi a-da-ab-ba\\nal-jar-bi kuccem3-am3\\ntigi-bi cem5-ma-am3\\nza-am-za-am-bi gi-di-da-am3\",\n      \"translatedText\": \"The house's wild boar is the adab-song,\\nIts algar-lyre is the drum's deep beat,\\nIts tigi-drums are the tambourines,\\nIts zam-zam instruments are the reed-pipes sweet.\",\n      \"type\": \"verse\"\n    },\n    {\n      \"originalText\": \"e2 nar-bi u3-ma-am3\\nsipa-bi ud-da-am3\\ne2 lu2 tigi-ba nar mu-un-tar-re\\nzam-zam-ma u3-ma mu-un-tar-re\",\n      \"translatedText\": \"The house's singer is a triumph song,\\nIts shepherd is the light of day,\\nThe house where tigi-players lead the choir,\\nAnd zam-zam songs of victory hold sway.\",\n      \"type\": \"verse\"\n    },\n    {\n      \"originalText\": \"e2 a-tu5-a-ba gud huc-am3\\nluh-luh-ha-ba ud-gin7 car2-ra-am3\",\n      \"translatedText\": \"Within its lustration room, a fierce bull stands,\\nIts cleansing rites are bright as sunlight's glow.\",\n      \"type\": \"verse\"\n    },\n    {\n      \"originalText\": \"kecki-gin7 rib-ba lu2 ci-in-ga-tum2-mu\\nur-saj-bi dacac7-gi4-gin7 rib-ba ama ci-in-ga-u3-tud\\nnin-bi dnin-tud-gin7 rib-ba-ra a-ba-a igi mu-ni-in-du8\",\n      \"translatedText\": \"Will any man bring forth a thing so great as Kesh has been?\\nWill any mother bear a hero like Ashgi, so bold?\\nWho has seen a lady like Nintud, of beauty untold?\",\n      \"type\": \"verse\"\n    },\n    {\n      \"originalText\": \"e2 7-kam-ma\",\n      \"translatedText\": \"The seventh house.\",\n      \"type\": \"verse\"\n    }\n  ]\n}",
+      "originalDocument": {
+        "bookSlug": "kesh-temple-hymn",
+        "chapterSlug": "house-7",
+        "fullText": "e2 u3-tud kug-ga cag4-bi a-ba mu-zu\ne2 kecki u3-tud kug-ga cag4-bi a-ba mu-zu\ne2 caj4-mac-bi a-da-ab-ba\nal-jar-bi kuccem3-am3\ntigi-bi cem5-ma-am3\nza-am-za-am-bi gi-di-da-am3\ne2 nar-bi u3-ma-am3\nsipa-bi ud-da-am3\ne2 lu2 tigi-ba nar mu-un-tar-re\nzam-zam-ma u3-ma mu-un-tar-re\ne2 a-tu5-a-ba gud huc-am3\nluh-luh-ha-ba ud-gin7 car2-ra-am3\nkecki-gin7 rib-ba lu2 ci-in-ga-tum2-mu\nur-saj-bi dacac7-gi4-gin7 rib-ba ama ci-in-ga-u3-tud\nnin-bi dnin-tud-gin7 rib-ba-ra a-ba-a igi mu-ni-in-du8\ne2 7-kam-ma"
+      },
+      "translationDocument": {
+        "translationSlug": "english-preserve-meter",
+        "chunks": [
+          {
+            "id": "t1",
+            "type": "verse",
+            "originalText": "e2 u3-tud kug-ga cag4-bi a-ba mu-zu\ne2 kecki u3-tud kug-ga cag4-bi a-ba mu-zu",
+            "translatedText": "The house of holy birth—who knows its inner heart?\nThe house of Kesh, of holy birth—who knows its inner heart?",
+            "ordinal": 1
+          },
+          {
+            "id": "t2",
+            "type": "verse",
+            "originalText": "e2 caj4-mac-bi a-da-ab-ba\nal-jar-bi kuccem3-am3\ntigi-bi cem5-ma-am3\nza-am-za-am-bi gi-di-da-am3",
+            "translatedText": "The house's wild boar is the adab-song,\nIts algar-lyre is the drum's deep beat,\nIts tigi-drums are the tambourines,\nIts zam-zam instruments are the reed-pipes sweet.",
+            "ordinal": 2
+          },
+          {
+            "id": "t3",
+            "type": "verse",
+            "originalText": "e2 nar-bi u3-ma-am3\nsipa-bi ud-da-am3\ne2 lu2 tigi-ba nar mu-un-tar-re\nzam-zam-ma u3-ma mu-un-tar-re",
+            "translatedText": "The house's singer is a triumph song,\nIts shepherd is the light of day,\nThe house where tigi-players lead the choir,\nAnd zam-zam songs of victory hold sway.",
+            "ordinal": 3
+          },
+          {
+            "id": "t4",
+            "type": "verse",
+            "originalText": "e2 a-tu5-a-ba gud huc-am3\nluh-luh-ha-ba ud-gin7 car2-ra-am3",
+            "translatedText": "Within its lustration room, a fierce bull stands,\nIts cleansing rites are bright as sunlight's glow.",
+            "ordinal": 4
+          },
+          {
+            "id": "t5",
+            "type": "verse",
+            "originalText": "kecki-gin7 rib-ba lu2 ci-in-ga-tum2-mu\nur-saj-bi dacac7-gi4-gin7 rib-ba ama ci-in-ga-u3-tud\nnin-bi dnin-tud-gin7 rib-ba-ra a-ba-a igi mu-ni-in-du8",
+            "translatedText": "Will any man bring forth a thing so great as Kesh has been?\nWill any mother bear a hero like Ashgi, so bold?\nWho has seen a lady like Nintud, of beauty untold?",
+            "ordinal": 5
+          },
+          {
+            "id": "t6",
+            "type": "verse",
+            "originalText": "e2 7-kam-ma",
+            "translatedText": "The seventh house.",
+            "ordinal": 6
+          }
+        ]
+      },
+      "notes": "This section focuses on the musical and ritual life within the temple, highlighting the instruments and the divine atmosphere of the ceremonies.",
+      "errorMessage": null,
+      "updatedAt": "2026-03-15T22:22:09.057Z"
+    },
+    {
+      "id": "ba856a4f-3ced-4bcf-8b39-6b1edb3b1e69",
+      "position": 8,
+      "title": "House 8",
+      "slug": "house-8",
+      "sourceText": "an-ki-a asil-la2 te-ma-ab\ne2 kecki-a asil-la2 te-ma-ab\ne2 dacac7-gi4-a asil-la2 te-ma-ab\ne2 dnin-hur-saj-ja2-ka asil-la2 te-ma-ab\nan-ki-a asil-la2 te-ma-ab\ne2 kecki-a asil-la2 te-ma-ab\ne2 nam-ti-la asil-la2 te-ma-ab\ne2 zi-da asil-la2 te-ma-ab\ne2 dingir-re-ne asil-la2 te-ma-ab\ne2 kug-ga asil-la2 te-ma-ab\ne2 me-te-na asil-la2 te-ma-ab\nkecki-a asil-la2 te-ma-ab\nud-de3 nam-lugal-la asil-la2 te-ma-ab\niti6-e nam-ensi2-ka asil-la2 te-ma-ab\nmu-e nam-nin-a asil-la2 te-ma-ab\nud-ba asil-la2 te-ma-ab\nitima-ba asil-la2 te-ma-ab\nkecki-gin7 rib-ba lu2 ci-in-ga-tum2-mu\nur-saj-bi dacac7-gi4-gin7 rib-ba ama ci-in-ga-u3-tud\nnin-bi dnin-tud-gin7 rib-ba-ra a-ba-a igi mu-ni-in-du8\ne2 8-kam-ma",
+      "sourceChapterSlug": "house-8",
+      "status": "saved",
+      "rawResponse": "{\n  \"chapterTitle\": \"House 8\",\n  \"notes\": \"The final house of the Kesh Temple Hymn serves as a grand doxology, calling for joy throughout the cosmos and the temple, while repeating the refrain regarding the uniqueness of Kesh, its hero Ashgi, and its goddess Nintud.\",\n  \"chunks\": [\n    {\n      \"originalText\": \"an-ki-a asil-la2 te-ma-ab\\ne2 kecki-a asil-la2 te-ma-ab\\ne2 dacac7-gi4-a asil-la2 te-ma-ab\\ne2 dnin-hur-saj-ja2-ka asil-la2 te-ma-ab\",\n      \"translatedText\": \"In heaven and earth, let there be joy,\\nIn the house of Kesh, let there be joy,\\nIn the house of Ashgi, let there be joy,\\nIn the house of Ninhursag, let there be joy.\",\n      \"type\": \"verse\"\n    },\n    {\n      \"originalText\": \"an-ki-a asil-la2 te-ma-ab\\ne2 kecki-a asil-la2 te-ma-ab\\ne2 nam-ti-la asil-la2 te-ma-ab\\ne2 zi-da asil-la2 te-ma-ab\",\n      \"translatedText\": \"In heaven and earth, let there be joy,\\nIn the house of Kesh, let there be joy,\\nIn the house of life, let there be joy,\\nIn the faithful house, let there be joy.\",\n      \"type\": \"verse\"\n    },\n    {\n      \"originalText\": \"e2 dingir-re-ne asil-la2 te-ma-ab\\ne2 kug-ga asil-la2 te-ma-ab\\ne2 me-te-na asil-la2 te-ma-ab\\nkecki-a asil-la2 te-ma-ab\",\n      \"translatedText\": \"In the house of the gods, let there be joy,\\nIn the holy house, let there be joy,\\nIn the house of fitting praise, let there be joy,\\nIn Kesh itself, let there be joy.\",\n      \"type\": \"verse\"\n    },\n    {\n      \"originalText\": \"ud-de3 nam-lugal-la asil-la2 te-ma-ab\\niti6-e nam-ensi2-ka asil-la2 te-ma-ab\\nmu-e nam-nin-a asil-la2 te-ma-ab\",\n      \"translatedText\": \"In the days of kingship, let there be joy,\\nIn the months of lordship, let there be joy,\\nIn the years of queenship, let there be joy.\",\n      \"type\": \"verse\"\n    },\n    {\n      \"originalText\": \"ud-ba asil-la2 te-ma-ab\\nitima-ba asil-la2 te-ma-ab\",\n      \"translatedText\": \"In its daylight, let there be joy,\\nIn its inner chambers, let there be joy.\",\n      \"type\": \"verse\"\n    },\n    {\n      \"originalText\": \"kecki-gin7 rib-ba lu2 ci-in-ga-tum2-mu\\nur-saj-bi dacac7-gi4-gin7 rib-ba ama ci-in-ga-u3-tud\\nnin-bi dnin-tud-gin7 rib-ba-ra a-ba-a igi mu-ni-in-du8\",\n      \"translatedText\": \"Will any man bring forth a thing so great as Kesh has been?\\nWill any mother bear a hero like Ashgi, so bold?\\nWho has seen a lady like Nintud, of beauty untold?\",\n      \"type\": \"verse\"\n    },\n    {\n      \"originalText\": \"e2 8-kam-ma\",\n      \"translatedText\": \"The eighth house. \",\n      \"type\": \"verse\"\n    }\n  ]\n}",
+      "originalDocument": {
+        "bookSlug": "kesh-temple-hymn",
+        "chapterSlug": "house-8",
+        "fullText": "an-ki-a asil-la2 te-ma-ab\ne2 kecki-a asil-la2 te-ma-ab\ne2 dacac7-gi4-a asil-la2 te-ma-ab\ne2 dnin-hur-saj-ja2-ka asil-la2 te-ma-ab\nan-ki-a asil-la2 te-ma-ab\ne2 kecki-a asil-la2 te-ma-ab\ne2 nam-ti-la asil-la2 te-ma-ab\ne2 zi-da asil-la2 te-ma-ab\ne2 dingir-re-ne asil-la2 te-ma-ab\ne2 kug-ga asil-la2 te-ma-ab\ne2 me-te-na asil-la2 te-ma-ab\nkecki-a asil-la2 te-ma-ab\nud-de3 nam-lugal-la asil-la2 te-ma-ab\niti6-e nam-ensi2-ka asil-la2 te-ma-ab\nmu-e nam-nin-a asil-la2 te-ma-ab\nud-ba asil-la2 te-ma-ab\nitima-ba asil-la2 te-ma-ab\nkecki-gin7 rib-ba lu2 ci-in-ga-tum2-mu\nur-saj-bi dacac7-gi4-gin7 rib-ba ama ci-in-ga-u3-tud\nnin-bi dnin-tud-gin7 rib-ba-ra a-ba-a igi mu-ni-in-du8\ne2 8-kam-ma"
+      },
+      "translationDocument": {
+        "translationSlug": "english-preserve-meter",
+        "chunks": [
+          {
+            "id": "t1",
+            "type": "verse",
+            "originalText": "an-ki-a asil-la2 te-ma-ab\ne2 kecki-a asil-la2 te-ma-ab\ne2 dacac7-gi4-a asil-la2 te-ma-ab\ne2 dnin-hur-saj-ja2-ka asil-la2 te-ma-ab",
+            "translatedText": "In heaven and earth, let there be joy,\nIn the house of Kesh, let there be joy,\nIn the house of Ashgi, let there be joy,\nIn the house of Ninhursag, let there be joy.",
+            "ordinal": 1
+          },
+          {
+            "id": "t2",
+            "type": "verse",
+            "originalText": "an-ki-a asil-la2 te-ma-ab\ne2 kecki-a asil-la2 te-ma-ab\ne2 nam-ti-la asil-la2 te-ma-ab\ne2 zi-da asil-la2 te-ma-ab",
+            "translatedText": "In heaven and earth, let there be joy,\nIn the house of Kesh, let there be joy,\nIn the house of life, let there be joy,\nIn the faithful house, let there be joy.",
+            "ordinal": 2
+          },
+          {
+            "id": "t3",
+            "type": "verse",
+            "originalText": "e2 dingir-re-ne asil-la2 te-ma-ab\ne2 kug-ga asil-la2 te-ma-ab\ne2 me-te-na asil-la2 te-ma-ab\nkecki-a asil-la2 te-ma-ab",
+            "translatedText": "In the house of the gods, let there be joy,\nIn the holy house, let there be joy,\nIn the house of fitting praise, let there be joy,\nIn Kesh itself, let there be joy.",
+            "ordinal": 3
+          },
+          {
+            "id": "t4",
+            "type": "verse",
+            "originalText": "ud-de3 nam-lugal-la asil-la2 te-ma-ab\niti6-e nam-ensi2-ka asil-la2 te-ma-ab\nmu-e nam-nin-a asil-la2 te-ma-ab",
+            "translatedText": "In the days of kingship, let there be joy,\nIn the months of lordship, let there be joy,\nIn the years of queenship, let there be joy.",
+            "ordinal": 4
+          },
+          {
+            "id": "t5",
+            "type": "verse",
+            "originalText": "ud-ba asil-la2 te-ma-ab\nitima-ba asil-la2 te-ma-ab",
+            "translatedText": "In its daylight, let there be joy,\nIn its inner chambers, let there be joy.",
+            "ordinal": 5
+          },
+          {
+            "id": "t6",
+            "type": "verse",
+            "originalText": "kecki-gin7 rib-ba lu2 ci-in-ga-tum2-mu\nur-saj-bi dacac7-gi4-gin7 rib-ba ama ci-in-ga-u3-tud\nnin-bi dnin-tud-gin7 rib-ba-ra a-ba-a igi mu-ni-in-du8",
+            "translatedText": "Will any man bring forth a thing so great as Kesh has been?\nWill any mother bear a hero like Ashgi, so bold?\nWho has seen a lady like Nintud, of beauty untold?",
+            "ordinal": 6
+          },
+          {
+            "id": "t7",
+            "type": "verse",
+            "originalText": "e2 8-kam-ma",
+            "translatedText": "The eighth house. ",
+            "ordinal": 7
+          }
+        ]
+      },
+      "notes": "The final house of the Kesh Temple Hymn serves as a grand doxology, calling for joy throughout the cosmos and the temple, while repeating the refrain regarding the uniqueness of Kesh, its hero Ashgi, and its goddess Nintud.",
+      "errorMessage": null,
+      "updatedAt": "2026-03-15T22:22:09.062Z"
+    }
+  ]
+}
