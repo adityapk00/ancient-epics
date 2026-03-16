@@ -336,16 +336,30 @@ export default function ReaderApp() {
     try {
       await api.logout();
       setAuthUser(null);
-      setSelectedBookSlug(null);
-      setSelectedBook(null);
-      setSelectedTranslationSlug(null);
-      setSelectedChapterSlug(null);
-      setChapterPayload(null);
-      setReaderLoadState("idle");
-      setScreen("books");
+      returnToLibrary();
     } catch (logoutError) {
       setError(logoutError instanceof Error ? logoutError.message : "Failed to log out.");
     }
+  }
+
+  function returnToLibrary() {
+    setSelectedBookSlug(null);
+    setSelectedBook(null);
+    setSelectedTranslationSlug(null);
+    setSelectedChapterSlug(null);
+    setChapterPayload(null);
+    setTranslationUnavailableMessage(null);
+    setReaderLoadState("idle");
+    setScreen("books");
+  }
+
+  function returnToTranslations() {
+    setSelectedTranslationSlug(null);
+    setSelectedChapterSlug(null);
+    setChapterPayload(null);
+    setTranslationUnavailableMessage(null);
+    setReaderLoadState("idle");
+    setScreen("translations");
   }
 
   function openBook(bookSlug: string) {
@@ -353,6 +367,8 @@ export default function ReaderApp() {
     setSelectedTranslationSlug(null);
     setSelectedChapterSlug(null);
     setChapterPayload(null);
+    setTranslationUnavailableMessage(null);
+    setReaderLoadState("idle");
     setScreen("translations");
   }
 
@@ -414,13 +430,13 @@ export default function ReaderApp() {
         {
           label: "Library",
           isCurrent: screen === "books",
-          onClick: () => setScreen("books"),
+          onClick: returnToLibrary,
         },
         screen !== "books" && selectedBook
           ? {
               label: selectedBook.title,
               isCurrent: screen === "translations",
-              onClick: () => setScreen("translations"),
+              onClick: returnToTranslations,
             }
           : null,
         screen === "reader" && selectedTranslation
@@ -528,7 +544,7 @@ export default function ReaderApp() {
             title={selectedBook?.title ?? "Translations"}
             subtitle="Choose a published translation for this book."
             backLabel="Back To Books"
-            onBack={() => setScreen("books")}
+            onBack={returnToLibrary}
             breadcrumbs={breadcrumbs}
           >
             {isLoadingBook ? (
@@ -572,7 +588,7 @@ export default function ReaderApp() {
             title={selectedTranslation?.name ?? activeChapterTitle}
             subtitle={selectedBook ? `Reading ${selectedBook.title}` : ""}
             backLabel="Back To Translations"
-            onBack={() => setScreen("translations")}
+            onBack={returnToTranslations}
             breadcrumbs={breadcrumbs}
           >
             {selectedBook == null || selectedTranslation == null || selectedChapter == null ? (
