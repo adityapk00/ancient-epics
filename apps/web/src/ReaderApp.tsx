@@ -8,7 +8,27 @@ type ReaderAppProps = {
   onOpenAdmin: () => void;
 };
 
-type ReaderScreen = "books" | "translations" | "chapters" | "reader";
+type ReaderScreen = "books" | "translations" | "reader";
+
+function buildLastReadStorageKey(bookSlug: string, translationSlug: string): string {
+  return `ancient-epics:last-read:${bookSlug}:${translationSlug}`;
+}
+
+function getStoredLastReadChapter(bookSlug: string, translationSlug: string): string | null {
+  if (typeof window === "undefined") {
+    return null;
+  }
+
+  return window.localStorage.getItem(buildLastReadStorageKey(bookSlug, translationSlug));
+}
+
+function setStoredLastReadChapter(bookSlug: string, translationSlug: string, chapterSlug: string): void {
+  if (typeof window === "undefined") {
+    return;
+  }
+
+  window.localStorage.setItem(buildLastReadStorageKey(bookSlug, translationSlug), chapterSlug);
+}
 
 export default function ReaderApp({ onOpenAdmin }: ReaderAppProps) {
   const [screen, setScreen] = useState<ReaderScreen>("books");
@@ -137,6 +157,14 @@ export default function ReaderApp({ onOpenAdmin }: ReaderAppProps) {
     };
   }, [selectedBook, selectedTranslationSlug, selectedChapterSlug]);
 
+  useEffect(() => {
+    if (!selectedBook || !selectedTranslationSlug || !selectedChapterSlug) {
+      return;
+    }
+
+    setStoredLastReadChapter(selectedBook.slug, selectedTranslationSlug, selectedChapterSlug);
+  }, [selectedBook, selectedTranslationSlug, selectedChapterSlug]);
+
   const selectedTranslation =
     selectedBook?.translations.find((translation) => translation.slug === selectedTranslationSlug) ?? null;
   const selectedChapter = selectedBook?.chapters.find((chapter) => chapter.slug === selectedChapterSlug) ?? null;
@@ -161,10 +189,18 @@ export default function ReaderApp({ onOpenAdmin }: ReaderAppProps) {
   }
 
   function openTranslation(translationSlug: string) {
+    const firstChapterSlug = selectedBook?.chapters[0]?.slug ?? null;
+    const storedChapterSlug =
+      selectedBook == null ? null : getStoredLastReadChapter(selectedBook.slug, translationSlug);
+    const preferredChapterSlug =
+      storedChapterSlug != null && selectedBook?.chapters.some((chapter) => chapter.slug === storedChapterSlug)
+        ? storedChapterSlug
+        : firstChapterSlug;
+
     setSelectedTranslationSlug(translationSlug);
-    setSelectedChapterSlug(null);
+    setSelectedChapterSlug(preferredChapterSlug);
     setChapterPayload(null);
-    setScreen("chapters");
+    setScreen("reader");
   }
 
   function openChapter(chapterSlug: string) {
@@ -187,11 +223,11 @@ export default function ReaderApp({ onOpenAdmin }: ReaderAppProps) {
               onClick: () => setScreen("translations"),
             }
           : null,
-        (screen === "chapters" || screen === "reader") && selectedTranslation
+        screen === "reader" && selectedTranslation
           ? {
               label: selectedTranslation.name,
-              isCurrent: screen === "chapters",
-              onClick: () => setScreen("chapters"),
+              isCurrent: selectedChapter == null,
+              onClick: () => setScreen("reader"),
             }
           : null,
         screen === "reader" && selectedChapter
@@ -292,109 +328,105 @@ export default function ReaderApp({ onOpenAdmin }: ReaderAppProps) {
           </StagePanel>
         ) : null}
 
-        {screen === "chapters" ? (
+        {screen === "reader" ? (
           <StagePanel
-            title={selectedTranslation?.name ?? "Chapters"}
-            subtitle="Choose a chapter to open the aligned bilingual reader."
+            title={selectedTranslation?.name ?? activeChapterTitle}
+            subtitle={selectedBook ? `Reading ${selectedBook.title}` : ""}
             backLabel="Back To Translations"
             onBack={() => setScreen("translations")}
             breadcrumbs={breadcrumbs}
           >
-            {isLoadingBook ? (
-              <EmptyState body="Loading chapters..." />
-            ) : selectedBook == null || selectedTranslation == null ? (
-              <EmptyState body="Choose a book and translation first." />
-            ) : selectedBook.chapters.length === 0 ? (
-              <EmptyState body="No published chapters are available for this book yet." />
-            ) : (
-              <div className="space-y-6">
-                <div className="max-w-3xl rounded-[28px] border border-border/70 bg-paper/68 p-6">
-                  <p className="text-xs font-semibold uppercase tracking-[0.18em] text-accent">{selectedBook.title}</p>
-                  <h2 className="mt-3 font-display text-4xl text-ink">{selectedTranslation.name}</h2>
-                  <p className="mt-4 text-base leading-8 text-ink/74">
-                    {selectedTranslation.description || "Published without a description."}
-                  </p>
-                </div>
-
-                <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-                  {selectedBook.chapters.map((chapter) => (
-                    <button
-                      key={chapter.id}
-                      type="button"
-                      onClick={() => openChapter(chapter.slug)}
-                      className="rounded-[24px] border border-border/70 bg-paper/72 p-5 text-left transition hover:border-accent/50 hover:bg-white"
-                    >
-                      <p className="text-xs font-semibold uppercase tracking-[0.18em] text-accent">
-                        Chapter {chapter.position}
-                      </p>
-                      <h3 className="mt-2 text-lg font-semibold text-ink">{chapter.title}</h3>
-                    </button>
-                  ))}
-                </div>
-              </div>
-            )}
-          </StagePanel>
-        ) : null}
-
-        {screen === "reader" ? (
-          <StagePanel
-            title={activeChapterTitle}
-            subtitle=""
-            backLabel="Back To Chapters"
-            onBack={() => setScreen("chapters")}
-            breadcrumbs={breadcrumbs}
-          >
             {selectedBook == null || selectedTranslation == null || selectedChapter == null ? (
               <EmptyState body="Choose a book, translation, and chapter first." />
-            ) : isLoadingReader ? (
-              <EmptyState body="Loading bilingual reader..." />
-            ) : chapterPayload == null ? (
-              <EmptyState body="The bilingual reader for this chapter could not be loaded." />
             ) : (
-              <div className="space-y-6">
-                {chapterPayload.translation == null ? (
-                  <div className="rounded-[24px] border border-amber-300/70 bg-amber-50 px-5 py-4 text-sm leading-7 text-amber-950">
-                    {translationUnavailableMessage ??
-                      "This translation is not available for the selected chapter yet. Showing the original text only."}
+              <div className="grid gap-6 xl:grid-cols-[280px_minmax(0,1fr)]">
+                <aside className="rounded-[28px] border border-border/70 bg-paper/62 p-4">
+                  <p className="px-3 text-xs font-semibold uppercase tracking-[0.18em] text-accent">Chapters</p>
+                  <div className="mt-3 space-y-2">
+                    {selectedBook.chapters.map((chapter) => {
+                      const isActive = chapter.slug === selectedChapter.slug;
+                      return (
+                        <button
+                          key={chapter.id}
+                          type="button"
+                          onClick={() => openChapter(chapter.slug)}
+                          aria-current={isActive ? "page" : undefined}
+                          className={`w-full rounded-[20px] px-4 py-3 text-left transition ${
+                            isActive
+                              ? "border border-accent/25 bg-white text-ink shadow-sm"
+                              : "border border-transparent bg-transparent hover:border-accent/18 hover:bg-white/80"
+                          }`}
+                        >
+                          <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-accent">
+                            Chapter {chapter.position}
+                          </p>
+                          <p className="mt-1 text-sm font-semibold leading-6 text-ink">{chapter.title}</p>
+                        </button>
+                      );
+                    })}
                   </div>
-                ) : null}
+                </aside>
 
-                <section className="overflow-hidden rounded-[32px] border border-border/70 bg-white/85 shadow-panel">
-                  <div
-                    className={`grid gap-0 border-b border-border/60 bg-paper/65 px-6 py-4 ${
-                      chapterPayload.translation ? "md:grid-cols-2" : ""
-                    }`}
-                  >
-                    <div>
-                      <p className="text-xs font-semibold uppercase tracking-[0.18em] text-accent">Original</p>
-                    </div>
-                    {chapterPayload.translation ? (
-                      <div className="md:border-l md:border-border/60 md:pl-6">
-                        <p className="text-xs font-semibold uppercase tracking-[0.18em] text-accent">
-                          {selectedTranslation.name}
-                        </p>
-                      </div>
-                    ) : null}
+                <div className="space-y-6">
+                  <div className="rounded-[24px] border border-border/70 bg-paper/68 px-5 py-4">
+                    <p className="text-xs font-semibold uppercase tracking-[0.18em] text-accent">
+                      Chapter {selectedChapter.position}
+                    </p>
+                    <h3 className="mt-2 font-display text-3xl text-ink">{activeChapterTitle}</h3>
                   </div>
 
-                  <div className="space-y-1">
-                    {chapterPayload.translation
-                      ? translationRows.map((chunk) => (
-                          <div key={chunk.id} className="grid gap-0 px-6 py-5 md:grid-cols-2">
-                            <PassageColumn text={chunk.originalText} />
-                            <PassageColumn text={chunk.translatedText} withBorder />
+                  {isLoadingReader ? (
+                    <EmptyState body="Loading bilingual reader..." />
+                  ) : chapterPayload == null ? (
+                    <EmptyState body="The bilingual reader for this chapter could not be loaded." />
+                  ) : (
+                    <>
+                      {chapterPayload.translation == null ? (
+                        <div className="rounded-[24px] border border-amber-300/70 bg-amber-50 px-5 py-4 text-sm leading-7 text-amber-950">
+                          {translationUnavailableMessage ??
+                            "This translation is not available for the selected chapter yet. Showing the original text only."}
+                        </div>
+                      ) : null}
+
+                      <section className="overflow-hidden rounded-[32px] border border-border/70 bg-white/85 shadow-panel">
+                        <div
+                          className={`grid gap-0 border-b border-border/60 bg-paper/65 px-6 py-4 ${
+                            chapterPayload.translation ? "md:grid-cols-2" : ""
+                          }`}
+                        >
+                          <div>
+                            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-accent">Original</p>
                           </div>
-                        ))
-                      : chapterPayload.original.fullText.split(/\n{2,}/).map((paragraph, index) => (
-                          <div key={`original-${index}`} className="px-6 py-5">
-                            <PassageColumn text={paragraph} />
-                          </div>
-                        ))}
-                  </div>
-                </section>
+                          {chapterPayload.translation ? (
+                            <div className="md:border-l md:border-border/60 md:pl-6">
+                              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-accent">
+                                {selectedTranslation.name}
+                              </p>
+                            </div>
+                          ) : null}
+                        </div>
 
-                <div className="flex justify-end">
-                  <ChapterNav previousChapter={previousChapter} nextChapter={nextChapter} onOpenChapter={openChapter} />
+                        <div className="space-y-1">
+                          {chapterPayload.translation
+                            ? translationRows.map((chunk) => (
+                                <div key={chunk.id} className="grid gap-0 px-6 py-5 md:grid-cols-2">
+                                  <PassageColumn text={chunk.originalText} />
+                                  <PassageColumn text={chunk.translatedText} withBorder />
+                                </div>
+                              ))
+                            : chapterPayload.original.fullText.split(/\n{2,}/).map((paragraph, index) => (
+                                <div key={`original-${index}`} className="px-6 py-5">
+                                  <PassageColumn text={paragraph} />
+                                </div>
+                              ))}
+                        </div>
+                      </section>
+                    </>
+                  )}
+
+                  <div className="flex justify-end">
+                    <ChapterNav previousChapter={previousChapter} nextChapter={nextChapter} onOpenChapter={openChapter} />
+                  </div>
                 </div>
               </div>
             )}
