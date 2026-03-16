@@ -11,3 +11,6 @@ coverage
 apps/web/.env
 apps/api/.dev.vars
 apps/api/export-local/
+
+playwright-report/
+test-results/

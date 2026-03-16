@@ -34,7 +34,7 @@ export function splitSourceTextIntoChapters(input: {
       .map((section, index) => createChapterInput(index, `Chapter ${index + 1}`, section));
   }
 
-  const pattern = input.headingPattern.trim() || "^(book|chapter|canto|scroll)\\b.*$";
+  const pattern = input.headingPattern.trim() || "^(book|chapter|canto|scroll|House)\\b.*$";
   const matcher = new RegExp(pattern, "i");
   const lines = rawText.split(/\r?\n/);
   const chapters: Array<{ title: string; lines: string[] }> = [];

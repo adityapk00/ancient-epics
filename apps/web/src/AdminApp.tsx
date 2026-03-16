@@ -35,7 +35,7 @@ type ChapterEditorState = {
 
 const DEFAULT_PROVIDER: AiProvider = "google";
 const DEFAULT_MODEL = "gemini-3-flash-preview";
-const DEFAULT_HEADING_PATTERN = "^(book|chapter|canto|scroll)\\b.*$";
+const DEFAULT_HEADING_PATTERN = "^(book|chapter|canto|scroll|House)\\b.*$";
 const PROVIDER_OPTIONS = [
   { value: "google", label: "Google Gemini SDK" },
   { value: "openrouter", label: "OpenRouter" },
