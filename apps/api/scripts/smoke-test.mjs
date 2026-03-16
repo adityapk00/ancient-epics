@@ -52,10 +52,6 @@ async function api(method, urlPath, body) {
   return { status: response.status, json };
 }
 
-function sleep(ms) {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
 function runNodeScript(scriptName, label) {
   const result = spawnSync("node", [path.join(apiRoot, "scripts", scriptName)], {
     cwd: apiRoot,
@@ -81,12 +77,29 @@ function cleanupPersistDir() {
 }
 
 async function stopServer() {
-  if (!server || server.killed) {
+  if (!server || server.exitCode !== null || server.signalCode !== null) {
     return;
   }
 
-  server.kill("SIGTERM");
-  await sleep(500);
+  const child = server;
+
+  await new Promise((resolve) => {
+    const onClose = () => {
+      clearTimeout(forceKillTimer);
+      child.stdout?.destroy();
+      child.stderr?.destroy();
+      resolve();
+    };
+
+    const forceKillTimer = setTimeout(() => {
+      if (child.exitCode === null && child.signalCode === null) {
+        child.kill("SIGKILL");
+      }
+    }, 2_000);
+
+    child.once("close", onClose);
+    child.kill("SIGTERM");
+  });
 }
 
 async function startServer() {
@@ -104,16 +117,34 @@ async function startServer() {
   let ready = false;
 
   await new Promise((resolve, reject) => {
+    const startupTimeout = setTimeout(() => {
+      cleanupListeners();
+      if (!ready) {
+        reject(new Error("Timed out waiting for Wrangler to start."));
+      }
+    }, 30_000);
+
+    startupTimeout.unref?.();
+
+    const cleanupListeners = () => {
+      clearTimeout(startupTimeout);
+      server.stdout.off("data", onData);
+      server.stderr.off("data", onData);
+      server.off("exit", onExit);
+    };
+
     const onData = (chunk) => {
       const text = chunk.toString();
       if (text.includes("Ready on")) {
         ready = true;
+        cleanupListeners();
         resolve();
       }
     };
 
     const onExit = (code, signal) => {
       if (!ready) {
+        cleanupListeners();
         reject(new Error(`Wrangler dev exited before startup (code: ${code ?? "null"}, signal: ${signal ?? "null"}).`));
       }
     };
@@ -121,12 +152,6 @@ async function startServer() {
     server.stdout.on("data", onData);
     server.stderr.on("data", onData);
     server.once("exit", onExit);
-
-    setTimeout(() => {
-      if (!ready) {
-        reject(new Error("Timed out waiting for Wrangler to start."));
-      }
-    }, 30_000);
   });
 
   console.log("✔  Server is ready.\n");
