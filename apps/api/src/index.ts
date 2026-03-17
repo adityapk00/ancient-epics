@@ -35,9 +35,9 @@ import {
   getAdminBookSourcePayload,
   getAdminTranslationDetail,
   getPublishedBookAccessLevel,
+  getPublishedTranslationPayload,
   getPublishedTranslationSummary,
   getPublicBookDetail,
-  getPublishedTranslationPayload,
   getReaderChapterPayload,
   getSettingsMap,
   listAdminBookSummaries,
@@ -48,9 +48,9 @@ import {
   validateTranslationDetail,
 } from "./data";
 import { generateChapterWithGoogle } from "./google";
-import { failure, type AppEnv, success, writeObjectJson } from "./http";
+import { failure, type AppEnv, readObjectText, success, writeObjectJson, writeObjectText } from "./http";
 import { generateChapterWithOpenRouter } from "./openrouter";
-import { publishTranslationChapters, saveTranslationChapterDraft } from "./translation-generation";
+import { saveTranslationChapterDraft } from "./translation-generation";
 
 const app = new Hono<AppEnv>();
 
@@ -526,6 +526,8 @@ app.post("/api/admin/books/:bookSlug/translations/import", async (c) => {
 
       await saveTranslationChapterDraft({
         db: c.env.DB,
+        bucket: c.env.CONTENT_BUCKET,
+        bookSlug: translation.bookSlug,
         translation,
         chapter,
         rawResponse,
@@ -636,18 +638,14 @@ app.put("/api/admin/translations/:translationId", async (c) => {
     )
     .run();
 
-  if (existing.status === "published" && existing.slug !== nextSlug) {
-    await deletePublishedTranslationObjects(c.env.CONTENT_BUCKET, existing.bookSlug, existing.slug, existing.chapters);
-    const updatedForPublish = await getAdminTranslationDetail(c.env.DB, c.env.CONTENT_BUCKET, translationId);
-
-    if (updatedForPublish) {
-      await publishTranslationChapters({
-        bucket: c.env.CONTENT_BUCKET,
-        bookSlug: updatedForPublish.bookSlug,
-        translationSlug: updatedForPublish.slug,
-        chapters: updatedForPublish.chapters.filter((chapter) => chapter.content),
-      });
-    }
+  if (existing.slug !== nextSlug) {
+    await moveTranslationObjectsToSlug(
+      c.env.CONTENT_BUCKET,
+      existing.bookSlug,
+      existing.slug,
+      nextSlug,
+      existing.chapters,
+    );
   }
 
   const updated = await getAdminTranslationDetail(c.env.DB, c.env.CONTENT_BUCKET, translationId);
@@ -665,12 +663,7 @@ app.delete("/api/admin/translations/:translationId", async (c) => {
     return c.json(failure("not_found", "Translation was not found."), 404);
   }
 
-  await deletePublishedTranslationObjects(
-    c.env.CONTENT_BUCKET,
-    translation.bookSlug,
-    translation.slug,
-    translation.chapters,
-  );
+  await deleteTranslationObjects(c.env.CONTENT_BUCKET, translation.bookSlug, translation.slug, translation.chapters);
   await c.env.DB.prepare(`DELETE FROM translations WHERE id = ?`).bind(translation.id).run();
 
   return c.json(success({ deleted: true, translationId: translation.id }));
@@ -758,6 +751,8 @@ app.post("/api/admin/translations/:translationId/chapters/:chapterId/generate", 
 
     await saveTranslationChapterDraft({
       db: c.env.DB,
+      bucket: c.env.CONTENT_BUCKET,
+      bookSlug: translation.bookSlug,
       translation,
       chapter,
       rawResponse,
@@ -797,6 +792,8 @@ app.put("/api/admin/translations/:translationId/chapters/:chapterId", async (c) 
 
   await saveTranslationChapterDraft({
     db: c.env.DB,
+    bucket: c.env.CONTENT_BUCKET,
+    bookSlug: translation.bookSlug,
     translation,
     chapter,
     rawResponse: body.rawResponse,
@@ -833,6 +830,8 @@ app.post("/api/admin/translations/:translationId/publish", async (c) => {
     if (chapter.status !== "saved") {
       await saveTranslationChapterDraft({
         db: c.env.DB,
+        bucket: c.env.CONTENT_BUCKET,
+        bookSlug: translation.bookSlug,
         translation,
         chapter,
         rawResponse,
@@ -850,13 +849,6 @@ app.post("/api/admin/translations/:translationId/publish", async (c) => {
   if (!validation.isValid) {
     return c.json(failure("bad_request", "Fix validation errors before publishing."), 400);
   }
-
-  await publishTranslationChapters({
-    bucket: c.env.CONTENT_BUCKET,
-    bookSlug: ready.bookSlug,
-    translationSlug: ready.slug,
-    chapters: ready.chapters.filter((chapter) => chapter.content),
-  });
 
   await c.env.DB.prepare(
     `UPDATE translations SET status = 'published', published_at = COALESCE(published_at, ?), updated_at = ? WHERE id = ?`,
@@ -879,12 +871,6 @@ app.post("/api/admin/translations/:translationId/unpublish", async (c) => {
     return c.json(failure("not_found", "Translation was not found."), 404);
   }
 
-  await deletePublishedTranslationObjects(
-    c.env.CONTENT_BUCKET,
-    translation.bookSlug,
-    translation.slug,
-    translation.chapters,
-  );
   await c.env.DB.prepare(`UPDATE translations SET status = 'draft', updated_at = ? WHERE id = ?`)
     .bind(new Date().toISOString(), translation.id)
     .run();
@@ -929,8 +915,8 @@ async function initializeTranslationChapters(db: D1Database, translationId: stri
       .prepare(
         `
           INSERT INTO translation_chapters (
-            id, translation_id, chapter_id, status, raw_response, content_json, notes, error_message, created_at, updated_at
-          ) VALUES (?, ?, ?, 'empty', NULL, NULL, NULL, NULL, ?, ?)
+            id, translation_id, chapter_id, status, error_message, created_at, updated_at
+          ) VALUES (?, ?, ?, 'empty', NULL, ?, ?)
         `,
       )
       .bind(crypto.randomUUID(), translationId, chapter.id, now, now)
@@ -1004,7 +990,7 @@ async function createUniqueTranslationSlugForRename(
   }
 }
 
-async function deletePublishedTranslationObjects(
+async function deleteTranslationObjects(
   bucket: R2Bucket,
   bookSlug: string,
   translationSlug: string,
@@ -1023,6 +1009,31 @@ async function deleteObjectsByKeys(bucket: R2Bucket, keys: string[]): Promise<vo
   }
 
   await bucket.delete(uniqueKeys);
+}
+
+async function moveTranslationObjectsToSlug(
+  bucket: R2Bucket,
+  bookSlug: string,
+  previousSlug: string,
+  nextSlug: string,
+  chapters: Array<Pick<TranslationChapterDraft, "slug">>,
+): Promise<void> {
+  const previousKeysToDelete: string[] = [];
+
+  for (const chapter of chapters) {
+    const previousKey = buildTranslationChapterKey(bookSlug, chapter.slug, previousSlug);
+    const nextKey = buildTranslationChapterKey(bookSlug, chapter.slug, nextSlug);
+    const rawResponse = await readObjectText(bucket, previousKey);
+
+    if (rawResponse === null) {
+      continue;
+    }
+
+    await writeObjectText(bucket, nextKey, rawResponse);
+    previousKeysToDelete.push(previousKey);
+  }
+
+  await deleteObjectsByKeys(bucket, previousKeysToDelete);
 }
 
 async function deleteObjectsByPrefix(bucket: R2Bucket, prefix: string): Promise<void> {
@@ -1075,7 +1086,8 @@ function normalizeImportedArchive(input: unknown): TranslationDraftArchive {
 
   const candidate = input as Record<string, unknown>;
 
-  if (candidate.version === 2 && candidate.translation && Array.isArray(candidate.chapters)) {
+  // Try parsing as the new TranslationDraftArchive format
+  if (candidate.translation && typeof candidate.translation === "object" && Array.isArray(candidate.chapters)) {
     const archive = candidate as unknown as TranslationDraftArchive;
     return {
       ...archive,
@@ -1086,59 +1098,44 @@ function normalizeImportedArchive(input: unknown): TranslationDraftArchive {
     };
   }
 
+  // Fallback for legacy "session-shaped" payloads (used by UI tests)
   const session = (
     candidate.session && typeof candidate.session === "object" ? candidate.session : candidate
   ) as Record<string, unknown>;
 
-  if (!session.title || !Array.isArray(session.chapters)) {
-    throw new Error("The selected file does not contain a valid translation archive.");
+  if ((session.title || session.name) && Array.isArray(session.chapters)) {
+    return {
+      exportedAt: new Date().toISOString(),
+      translation: {
+        name: String(session.name ?? session.title),
+        slug: slugify(String(session.name ?? session.title)),
+        description: typeof session.description === "string" ? session.description : null,
+        accessLevel: normalizeAccessLevel(session.accessLevel as "public" | "loggedin" | undefined),
+        provider: normalizeProvider(session.provider as AiProvider | undefined),
+        model: typeof session.model === "string" ? session.model : "gemini-3-flash-preview",
+        thinkingLevel: normalizeThinkingLevel(session.thinkingLevel as ThinkingLevel | undefined),
+        prompt: typeof session.prompt === "string" ? session.prompt : "",
+        contextBeforeChapterCount:
+          typeof session.contextBeforeChapterCount === "number" ? Math.max(0, session.contextBeforeChapterCount) : 1,
+        contextAfterChapterCount:
+          typeof session.contextAfterChapterCount === "number" ? Math.max(0, session.contextAfterChapterCount) : 1,
+      },
+      chapters: (session.chapters as Array<Record<string, unknown>>).map((chapter) => ({
+        chapterSlug: String(chapter.chapterSlug ?? chapter.slug ?? ""),
+        position: typeof chapter.position === "number" ? chapter.position : 0,
+        title: typeof chapter.title === "string" ? chapter.title : "Chapter",
+        status: mapImportedStatus(chapter.status),
+        rawResponse: typeof chapter.rawResponse === "string" ? chapter.rawResponse : null,
+        content:
+          chapter.translationDocument && typeof chapter.translationDocument === "object"
+            ? (chapter.translationDocument as TranslationChapterDocument)
+            : null,
+        notes: typeof chapter.notes === "string" ? chapter.notes : null,
+      })),
+    };
   }
 
-  return {
-    version: 2,
-    exportedAt: new Date().toISOString(),
-    translation: {
-      name: String(session.title),
-      slug: slugify(String(session.title)),
-      description: null,
-      accessLevel: normalizeAccessLevel(session.accessLevel as "public" | "loggedin" | undefined),
-      provider: normalizeProvider(session.provider as AiProvider | undefined),
-      model: typeof session.model === "string" ? session.model : "gemini-3-flash-preview",
-      thinkingLevel: normalizeThinkingLevel(session.thinkingLevel as ThinkingLevel | undefined),
-      prompt: typeof session.prompt === "string" ? session.prompt : "",
-      contextBeforeChapterCount:
-        typeof session.contextBeforeChapterCount === "number" ? Math.max(0, session.contextBeforeChapterCount) : 1,
-      contextAfterChapterCount:
-        typeof session.contextAfterChapterCount === "number" ? Math.max(0, session.contextAfterChapterCount) : 1,
-    },
-    chapters: session.chapters.map((chapter) => normalizeLegacyArchiveChapter(chapter)),
-  };
-}
-
-function normalizeLegacyArchiveChapter(value: unknown): TranslationDraftArchive["chapters"][number] {
-  if (!value || typeof value !== "object") {
-    throw new Error("Archive chapter entry is invalid.");
-  }
-
-  const chapter = value as Record<string, unknown>;
-
-  return {
-    chapterSlug:
-      typeof chapter.sourceChapterSlug === "string"
-        ? chapter.sourceChapterSlug
-        : typeof chapter.slug === "string"
-          ? chapter.slug
-          : "",
-    position: typeof chapter.position === "number" ? chapter.position : 0,
-    title: typeof chapter.title === "string" ? chapter.title : "Chapter",
-    status: mapImportedStatus(chapter.status),
-    rawResponse: typeof chapter.rawResponse === "string" ? chapter.rawResponse : null,
-    content:
-      chapter.translationDocument && typeof chapter.translationDocument === "object"
-        ? (chapter.translationDocument as TranslationChapterDocument)
-        : null,
-    notes: typeof chapter.notes === "string" ? chapter.notes : null,
-  };
+  throw new Error("The selected file does not contain a valid translation archive.");
 }
 
 function mapImportedStatus(value: unknown): TranslationDraftArchive["chapters"][number]["status"] {

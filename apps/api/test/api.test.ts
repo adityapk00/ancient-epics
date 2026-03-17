@@ -1,26 +1,27 @@
-import type {
-  AdminBookSourcePayload,
-  AdminSessionPayload,
-  AdminTranslationDetail,
-  AdminTranslationValidationPayload,
-  AuthSessionPayload,
-  ApiFailure,
-  ApiResponse,
-  ApiSuccess,
-  BookDetail,
-  BookSummary,
-  OriginalChapterDocument,
-  ReaderChapterPayload,
-  TranslationChapterDocument,
-  TranslationDraftArchive,
-  TranslationPayload,
-  TranslationSummary,
+import {
+  buildTranslationChapterKey,
+  type AdminBookSourcePayload,
+  type AdminSessionPayload,
+  type AdminTranslationDetail,
+  type AdminTranslationValidationPayload,
+  type AuthSessionPayload,
+  type ApiFailure,
+  type ApiResponse,
+  type ApiSuccess,
+  type BookDetail,
+  type BookSummary,
+  type OriginalChapterDocument,
+  type ReaderChapterPayload,
+  type TranslationDraftArchive,
+  type TranslationPayload,
+  type TranslationSummary,
 } from "@ancient-epics/shared";
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it } from "vitest";
 import { hashPasswordForStorage } from "../src/auth";
+import { normalizeTranslationChapterRawResponse } from "../src/translation-generation";
 import { createApiTestContext, type ApiTestContext } from "./support/api-test-harness";
 
 const contexts: ApiTestContext[] = [];
@@ -65,9 +66,10 @@ describe("Ancient Epics API", () => {
     ]);
 
     const expectedOriginal = loadSeedJson<OriginalChapterDocument>("epics/iliad/book-1-the-rage/original.json");
-    const expectedTranslation = loadSeedJson<TranslationChapterDocument>(
-      "epics/iliad/book-1-the-rage/translations/verse-meaning.json",
-    );
+    const expectedTranslation = normalizeTranslationChapterRawResponse({
+      translationSlug: "verse-meaning",
+      rawResponse: loadSeedRawText("epics/iliad/book-1-the-rage/translations/verse-meaning.json"),
+    }).content;
 
     const chapterDetail = expectSuccess<ReaderChapterPayload>(
       await api(ctx, "GET", "/api/books/iliad/chapters/book-1-the-rage?translation=verse-meaning"),
@@ -393,6 +395,16 @@ describe("Ancient Epics API", () => {
     expect(createdTranslation.slug).toBe("working-translation");
     expect(createdTranslation.status).toBe("draft");
     expect(createdTranslation.chapters).toHaveLength(2);
+    const initialRawResponses = {
+      "tablet-one": buildChapterRawResponse(
+        createdTranslation.chapters.find((chapter) => chapter.slug === "tablet-one")!,
+        "Translated tablet one.\nKept as verse.",
+      ),
+      "tablet-two": buildChapterRawResponse(
+        createdTranslation.chapters.find((chapter) => chapter.slug === "tablet-two")!,
+        "Translated tablet two.",
+      ),
+    };
 
     const savedTranslation = await saveTranslationChapters(ctx, adminCookie, createdTranslation, {
       "tablet-one": "Translated tablet one.\nKept as verse.",
@@ -400,6 +412,24 @@ describe("Ancient Epics API", () => {
     });
     expect(savedTranslation.savedChapterCount).toBe(2);
     expect(savedTranslation.chapters.every((chapter) => chapter.status === "saved")).toBe(true);
+    expect(await readStoredTranslationRawResponse(ctx, "lifecycle-book", "tablet-one", "working-translation")).toBe(
+      initialRawResponses["tablet-one"],
+    );
+    expect(await readStoredTranslationRawResponse(ctx, "lifecycle-book", "tablet-two", "working-translation")).toBe(
+      initialRawResponses["tablet-two"],
+    );
+    expect(
+      await getTranslationChapterMetadataRow(
+        ctx,
+        createdTranslation.id,
+        createdTranslation.chapters.find((chapter) => chapter.slug === "tablet-one")!.chapterId,
+      ),
+    ).toEqual(
+      expect.objectContaining({
+        status: "saved",
+        errorMessage: null,
+      }),
+    );
 
     const validation = expectSuccess<AdminTranslationValidationPayload>(
       await adminApi(ctx, adminCookie, "GET", `/api/admin/translations/${createdTranslation.id}/validate`),
@@ -434,6 +464,12 @@ describe("Ancient Epics API", () => {
         contextBeforeChapterCount: 0,
         contextAfterChapterCount: 1,
       }),
+    );
+    expect(
+      await readStoredTranslationRawResponse(ctx, "lifecycle-book", "tablet-one", "working-translation"),
+    ).toBeNull();
+    expect(await readStoredTranslationRawResponse(ctx, "lifecycle-book", "tablet-one", "annotated-translation")).toBe(
+      initialRawResponses["tablet-one"],
     );
 
     const publishedTranslation = expectSuccess<AdminTranslationDetail>(
@@ -483,10 +519,46 @@ describe("Ancient Epics API", () => {
     );
     expect(publicTranslation.translation.status).toBe("published");
 
+    const revisedPublishedRawResponse = buildChapterRawResponse(
+      editedTranslation.chapters.find((chapter) => chapter.slug === "tablet-one")!,
+      "Revised tablet one while editing a published translation.",
+    );
+    const redraftedTranslation = expectSuccess<AdminTranslationDetail>(
+      await adminApi(
+        ctx,
+        adminCookie,
+        "PUT",
+        `/api/admin/translations/${createdTranslation.id}/chapters/${
+          editedTranslation.chapters.find((chapter) => chapter.slug === "tablet-one")!.chapterId
+        }`,
+        {
+          rawResponse: revisedPublishedRawResponse,
+        },
+      ),
+    );
+    expect(redraftedTranslation.status).toBe("draft");
+    expect(await readStoredTranslationRawResponse(ctx, "lifecycle-book", "tablet-one", "annotated-translation")).toBe(
+      revisedPublishedRawResponse,
+    );
+    expect(expectFailure(await api(ctx, "GET", "/api/books/lifecycle-book"), 404).code).toBe("not_found");
+
+    const republishedTranslation = expectSuccess<AdminTranslationDetail>(
+      await adminApi(ctx, adminCookie, "POST", `/api/admin/translations/${createdTranslation.id}/publish`, {}),
+    );
+    expect(republishedTranslation.status).toBe("published");
+    expect(
+      expectSuccess<TranslationPayload>(
+        await api(ctx, "GET", "/api/books/lifecycle-book/chapters/tablet-one/translations/annotated-translation"),
+      ).content.chunks[0]?.translatedText,
+    ).toBe("Revised tablet one while editing a published translation.");
+
     const unpublishedTranslation = expectSuccess<AdminTranslationDetail>(
       await adminApi(ctx, adminCookie, "POST", `/api/admin/translations/${createdTranslation.id}/unpublish`, {}),
     );
     expect(unpublishedTranslation.status).toBe("draft");
+    expect(await readStoredTranslationRawResponse(ctx, "lifecycle-book", "tablet-one", "annotated-translation")).toBe(
+      revisedPublishedRawResponse,
+    );
 
     const publicBooksAfterUnpublish = expectSuccess<{ books: BookSummary[] }>(await api(ctx, "GET", "/api/books"));
     expect(publicBooksAfterUnpublish.books.some((book) => book.slug === "lifecycle-book")).toBe(false);
@@ -751,6 +823,45 @@ function buildImportedArchive(sourcePayload: AdminBookSourcePayload, translatedT
 
 function loadSeedJson<T>(relativePath: string) {
   return JSON.parse(readFileSync(path.join(seedRoot, relativePath), "utf8")) as T;
+}
+
+function loadSeedRawText(relativePath: string) {
+  return readFileSync(path.join(seedRoot, relativePath), "utf8");
+}
+
+async function readStoredTranslationRawResponse(
+  ctx: ApiTestContext,
+  bookSlug: string,
+  chapterSlug: string,
+  translationSlug: string,
+) {
+  const object = await ctx.env.CONTENT_BUCKET.get(buildTranslationChapterKey(bookSlug, chapterSlug, translationSlug));
+  return object ? await object.text() : null;
+}
+
+async function getTranslationChapterMetadataRow(
+  ctx: ApiTestContext,
+  translationId: string,
+  chapterId: string,
+): Promise<{
+  status: string;
+  errorMessage: string | null;
+} | null> {
+  return await ctx.env.DB.prepare(
+    `
+      SELECT
+        status,
+        error_message AS errorMessage
+      FROM translation_chapters
+      WHERE translation_id = ?
+        AND chapter_id = ?
+    `,
+  )
+    .bind(translationId, chapterId)
+    .first<{
+      status: string;
+      errorMessage: string | null;
+    }>();
 }
 
 function extractCookieHeader(headers: Headers): string {

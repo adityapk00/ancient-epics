@@ -1,19 +1,16 @@
 {
-  "translationSlug": "verse-meaning",
+  "chapterTitle": "Book 1: The Rage",
+  "notes": "",
   "chunks": [
     {
-      "id": "t1",
-      "ordinal": 1,
-      "type": "verse",
       "originalText": "Mῆνιν ἄειδε θεὰ Πηληϊάδεω Ἀχιλῆος\nοὐλομένην, ἣ μυρί᾽ Ἀχαιοῖς ἄλγε᾽ ἔθηκε,",
-      "translatedText": "Sing, goddess, the wrath of Achilles, Peleus' son, and the ruin it brought down in wave after wave upon the Achaeans."
+      "translatedText": "Sing, goddess, the wrath of Achilles, Peleus' son, and the ruin it brought down in wave after wave upon the Achaeans.",
+      "type": "verse"
     },
     {
-      "id": "t2",
-      "ordinal": 2,
-      "type": "verse",
       "originalText": "πολλὰς δ᾽ ἰφθίμους ψυχὰς Ἄϊδι προΐαψεν",
-      "translatedText": "It drove so many valiant souls ahead to the house of Hades."
+      "translatedText": "It drove so many valiant souls ahead to the house of Hades.",
+      "type": "verse"
     }
   ]
 }

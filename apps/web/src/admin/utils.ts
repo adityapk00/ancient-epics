@@ -133,7 +133,6 @@ export function formatAccessLevelLabel(accessLevel: AccessLevel): string {
 
 export function buildTranslationArchive(activeTranslation: AdminTranslationDetail): TranslationDraftArchive {
   return {
-    version: 2,
     exportedAt: new Date().toISOString(),
     translation: {
       name: activeTranslation.name,

@@ -185,7 +185,6 @@ export interface AdminTranslationValidationPayload {
 }
 
 export interface TranslationDraftArchive {
-  version: 2;
   exportedAt: string;
   translation: {
     name: string;
