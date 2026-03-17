@@ -47,6 +47,24 @@ export async function writeObjectJson(bucket: R2Bucket, key: string, value: unkn
   });
 }
 
+export async function readObjectText(bucket: R2Bucket, key: string): Promise<string | null> {
+  const object = await bucket.get(key);
+
+  if (!object) {
+    return null;
+  }
+
+  return await object.text();
+}
+
+export async function writeObjectText(bucket: R2Bucket, key: string, value: string): Promise<void> {
+  await bucket.put(key, value, {
+    httpMetadata: {
+      contentType: "text/plain; charset=utf-8",
+    },
+  });
+}
+
 export function slugify(value: string): string {
   return value
     .trim()

@@ -87,9 +87,6 @@ INSERT INTO translation_chapters (
     translation_id,
     chapter_id,
     status,
-    raw_response,
-    content_json,
-    notes,
     error_message,
     created_at,
     updated_at
@@ -98,9 +95,6 @@ INSERT INTO translation_chapters (
     'translation_verse_meaning',
     'chapter_iliad_book_1',
     'saved',
-    '{"chapterTitle":"Book 1: The Rage","notes":"","chunks":[{"originalText":"Mῆνιν ἄειδε θεὰ Πηληϊάδεω Ἀχιλῆος\nοὐλομένην, ἣ μυρί᾽ Ἀχαιοῖς ἄλγε᾽ ἔθηκε,","translatedText":"Sing, goddess, the wrath of Achilles, Peleus'' son, and the ruin it brought down in wave after wave upon the Achaeans.","type":"verse"},{"originalText":"πολλὰς δ᾽ ἰφθίμους ψυχὰς Ἄϊδι προΐαψεν","translatedText":"It drove so many valiant souls ahead to the house of Hades.","type":"verse"}]}',
-    '{"translationSlug":"verse-meaning","chunks":[{"id":"t1","ordinal":1,"type":"verse","originalText":"Mῆνιν ἄειδε θεὰ Πηληϊάδεω Ἀχιλῆος\nοὐλομένην, ἣ μυρί᾽ Ἀχαιοῖς ἄλγε᾽ ἔθηκε,","translatedText":"Sing, goddess, the wrath of Achilles, Peleus'' son, and the ruin it brought down in wave after wave upon the Achaeans."},{"id":"t2","ordinal":2,"type":"verse","originalText":"πολλὰς δ᾽ ἰφθίμους ψυχὰς Ἄϊδι προΐαψεν","translatedText":"It drove so many valiant souls ahead to the house of Hades."}]}',
-    NULL,
     NULL,
     '2026-03-06T00:00:00.000Z',
     '2026-03-06T00:00:00.000Z'

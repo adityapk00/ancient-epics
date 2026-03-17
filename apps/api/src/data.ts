@@ -1,4 +1,5 @@
 import {
+  buildTranslationChapterKey,
   buildOriginalChapterKey,
   type AdminBookSourcePayload,
   type AdminBookSummary,
@@ -18,7 +19,8 @@ import {
   type TranslationPayload,
   type TranslationSummary,
 } from "@ancient-epics/shared";
-import { readObjectJson } from "./http";
+import { readObjectJson, readObjectText } from "./http";
+import { normalizeTranslationChapterRawResponse } from "./translation-generation";
 
 type BookRow = {
   id: string;
@@ -72,9 +74,6 @@ type TranslationChapterRow = {
   position: number;
   title: string;
   status: TranslationChapterDraft["status"];
-  rawResponse: string | null;
-  contentJson: string | null;
-  notes: string | null;
   errorMessage: string | null;
   updatedAt: string;
 };
@@ -298,16 +297,21 @@ export async function getPublishedTranslationPayload(
     return null;
   }
 
-  const content = await readObjectJson<TranslationChapterDocument>(
+  const rawResponse = await readObjectText(
     bucket,
-    `epics/${input.bookSlug}/${input.chapterSlug}/translations/${input.translationSlug}.json`,
+    buildTranslationChapterKey(input.bookSlug, input.chapterSlug, input.translationSlug),
   );
 
-  if (!content) {
+  if (!rawResponse) {
     return null;
   }
 
-  return { translation, content };
+  const normalized = normalizeStoredTranslationChapter(rawResponse, input.translationSlug);
+  if (!normalized) {
+    return null;
+  }
+
+  return { translation, content: normalized.content };
 }
 
 export async function listAdminBookSummaries(db: D1Database): Promise<AdminBookSummary[]> {
@@ -515,9 +519,6 @@ export async function getAdminTranslationDetail(
           chapters.position,
           chapters.title,
           translation_chapters.status,
-          translation_chapters.raw_response AS rawResponse,
-          translation_chapters.content_json AS contentJson,
-          translation_chapters.notes,
           translation_chapters.error_message AS errorMessage,
           translation_chapters.updated_at AS updatedAt
         FROM translation_chapters
@@ -773,11 +774,11 @@ async function mapTranslationChapterDraft(
   translationSlug: string,
   chapter: TranslationChapterRow,
 ): Promise<TranslationChapterDraft> {
-  const original = await readObjectJson<OriginalChapterDocument>(
-    bucket,
-    buildOriginalChapterKey(bookSlug, chapter.slug),
-  );
-  const content = parseJsonOrNull<TranslationChapterDocument>(chapter.contentJson);
+  const [original, rawResponse] = await Promise.all([
+    readObjectJson<OriginalChapterDocument>(bucket, buildOriginalChapterKey(bookSlug, chapter.slug)),
+    readObjectText(bucket, buildTranslationChapterKey(bookSlug, chapter.slug, translationSlug)),
+  ]);
+  const normalized = normalizeStoredTranslationChapter(rawResponse, translationSlug);
 
   return {
     id: chapter.id,
@@ -787,14 +788,9 @@ async function mapTranslationChapterDraft(
     title: chapter.title,
     sourceText: original?.fullText ?? "",
     status: chapter.status,
-    rawResponse: chapter.rawResponse,
-    content: content
-      ? {
-          ...content,
-          translationSlug,
-        }
-      : null,
-    notes: chapter.notes,
+    rawResponse,
+    content: normalized?.content ?? null,
+    notes: normalized?.notes ?? null,
     errorMessage: chapter.errorMessage,
     updatedAt: chapter.updatedAt,
   };
@@ -838,10 +834,17 @@ function mapAdminTranslationSummary(row: TranslationRow): AdminTranslationSummar
   };
 }
 
-function parseJsonOrNull<T>(value: string | null): T | null {
-  if (!value) {
+function normalizeStoredTranslationChapter(
+  rawResponse: string | null,
+  translationSlug: string,
+): { content: TranslationChapterDocument; notes: string | null } | null {
+  if (!rawResponse) {
     return null;
   }
 
-  return JSON.parse(value) as T;
+  try {
+    return normalizeTranslationChapterRawResponse({ translationSlug, rawResponse });
+  } catch {
+    return null;
+  }
 }
