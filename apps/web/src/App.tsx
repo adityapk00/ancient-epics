@@ -1,42 +1,24 @@
 import { useEffect, useState, type FormEvent } from "react";
+import { Navigate, Route, Routes, useNavigate } from "react-router-dom";
 
 import AdminApp from "./AdminApp";
 import ReaderApp from "./ReaderApp";
 import { api } from "./lib/api";
 
-function getCurrentRoute() {
-  return window.location.pathname === "/admin" ? "admin" : "reader";
-}
-
-function navigateTo(path: "/" | "/admin") {
-  if (window.location.pathname === path) {
-    return;
-  }
-
-  window.history.pushState({}, "", path);
-  window.dispatchEvent(new PopStateEvent("popstate"));
-}
-
 export default function App() {
-  const [route, setRoute] = useState<"reader" | "admin">(getCurrentRoute);
-
-  useEffect(() => {
-    function handleRouteChange() {
-      setRoute(getCurrentRoute());
-    }
-
-    window.addEventListener("popstate", handleRouteChange);
-    return () => window.removeEventListener("popstate", handleRouteChange);
-  }, []);
-
-  if (route === "admin") {
-    return <AdminSection />;
-  }
-
-  return <ReaderApp />;
+  return (
+    <Routes>
+      <Route path="/" element={<ReaderApp />} />
+      <Route path="/books/:bookSlug" element={<ReaderApp />} />
+      <Route path="/books/:bookSlug/translations/:translationSlug/:chapterSlug" element={<ReaderApp />} />
+      <Route path="/admin/*" element={<AdminSection />} />
+      <Route path="*" element={<Navigate to="/" replace />} />
+    </Routes>
+  );
 }
 
 function AdminSection() {
+  const navigate = useNavigate();
   const [isUnlocked, setIsUnlocked] = useState<boolean | null>(null);
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -48,11 +30,9 @@ function AdminSection() {
     async function loadAdminSession() {
       try {
         const payload = await api.getAdminSession();
-        if (isCancelled) {
-          return;
+        if (!isCancelled) {
+          setIsUnlocked(payload.authenticated);
         }
-
-        setIsUnlocked(payload.authenticated);
       } catch (loadError) {
         if (!isCancelled) {
           setError(loadError instanceof Error ? loadError.message : "Failed to load admin session.");
@@ -83,10 +63,6 @@ function AdminSection() {
     }
   }
 
-  function leaveAdmin() {
-    navigateTo("/");
-  }
-
   async function lockAdmin() {
     setIsBusy(true);
     setError(null);
@@ -95,6 +71,7 @@ function AdminSection() {
       await api.logoutAdmin();
       setIsUnlocked(false);
       setPassword("");
+      navigate("/admin", { replace: true });
     } catch (logoutError) {
       setError(logoutError instanceof Error ? logoutError.message : "Failed to lock admin.");
     } finally {
@@ -128,7 +105,7 @@ function AdminSection() {
               </div>
               <button
                 type="button"
-                onClick={leaveAdmin}
+                onClick={() => navigate("/")}
                 className="rounded-full border border-border/70 bg-paper/85 px-4 py-2 text-sm font-semibold transition hover:border-accent/50"
               >
                 Back To Library
@@ -167,7 +144,7 @@ function AdminSection() {
       <div className="fixed bottom-4 right-4 z-50 flex flex-wrap justify-end gap-3">
         <button
           type="button"
-          onClick={leaveAdmin}
+          onClick={() => navigate("/")}
           className="rounded-full border border-border/70 bg-paper/90 px-4 py-2 text-sm font-semibold text-ink shadow-panel backdrop-blur transition hover:border-accent/50"
         >
           Library

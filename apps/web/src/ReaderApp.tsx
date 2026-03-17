@@ -1,7 +1,7 @@
-import { useEffect, useMemo, useState, type FormEvent, type ReactNode } from "react";
+import { useEffect, useMemo, useState, type FormEvent } from "react";
+import { matchPath, useLocation, useNavigate } from "react-router-dom";
 
 import type {
-  AccessLevel,
   AuthUser,
   BookDetail,
   BookSummary,
@@ -9,11 +9,20 @@ import type {
   TranslationSummary,
 } from "@ancient-epics/shared";
 
+import type { BreadcrumbItem } from "./components/BreadcrumbTrail";
+import { StatusPanel } from "./components/StatusPanel";
 import { api, ApiError } from "./lib/api";
+import { AuthDialog } from "./reader/AuthDialog";
+import { BooksScreen } from "./reader/BooksScreen";
+import { ReaderScreen } from "./reader/ReaderScreen";
+import { TranslationsScreen } from "./reader/TranslationsScreen";
 
-type ReaderScreen = "books" | "translations" | "reader";
 type ReaderLoadState = "idle" | "loading" | "ready" | "error";
 type AuthMode = "signup" | "login";
+type ReaderRoute =
+  | { screen: "books" }
+  | { screen: "translations"; bookSlug: string }
+  | { screen: "reader"; bookSlug: string; translationSlug: string; chapterSlug: string };
 type ProtectedIntent =
   | { kind: "book"; bookSlug: string }
   | { kind: "translation"; bookSlug: string; translationSlug: string }
@@ -39,8 +48,52 @@ function setStoredLastReadChapter(bookSlug: string, translationSlug: string, cha
   window.localStorage.setItem(buildLastReadStorageKey(bookSlug, translationSlug), chapterSlug);
 }
 
+function buildBookPath(bookSlug: string): string {
+  return `/books/${bookSlug}`;
+}
+
+function buildReaderPath(bookSlug: string, translationSlug: string, chapterSlug: string): string {
+  return `/books/${bookSlug}/translations/${translationSlug}/${chapterSlug}`;
+}
+
+function getPreferredChapterSlug(book: BookDetail, translationSlug: string): string | null {
+  const firstChapterSlug = book.chapters[0]?.slug ?? null;
+  const storedChapterSlug = getStoredLastReadChapter(book.slug, translationSlug);
+
+  if (storedChapterSlug && book.chapters.some((chapter) => chapter.slug === storedChapterSlug)) {
+    return storedChapterSlug;
+  }
+
+  return firstChapterSlug;
+}
+
+function getReaderRoute(pathname: string): ReaderRoute {
+  const readerMatch = matchPath("/books/:bookSlug/translations/:translationSlug/:chapterSlug", pathname);
+  if (readerMatch?.params.bookSlug && readerMatch.params.translationSlug && readerMatch.params.chapterSlug) {
+    return {
+      screen: "reader",
+      bookSlug: readerMatch.params.bookSlug,
+      translationSlug: readerMatch.params.translationSlug,
+      chapterSlug: readerMatch.params.chapterSlug,
+    };
+  }
+
+  const translationMatch = matchPath("/books/:bookSlug", pathname);
+  if (translationMatch?.params.bookSlug) {
+    return {
+      screen: "translations",
+      bookSlug: translationMatch.params.bookSlug,
+    };
+  }
+
+  return { screen: "books" };
+}
+
 export default function ReaderApp() {
-  const [screen, setScreen] = useState<ReaderScreen>("books");
+  const location = useLocation();
+  const navigate = useNavigate();
+  const route = useMemo(() => getReaderRoute(location.pathname), [location.pathname]);
+
   const [books, setBooks] = useState<BookSummary[]>([]);
   const [authUser, setAuthUser] = useState<AuthUser | null>(null);
   const [isLoadingSession, setIsLoadingSession] = useState(true);
@@ -56,10 +109,7 @@ export default function ReaderApp() {
     bookSlug: string;
     translationSlug: string;
   } | null>(null);
-  const [selectedBookSlug, setSelectedBookSlug] = useState<string | null>(null);
   const [selectedBook, setSelectedBook] = useState<BookDetail | null>(null);
-  const [selectedTranslationSlug, setSelectedTranslationSlug] = useState<string | null>(null);
-  const [selectedChapterSlug, setSelectedChapterSlug] = useState<string | null>(null);
   const [chapterPayload, setChapterPayload] = useState<ReaderChapterPayload | null>(null);
   const [isLoadingBooks, setIsLoadingBooks] = useState(true);
   const [isLoadingBook, setIsLoadingBook] = useState(false);
@@ -68,17 +118,18 @@ export default function ReaderApp() {
   const [error, setError] = useState<string | null>(null);
   const [translationUnavailableMessage, setTranslationUnavailableMessage] = useState<string | null>(null);
 
+  const selectedTranslationSlug = route.screen === "reader" ? route.translationSlug : null;
+  const selectedChapterSlug = route.screen === "reader" ? route.chapterSlug : null;
+
   useEffect(() => {
     let isCancelled = false;
 
     async function loadAuthSession() {
       try {
         const payload = await api.getAuthSession();
-        if (isCancelled) {
-          return;
+        if (!isCancelled) {
+          setAuthUser(payload.user);
         }
-
-        setAuthUser(payload.user);
       } catch (loadError) {
         if (!isCancelled) {
           setError(loadError instanceof Error ? loadError.message : "Failed to load session.");
@@ -105,10 +156,9 @@ export default function ReaderApp() {
 
       try {
         const payload = await api.listBooks();
-        if (isCancelled) {
-          return;
+        if (!isCancelled) {
+          setBooks(payload.books);
         }
-        setBooks(payload.books);
       } catch (loadError) {
         if (!isCancelled) {
           setError(loadError instanceof Error ? loadError.message : "Failed to load books.");
@@ -127,15 +177,15 @@ export default function ReaderApp() {
   }, []);
 
   useEffect(() => {
-    if (!selectedBookSlug) {
+    if (route.screen === "books") {
       setSelectedBook(null);
-      setSelectedTranslationSlug(null);
-      setSelectedChapterSlug(null);
       setChapterPayload(null);
+      setTranslationUnavailableMessage(null);
+      setReaderLoadState("idle");
       return;
     }
 
-    const bookSlug = selectedBookSlug;
+    const { bookSlug } = route;
     let isCancelled = false;
 
     async function loadBook() {
@@ -144,10 +194,9 @@ export default function ReaderApp() {
 
       try {
         const payload = await api.getBook(bookSlug);
-        if (isCancelled) {
-          return;
+        if (!isCancelled) {
+          setSelectedBook(payload);
         }
-        setSelectedBook(payload);
       } catch (loadError) {
         if (!isCancelled) {
           setError(loadError instanceof Error ? loadError.message : "Failed to load book.");
@@ -163,19 +212,28 @@ export default function ReaderApp() {
     return () => {
       isCancelled = true;
     };
-  }, [selectedBookSlug]);
+  }, [route]);
 
   useEffect(() => {
-    if (!selectedBook || !selectedTranslationSlug || !selectedChapterSlug) {
+    if (route.screen !== "reader" || !selectedBook || selectedBook.slug !== route.bookSlug) {
       setChapterPayload(null);
       setTranslationUnavailableMessage(null);
       setReaderLoadState("idle");
       return;
     }
 
-    const bookSlug = selectedBook.slug;
-    const chapterSlug = selectedChapterSlug;
-    const translationSlug = selectedTranslationSlug;
+    const { bookSlug, chapterSlug, translationSlug } = route;
+
+    if (!selectedBook.chapters.some((chapter) => chapter.slug === chapterSlug)) {
+      const preferredChapterSlug = getPreferredChapterSlug(selectedBook, translationSlug);
+      if (preferredChapterSlug) {
+        navigate(buildReaderPath(selectedBook.slug, translationSlug, preferredChapterSlug), { replace: true });
+      } else {
+        navigate(buildBookPath(selectedBook.slug), { replace: true });
+      }
+      return;
+    }
+
     let isCancelled = false;
 
     async function loadReaderContent() {
@@ -188,6 +246,7 @@ export default function ReaderApp() {
         if (isCancelled) {
           return;
         }
+
         setChapterPayload(chapter);
         setTranslationUnavailableMessage(
           chapter.translation ? null : "This translation is not available for the selected chapter yet.",
@@ -202,6 +261,7 @@ export default function ReaderApp() {
               message: "Sign up for free to unlock this translation.",
               intent: { kind: "translation", bookSlug, translationSlug },
             });
+            navigate(buildBookPath(bookSlug), { replace: true });
             return;
           }
 
@@ -219,44 +279,37 @@ export default function ReaderApp() {
     return () => {
       isCancelled = true;
     };
-  }, [selectedBook, selectedTranslationSlug, selectedChapterSlug]);
+  }, [navigate, route, selectedBook]);
 
   useEffect(() => {
     if (!authUser || !pendingTranslationAfterAuth || selectedBook?.slug !== pendingTranslationAfterAuth.bookSlug) {
       return;
     }
 
-    const translationSlug = pendingTranslationAfterAuth.translationSlug;
-    const firstChapterSlug = selectedBook.chapters[0]?.slug ?? null;
-    const storedChapterSlug = getStoredLastReadChapter(selectedBook.slug, translationSlug);
-    const preferredChapterSlug =
-      storedChapterSlug != null && selectedBook.chapters.some((chapter) => chapter.slug === storedChapterSlug)
-        ? storedChapterSlug
-        : firstChapterSlug;
-
+    const preferredChapterSlug = getPreferredChapterSlug(selectedBook, pendingTranslationAfterAuth.translationSlug);
     setPendingTranslationAfterAuth(null);
-    setSelectedTranslationSlug(translationSlug);
-    setSelectedChapterSlug(preferredChapterSlug);
-    setChapterPayload(null);
-    setReaderLoadState(preferredChapterSlug ? "loading" : "idle");
-    setScreen("reader");
-  }, [authUser, pendingTranslationAfterAuth, selectedBook]);
 
-  useEffect(() => {
-    if (!selectedBook || !selectedTranslationSlug || !selectedChapterSlug) {
+    if (!preferredChapterSlug) {
+      navigate(buildBookPath(selectedBook.slug));
       return;
     }
 
-    setStoredLastReadChapter(selectedBook.slug, selectedTranslationSlug, selectedChapterSlug);
-  }, [selectedBook, selectedTranslationSlug, selectedChapterSlug]);
+    navigate(buildReaderPath(selectedBook.slug, pendingTranslationAfterAuth.translationSlug, preferredChapterSlug));
+  }, [authUser, navigate, pendingTranslationAfterAuth, selectedBook]);
+
+  useEffect(() => {
+    if (route.screen !== "reader" || !selectedBook || selectedBook.slug !== route.bookSlug) {
+      return;
+    }
+
+    setStoredLastReadChapter(selectedBook.slug, route.translationSlug, route.chapterSlug);
+  }, [route, selectedBook]);
 
   const selectedTranslation =
     selectedBook?.translations.find((translation) => translation.slug === selectedTranslationSlug) ?? null;
   const selectedChapter = selectedBook?.chapters.find((chapter) => chapter.slug === selectedChapterSlug) ?? null;
-  const translationRows = chapterPayload?.translation?.content.chunks ?? [];
   const activeChapterTitle = chapterPayload?.chapter.title ?? selectedChapter?.title ?? "Chapter";
-  const showReaderLoadingOverlay = isLoadingReader && chapterPayload != null;
-  const showReaderLoadingState = readerLoadState === "idle" || readerLoadState === "loading";
+
   const chapterIndex =
     selectedBook && selectedChapter
       ? selectedBook.chapters.findIndex((chapter) => chapter.slug === selectedChapter.slug)
@@ -311,12 +364,15 @@ export default function ReaderApp() {
       }
 
       if (intent.kind === "book") {
-        openBook(intent.bookSlug);
+        navigate(buildBookPath(intent.bookSlug));
         return;
       }
 
       if (selectedBook?.slug === intent.bookSlug) {
-        openTranslation(intent.translationSlug);
+        const preferredChapterSlug = getPreferredChapterSlug(selectedBook, intent.translationSlug);
+        if (preferredChapterSlug) {
+          navigate(buildReaderPath(selectedBook.slug, intent.translationSlug, preferredChapterSlug));
+        }
         return;
       }
 
@@ -324,7 +380,7 @@ export default function ReaderApp() {
         bookSlug: intent.bookSlug,
         translationSlug: intent.translationSlug,
       });
-      openBook(intent.bookSlug);
+      navigate(buildBookPath(intent.bookSlug));
     } catch (submitError) {
       setAuthError(submitError instanceof Error ? submitError.message : "Authentication failed.");
     } finally {
@@ -336,62 +392,42 @@ export default function ReaderApp() {
     try {
       await api.logout();
       setAuthUser(null);
-      returnToLibrary();
+      navigate("/");
     } catch (logoutError) {
       setError(logoutError instanceof Error ? logoutError.message : "Failed to log out.");
     }
   }
 
-  function returnToLibrary() {
-    setSelectedBookSlug(null);
-    setSelectedBook(null);
-    setSelectedTranslationSlug(null);
-    setSelectedChapterSlug(null);
-    setChapterPayload(null);
-    setTranslationUnavailableMessage(null);
-    setReaderLoadState("idle");
-    setScreen("books");
-  }
-
-  function returnToTranslations() {
-    setSelectedTranslationSlug(null);
-    setSelectedChapterSlug(null);
-    setChapterPayload(null);
-    setTranslationUnavailableMessage(null);
-    setReaderLoadState("idle");
-    setScreen("translations");
-  }
-
   function openBook(bookSlug: string) {
-    setSelectedBookSlug(bookSlug);
-    setSelectedTranslationSlug(null);
-    setSelectedChapterSlug(null);
     setChapterPayload(null);
     setTranslationUnavailableMessage(null);
     setReaderLoadState("idle");
-    setScreen("translations");
+    navigate(buildBookPath(bookSlug));
   }
 
   function openTranslation(translationSlug: string) {
-    const firstChapterSlug = selectedBook?.chapters[0]?.slug ?? null;
-    const storedChapterSlug =
-      selectedBook == null ? null : getStoredLastReadChapter(selectedBook.slug, translationSlug);
-    const preferredChapterSlug =
-      storedChapterSlug != null && selectedBook?.chapters.some((chapter) => chapter.slug === storedChapterSlug)
-        ? storedChapterSlug
-        : firstChapterSlug;
+    if (!selectedBook) {
+      return;
+    }
 
-    setSelectedTranslationSlug(translationSlug);
-    setSelectedChapterSlug(preferredChapterSlug);
+    const preferredChapterSlug = getPreferredChapterSlug(selectedBook, translationSlug);
+    if (!preferredChapterSlug) {
+      return;
+    }
+
     setChapterPayload(null);
-    setReaderLoadState(preferredChapterSlug ? "loading" : "idle");
-    setScreen("reader");
+    setTranslationUnavailableMessage(null);
+    setReaderLoadState("loading");
+    navigate(buildReaderPath(selectedBook.slug, translationSlug, preferredChapterSlug));
   }
 
   function openChapter(chapterSlug: string) {
-    setSelectedChapterSlug(chapterSlug);
+    if (!selectedBook || !selectedTranslationSlug) {
+      return;
+    }
+
     setReaderLoadState("loading");
-    setScreen("reader");
+    navigate(buildReaderPath(selectedBook.slug, selectedTranslationSlug, chapterSlug));
   }
 
   function handleOpenBook(book: BookSummary) {
@@ -424,38 +460,41 @@ export default function ReaderApp() {
     openTranslation(translation.slug);
   }
 
-  const breadcrumbs = useMemo(
-    () =>
-      [
-        {
-          label: "Library",
-          isCurrent: screen === "books",
-          onClick: returnToLibrary,
-        },
-        screen !== "books" && selectedBook
-          ? {
-              label: selectedBook.title,
-              isCurrent: screen === "translations",
-              onClick: returnToTranslations,
-            }
-          : null,
-        screen === "reader" && selectedTranslation
-          ? {
-              label: selectedTranslation.name,
-              isCurrent: selectedChapter == null,
-              onClick: () => setScreen("reader"),
-            }
-          : null,
-        screen === "reader" && selectedChapter
-          ? {
-              label: selectedChapter.title,
-              isCurrent: screen === "reader",
-              onClick: () => setScreen("reader"),
-            }
-          : null,
-      ].filter(Boolean) as Array<{ label: string; isCurrent: boolean; onClick: () => void }>,
-    [screen, selectedBook, selectedChapter, selectedTranslation],
-  );
+  const breadcrumbs = useMemo(() => {
+    const items: BreadcrumbItem[] = [
+      {
+        label: "Library",
+        isCurrent: route.screen === "books",
+        onClick: route.screen === "books" ? null : () => navigate("/"),
+      },
+    ];
+
+    if (route.screen !== "books" && selectedBook) {
+      items.push({
+        label: selectedBook.title,
+        isCurrent: route.screen === "translations",
+        onClick: route.screen === "translations" ? null : () => navigate(buildBookPath(selectedBook.slug)),
+      });
+    }
+
+    if (route.screen === "reader" && selectedTranslation) {
+      items.push({
+        label: selectedTranslation.name,
+        isCurrent: false,
+        onClick: () => navigate(buildBookPath(route.bookSlug)),
+      });
+    }
+
+    if (route.screen === "reader" && selectedChapter) {
+      items.push({
+        label: selectedChapter.title,
+        isCurrent: true,
+        onClick: null,
+      });
+    }
+
+    return items;
+  }, [navigate, route, selectedBook, selectedChapter, selectedTranslation]);
 
   return (
     <main className="min-h-screen bg-paper px-6 py-8 text-ink lg:px-10">
@@ -499,206 +538,47 @@ export default function ReaderApp() {
 
         {error ? <StatusPanel title="Error" body={error} /> : null}
 
-        {screen === "books" ? (
-          <StagePanel
-            title="Books"
-            subtitle="Choose a published work. Free titles open immediately, and account-required titles will ask you to sign up."
+        {route.screen === "books" ? (
+          <BooksScreen
+            books={books}
             breadcrumbs={breadcrumbs}
-          >
-            {isLoadingBooks ? (
-              <EmptyState body="Loading books..." />
-            ) : books.length === 0 ? (
-              <EmptyState body="No books are public yet. A book becomes visible once it has a published translation." />
-            ) : (
-              <div className="grid gap-5 md:grid-cols-2 xl:grid-cols-3">
-                {books.map((book) => (
-                  <button
-                    key={book.id}
-                    type="button"
-                    onClick={() => handleOpenBook(book)}
-                    className="rounded-[28px] border border-border/70 bg-paper/72 p-6 text-left transition hover:border-accent/50 hover:bg-white"
-                  >
-                    <div className="flex flex-wrap items-center gap-2">
-                      <p className="text-xs font-semibold uppercase tracking-[0.18em] text-accent">
-                        {book.originalLanguage || "Original"}
-                      </p>
-                      <AccessBadge accessLevel={book.accessLevel} />
-                    </div>
-                    <h2 className="mt-3 font-display text-4xl text-ink">{book.title}</h2>
-                    <p className="mt-3 text-sm text-ink/68">{book.author || "Unknown author"}</p>
-                    <p className="mt-5 text-sm leading-7 text-ink/74">
-                      {book.description || "Published without a description."}
-                    </p>
-                    {!authUser && book.accessLevel === "loggedin" ? (
-                      <p className="mt-4 text-sm font-semibold text-accent">Sign up for free to unlock this book.</p>
-                    ) : null}
-                  </button>
-                ))}
-              </div>
-            )}
-          </StagePanel>
+            isLoadingBooks={isLoadingBooks}
+            authUser={authUser}
+            onOpenBook={handleOpenBook}
+          />
         ) : null}
 
-        {screen === "translations" ? (
-          <StagePanel
-            title={selectedBook?.title ?? "Translations"}
-            subtitle="Choose a published translation for this book."
-            backLabel="Back To Books"
-            onBack={returnToLibrary}
+        {route.screen === "translations" ? (
+          <TranslationsScreen
+            selectedBook={selectedBook}
             breadcrumbs={breadcrumbs}
-          >
-            {isLoadingBook ? (
-              <EmptyState body="Loading translations..." />
-            ) : selectedBook == null ? (
-              <EmptyState body="Choose a book from the library first." />
-            ) : selectedBook.translations.length === 0 ? (
-              <EmptyState body="This book does not have any published translations yet." />
-            ) : (
-              <div className="space-y-6">
-                <div className="max-w-3xl rounded-[28px] border border-border/70 bg-paper/68 p-6">
-                  <p className="text-sm text-ink/68">{selectedBook.author || "Unknown author"}</p>
-                  <p className="mt-4 text-base leading-8 text-ink/74">
-                    {selectedBook.description || "Published without a description."}
-                  </p>
-                </div>
-
-                {!authUser && hasLockedTranslations ? (
-                  <div className="rounded-[24px] border border-border/70 bg-paper/68 px-5 py-4 text-sm leading-7 text-ink/72">
-                    Free-to-read translations are available immediately. Create a free account to unlock the rest.
-                  </div>
-                ) : null}
-
-                <div className="grid gap-5 lg:grid-cols-2">
-                  {selectedBook.translations.map((translation) => (
-                    <TranslationCard
-                      key={translation.id}
-                      translation={translation}
-                      isGuest={!authUser}
-                      onOpen={() => handleOpenTranslation(translation)}
-                    />
-                  ))}
-                </div>
-              </div>
-            )}
-          </StagePanel>
+            isLoadingBook={isLoadingBook}
+            authUser={authUser}
+            hasLockedTranslations={hasLockedTranslations ?? false}
+            onBack={() => navigate("/")}
+            onOpenTranslation={handleOpenTranslation}
+          />
         ) : null}
 
-        {screen === "reader" ? (
-          <StagePanel
-            title={selectedTranslation?.name ?? activeChapterTitle}
-            subtitle={selectedBook ? `Reading ${selectedBook.title}` : ""}
-            backLabel="Back To Translations"
-            onBack={returnToTranslations}
+        {route.screen === "reader" ? (
+          <ReaderScreen
+            selectedBook={selectedBook}
+            selectedTranslationName={selectedTranslation?.name ?? null}
+            selectedChapter={selectedChapter}
+            activeChapterTitle={activeChapterTitle}
+            chapterPayload={chapterPayload}
             breadcrumbs={breadcrumbs}
-          >
-            {selectedBook == null || selectedTranslation == null || selectedChapter == null ? (
-              <EmptyState body="Choose a book, translation, and chapter first." />
-            ) : (
-              <div className="grid gap-6 xl:grid-cols-[280px_minmax(0,1fr)]">
-                <aside className="rounded-[28px] border border-border/70 bg-paper/62 p-4">
-                  <p className="px-3 text-xs font-semibold uppercase tracking-[0.18em] text-accent">Chapters</p>
-                  <div className="mt-3 space-y-2">
-                    {selectedBook.chapters.map((chapter) => {
-                      const isActive = chapter.slug === selectedChapter.slug;
-                      return (
-                        <button
-                          key={chapter.id}
-                          type="button"
-                          onClick={() => openChapter(chapter.slug)}
-                          aria-current={isActive ? "page" : undefined}
-                          className={`w-full rounded-[20px] px-4 py-3 text-left transition ${
-                            isActive
-                              ? "border border-accent/25 bg-white text-ink shadow-sm"
-                              : "border border-transparent bg-transparent hover:border-accent/18 hover:bg-white/80"
-                          }`}
-                        >
-                          <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-accent">
-                            Chapter {chapter.position}
-                          </p>
-                          <p className="mt-1 text-sm font-semibold leading-6 text-ink">{chapter.title}</p>
-                        </button>
-                      );
-                    })}
-                  </div>
-                </aside>
-
-                <div className="space-y-6">
-                  <div className="rounded-[24px] border border-border/70 bg-paper/68 px-5 py-4">
-                    <p className="text-xs font-semibold uppercase tracking-[0.18em] text-accent">
-                      Chapter {selectedChapter.position}
-                    </p>
-                    <h3 className="mt-2 font-display text-3xl text-ink">{activeChapterTitle}</h3>
-                  </div>
-
-                  {showReaderLoadingState && chapterPayload == null ? (
-                    <EmptyState body="Loading bilingual reader..." />
-                  ) : readerLoadState === "error" || chapterPayload == null ? (
-                    <EmptyState body="The bilingual reader for this chapter could not be loaded." />
-                  ) : (
-                    <>
-                      {chapterPayload.translation == null ? (
-                        <div className="rounded-[24px] border border-amber-300/70 bg-amber-50 px-5 py-4 text-sm leading-7 text-amber-950">
-                          {translationUnavailableMessage ??
-                            "This translation is not available for the selected chapter yet. Showing the original text only."}
-                        </div>
-                      ) : null}
-
-                      <section className="relative overflow-hidden rounded-[32px] border border-border/70 bg-white/85 shadow-panel">
-                        {showReaderLoadingOverlay ? (
-                          <div className="absolute inset-0 z-10 flex items-center justify-center bg-paper/45 backdrop-blur-[1px]">
-                            <div className="rounded-full border border-border/70 bg-white/90 px-4 py-2 text-sm font-semibold text-ink/72 shadow-sm">
-                              Loading chapter...
-                            </div>
-                          </div>
-                        ) : null}
-                        <div
-                          className={`grid gap-0 border-b border-border/60 bg-paper/65 px-6 py-4 ${
-                            chapterPayload.translation ? "md:grid-cols-2" : ""
-                          }`}
-                        >
-                          <div>
-                            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-accent">Original</p>
-                          </div>
-                          {chapterPayload.translation ? (
-                            <div className="md:border-l md:border-border/60 md:pl-6">
-                              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-accent">
-                                {selectedTranslation.name}
-                              </p>
-                            </div>
-                          ) : null}
-                        </div>
-
-                        <div className="space-y-1">
-                          {chapterPayload.translation
-                            ? translationRows.map((chunk) => (
-                                <div key={chunk.id} className="grid gap-0 px-6 py-5 md:grid-cols-2">
-                                  <PassageColumn text={chunk.originalText} />
-                                  <PassageColumn text={chunk.translatedText} withBorder />
-                                </div>
-                              ))
-                            : chapterPayload.original.fullText.split(/\n{2,}/).map((paragraph, index) => (
-                                <div key={`original-${index}`} className="px-6 py-5">
-                                  <PassageColumn text={paragraph} />
-                                </div>
-                              ))}
-                        </div>
-                      </section>
-                    </>
-                  )}
-
-                  <div className="flex justify-end">
-                    <ChapterNav
-                      previousChapter={previousChapter}
-                      nextChapter={nextChapter}
-                      onOpenChapter={openChapter}
-                    />
-                  </div>
-                </div>
-              </div>
-            )}
-          </StagePanel>
+            previousChapter={previousChapter}
+            nextChapter={nextChapter}
+            isLoadingReader={isLoadingReader}
+            readerLoadState={readerLoadState}
+            translationUnavailableMessage={translationUnavailableMessage}
+            onBack={() => navigate(buildBookPath(route.bookSlug))}
+            onOpenChapter={openChapter}
+          />
         ) : null}
       </div>
+
       {isAuthDialogOpen ? (
         <AuthDialog
           authMode={authMode}
@@ -715,264 +595,5 @@ export default function ReaderApp() {
         />
       ) : null}
     </main>
-  );
-}
-
-function StagePanel({
-  title,
-  subtitle,
-  children,
-  backLabel,
-  onBack,
-  breadcrumbs,
-}: {
-  title: string;
-  subtitle: string;
-  children: ReactNode;
-  backLabel?: string;
-  onBack?: () => void;
-  breadcrumbs: Array<{ label: string; isCurrent: boolean; onClick: () => void }>;
-}) {
-  return (
-    <section className="rounded-[32px] border border-border/70 bg-white/82 p-6 shadow-panel backdrop-blur lg:p-8">
-      <div className="flex flex-wrap items-start justify-between gap-4 border-b border-border/60 pb-5">
-        <div className="space-y-3">
-          <div className="flex flex-wrap items-center gap-2 text-sm text-ink/60">
-            {breadcrumbs.map((crumb, index) => (
-              <div key={`${crumb.label}-${index}`} className="flex items-center gap-2">
-                {index > 0 ? <span className="text-ink/35">/</span> : null}
-                {crumb.isCurrent ? (
-                  <span className="font-semibold text-ink">{crumb.label}</span>
-                ) : (
-                  <button type="button" onClick={crumb.onClick} className="transition hover:text-ink">
-                    {crumb.label}
-                  </button>
-                )}
-              </div>
-            ))}
-          </div>
-          <h2 className="font-display text-4xl text-ink lg:text-5xl">{title}</h2>
-          <p className="max-w-3xl text-base leading-8 text-ink/72">{subtitle}</p>
-        </div>
-        {backLabel && onBack ? (
-          <button
-            type="button"
-            onClick={onBack}
-            className="rounded-full border border-border/70 bg-paper/90 px-4 py-2 text-sm font-semibold transition hover:border-accent/50"
-          >
-            {backLabel}
-          </button>
-        ) : null}
-      </div>
-
-      <div className="mt-6">{children}</div>
-    </section>
-  );
-}
-
-function TranslationCard({
-  translation,
-  isGuest,
-  onOpen,
-}: {
-  translation: TranslationSummary;
-  isGuest: boolean;
-  onOpen: () => void;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onOpen}
-      className="rounded-[28px] border border-border/70 bg-paper/72 p-6 text-left transition hover:border-accent/50 hover:bg-white"
-    >
-      <div className="flex flex-wrap items-center gap-2">
-        <p className="text-xs font-semibold uppercase tracking-[0.18em] text-accent">Translation</p>
-        <AccessBadge accessLevel={translation.accessLevel} />
-      </div>
-      <h3 className="mt-3 font-display text-4xl text-ink">{translation.name}</h3>
-      <p className="mt-4 text-base leading-8 text-ink/74">
-        {translation.description || "Published without a description."}
-      </p>
-      {isGuest && translation.accessLevel === "loggedin" ? (
-        <p className="mt-4 text-sm font-semibold text-accent">Sign up for free to read this translation.</p>
-      ) : null}
-    </button>
-  );
-}
-
-function AccessBadge({ accessLevel }: { accessLevel: AccessLevel }) {
-  return (
-    <span
-      className={`rounded-full px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.16em] ${
-        accessLevel === "public"
-          ? "border border-emerald-200 bg-emerald-50 text-emerald-800"
-          : "border border-border/70 bg-white/75 text-ink/65"
-      }`}
-    >
-      {accessLevel === "public" ? "Free To Read" : "Free Account"}
-    </span>
-  );
-}
-
-function PassageColumn({ text, withBorder = false }: { text: string; withBorder?: boolean }) {
-  return (
-    <div className={withBorder ? "md:border-l md:border-border/60 md:pl-6" : "md:pr-6"}>
-      <p className="whitespace-pre-wrap text-base leading-8 text-ink/82">{text}</p>
-    </div>
-  );
-}
-
-function ChapterNav({
-  previousChapter,
-  nextChapter,
-  onOpenChapter,
-}: {
-  previousChapter: BookDetail["chapters"][number] | null;
-  nextChapter: BookDetail["chapters"][number] | null;
-  onOpenChapter: (chapterSlug: string) => void;
-}) {
-  return (
-    <div className="flex flex-wrap items-center gap-3">
-      <button
-        type="button"
-        onClick={() => previousChapter && onOpenChapter(previousChapter.slug)}
-        disabled={previousChapter == null}
-        className="rounded-full border border-border/70 bg-white/70 px-4 py-2 text-sm font-semibold transition hover:border-accent/50 disabled:cursor-not-allowed disabled:opacity-45"
-      >
-        Prev
-      </button>
-      <button
-        type="button"
-        onClick={() => nextChapter && onOpenChapter(nextChapter.slug)}
-        disabled={nextChapter == null}
-        className="rounded-full border border-border/70 bg-white/70 px-4 py-2 text-sm font-semibold transition hover:border-accent/50 disabled:cursor-not-allowed disabled:opacity-45"
-      >
-        Next
-      </button>
-    </div>
-  );
-}
-
-function StatusPanel({ title, body }: { title: string; body: string }) {
-  return (
-    <section className="rounded-[24px] border border-red-200 bg-red-50/90 p-4 text-red-900 shadow-panel">
-      <p className="text-xs font-semibold uppercase tracking-[0.16em]">{title}</p>
-      <p className="mt-2 text-sm">{body}</p>
-    </section>
-  );
-}
-
-function EmptyState({ body }: { body: string }) {
-  return <p className="text-base leading-8 text-ink/68">{body}</p>;
-}
-
-function AuthDialog({
-  authMode,
-  email,
-  password,
-  error,
-  isBusy,
-  promptMessage,
-  onClose,
-  onModeChange,
-  onEmailChange,
-  onPasswordChange,
-  onSubmit,
-}: {
-  authMode: AuthMode;
-  email: string;
-  password: string;
-  error: string | null;
-  isBusy: boolean;
-  promptMessage: string | null;
-  onClose: () => void;
-  onModeChange: (mode: AuthMode) => void;
-  onEmailChange: (value: string) => void;
-  onPasswordChange: (value: string) => void;
-  onSubmit: (event: FormEvent<HTMLFormElement>) => void;
-}) {
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-ink/28 px-6 py-8 backdrop-blur-sm">
-      <div className="w-full max-w-[560px] rounded-[32px] border border-border/70 bg-white/95 p-6 shadow-panel lg:p-8">
-        <div className="flex items-start justify-between gap-4">
-          <div>
-            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-accent">Ancient Epics</p>
-            <h2 className="mt-3 font-display text-4xl text-ink">
-              {authMode === "signup" ? "Create Your Free Account" : "Log In"}
-            </h2>
-          </div>
-          <button
-            type="button"
-            onClick={onClose}
-            className="rounded-full border border-border/70 bg-paper/90 px-4 py-2 text-sm font-semibold transition hover:border-accent/50"
-          >
-            Close
-          </button>
-        </div>
-
-        <div className="mt-5 flex gap-2">
-          <button
-            type="button"
-            onClick={() => onModeChange("signup")}
-            className={`rounded-full px-4 py-2 text-sm font-semibold transition ${
-              authMode === "signup" ? "bg-ink text-paper" : "border border-border/70 bg-paper/80 text-ink/72"
-            }`}
-          >
-            Sign Up
-          </button>
-          <button
-            type="button"
-            onClick={() => onModeChange("login")}
-            className={`rounded-full px-4 py-2 text-sm font-semibold transition ${
-              authMode === "login" ? "bg-ink text-paper" : "border border-border/70 bg-paper/80 text-ink/72"
-            }`}
-          >
-            Log In
-          </button>
-        </div>
-
-        {promptMessage ? (
-          <div className="mt-5 rounded-[24px] border border-border/70 bg-paper/68 px-5 py-4 text-sm leading-7 text-ink/74">
-            {promptMessage}
-          </div>
-        ) : null}
-
-        <form onSubmit={onSubmit} className="mt-6 space-y-4">
-          <label className="grid gap-2">
-            <span className="text-xs font-semibold uppercase tracking-[0.18em] text-accent">Email</span>
-            <input
-              type="email"
-              value={email}
-              onChange={(event) => onEmailChange(event.target.value)}
-              className="rounded-2xl border border-border/70 bg-paper/70 px-4 py-3 text-base text-ink outline-none transition focus:border-accent"
-              autoComplete="email"
-              placeholder="you@example.com"
-            />
-          </label>
-
-          <label className="grid gap-2">
-            <span className="text-xs font-semibold uppercase tracking-[0.18em] text-accent">Password</span>
-            <input
-              type="password"
-              value={password}
-              onChange={(event) => onPasswordChange(event.target.value)}
-              className="rounded-2xl border border-border/70 bg-paper/70 px-4 py-3 text-base text-ink outline-none transition focus:border-accent"
-              autoComplete={authMode === "signup" ? "new-password" : "current-password"}
-              placeholder="At least 8 characters"
-            />
-          </label>
-
-          {error ? <p className="text-sm text-red-700">{error}</p> : null}
-
-          <button
-            type="submit"
-            disabled={isBusy}
-            className="w-full rounded-full bg-ink px-4 py-3 text-sm font-semibold text-paper transition hover:bg-accent disabled:cursor-not-allowed disabled:opacity-60"
-          >
-            {isBusy ? "Working..." : authMode === "signup" ? "Sign Up For Free" : "Log In"}
-          </button>
-        </form>
-      </div>
-    </div>
   );
 }
