@@ -126,10 +126,13 @@ export async function getCurrentAuthUser(c: Context<AppEnv>): Promise<AuthUser |
   }
 
   const sessionTokenHash = await sha256Hex(sessionToken);
-  const now = new Date().toISOString();
-  const user = await c.env.DB.prepare(
+  const now = new Date();
+  const nowStr = now.toISOString();
+
+  type Row = { id: string; email: string; createdAt: string; expiresAt: string };
+  const row = await c.env.DB.prepare(
     `
-        SELECT users.id, users.email, users.created_at AS createdAt
+        SELECT users.id, users.email, users.created_at AS createdAt, user_sessions.expires_at AS expiresAt
         FROM user_sessions
         JOIN users
           ON users.id = user_sessions.user_id
@@ -138,10 +141,29 @@ export async function getCurrentAuthUser(c: Context<AppEnv>): Promise<AuthUser |
         LIMIT 1
       `,
   )
-    .bind(sessionTokenHash, now)
-    .first<AuthUser>();
+    .bind(sessionTokenHash, nowStr)
+    .first<Row>();
 
-  return user ?? null;
+  if (!row) {
+    return null;
+  }
+
+  const expiresAt = new Date(row.expiresAt);
+  const timeUntilExpiration = expiresAt.getTime() - now.getTime();
+  const halfTTL = (SESSION_TTL_SECONDS * 1000) / 2;
+
+  if (timeUntilExpiration < halfTTL) {
+    const newExpiresAt = new Date(now.getTime() + SESSION_TTL_SECONDS * 1000);
+    const newExpiresAtStr = newExpiresAt.toISOString();
+
+    await c.env.DB.prepare(`UPDATE user_sessions SET expires_at = ?, updated_at = ? WHERE session_token_hash = ?`)
+      .bind(newExpiresAtStr, nowStr, sessionTokenHash)
+      .run();
+
+    setAuthSessionCookie(c, sessionToken);
+  }
+
+  return { id: row.id, email: row.email, createdAt: row.createdAt };
 }
 
 export async function revokeCurrentSession(c: Context<AppEnv>): Promise<void> {
@@ -201,20 +223,41 @@ export async function getCurrentAdminSession(c: Context<AppEnv>): Promise<boolea
   }
 
   const sessionTokenHash = await sha256Hex(sessionToken);
-  const now = new Date().toISOString();
-  const sessionExists = await c.env.DB.prepare(
+  const now = new Date();
+  const nowStr = now.toISOString();
+
+  const session = await c.env.DB.prepare(
     `
-        SELECT 1
+        SELECT expires_at AS expiresAt
         FROM admin_sessions
         WHERE session_token_hash = ?
           AND expires_at > ?
         LIMIT 1
       `,
   )
-    .bind(sessionTokenHash, now)
-    .first<number>("1");
+    .bind(sessionTokenHash, nowStr)
+    .first<{ expiresAt: string }>();
 
-  return sessionExists === 1;
+  if (!session) {
+    return false;
+  }
+
+  const expiresAt = new Date(session.expiresAt);
+  const timeUntilExpiration = expiresAt.getTime() - now.getTime();
+  const halfTTL = (SESSION_TTL_SECONDS * 1000) / 2;
+
+  if (timeUntilExpiration < halfTTL) {
+    const newExpiresAt = new Date(now.getTime() + SESSION_TTL_SECONDS * 1000);
+    const newExpiresAtStr = newExpiresAt.toISOString();
+
+    await c.env.DB.prepare(`UPDATE admin_sessions SET expires_at = ?, updated_at = ? WHERE session_token_hash = ?`)
+      .bind(newExpiresAtStr, nowStr, sessionTokenHash)
+      .run();
+
+    setAdminSessionCookie(c, sessionToken);
+  }
+
+  return true;
 }
 
 export async function revokeCurrentAdminSession(c: Context<AppEnv>): Promise<void> {
