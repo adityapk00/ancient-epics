@@ -15,6 +15,7 @@ import {
 } from "@ancient-epics/shared";
 
 import { StatusPanel } from "./components/StatusPanel";
+import { AppVersionFooter } from "./components/AppVersionFooter";
 import { BooksScreen } from "./admin/BooksScreen";
 import { CreateBookScreen } from "./admin/CreateBookScreen";
 import { EditBookDialog } from "./admin/EditBookDialog";
@@ -1189,6 +1190,8 @@ export default function AdminApp() {
             onSelectChapter={setSelectedChapterId}
           />
         ) : null}
+
+        <AppVersionFooter />
       </div>
 
       {settingsOpen ? (

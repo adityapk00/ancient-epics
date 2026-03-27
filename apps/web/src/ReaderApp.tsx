@@ -10,6 +10,7 @@ import type {
 } from "@ancient-epics/shared";
 
 import type { BreadcrumbItem } from "./components/BreadcrumbTrail";
+import { AppVersionFooter } from "./components/AppVersionFooter";
 import { StatusPanel } from "./components/StatusPanel";
 import { api, ApiError } from "./lib/api";
 import { AuthDialog } from "./reader/AuthDialog";
@@ -592,6 +593,8 @@ export default function ReaderApp() {
             onOpenChapter={openChapter}
           />
         ) : null}
+
+        <AppVersionFooter />
       </div>
 
       {isAuthDialogOpen ? (
