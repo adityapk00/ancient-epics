@@ -11,8 +11,15 @@ export const apiRoot = path.join(repoRoot, "apps", "api");
 export const webRoot = path.join(repoRoot, "apps", "web");
 export const configPath = path.join(repoRoot, "cloudflare.config.json");
 export const apiWranglerConfigPath = path.join(apiRoot, "wrangler.jsonc");
+export const appVersionPath = path.join(webRoot, "src", "app-version.json");
 export const seedSqlPath = path.join(apiRoot, "seed", "seed.sql");
 export const r2SeedRoot = path.join(apiRoot, "seed", "r2");
+export const wranglerBinPath = path.join(
+  apiRoot,
+  "node_modules",
+  ".bin",
+  process.platform === "win32" ? "wrangler.cmd" : "wrangler",
+);
 
 export function loadDeployConfig() {
   const config = JSON.parse(readFileSync(configPath, "utf8"));
@@ -40,6 +47,25 @@ export function loadDeployConfig() {
     productionBranch: "main",
     ...config,
   };
+}
+
+export function getCurrentAppVersion() {
+  const payload = JSON.parse(readFileSync(appVersionPath, "utf8"));
+  const version = payload.version;
+
+  if (!Number.isInteger(version) || version < 0) {
+    throw new Error(`Invalid app version in ${path.relative(repoRoot, appVersionPath)}.`);
+  }
+
+  return version;
+}
+
+export function writeAppVersion(version) {
+  if (!Number.isInteger(version) || version < 0) {
+    throw new Error(`Cannot write invalid app version: ${version}`);
+  }
+
+  writeFileSync(appVersionPath, `${JSON.stringify({ version }, null, 2)}\n`, "utf8");
 }
 
 export function loadWranglerConfig() {
@@ -188,9 +214,9 @@ export function ensurePagesProject(name, productionBranch) {
 }
 
 export function runWrangler(args, options = {}) {
-  const { captureOutput = false, allowFailure = false, env = process.env } = options;
-  const result = spawnSync("pnpm", ["exec", "wrangler", ...args], {
-    cwd: apiRoot,
+  const { captureOutput = false, allowFailure = false, env = process.env, cwd = apiRoot } = options;
+  const result = spawnSync(wranglerBinPath, args, {
+    cwd,
     env: withCloudflareAccountEnv(env),
     stdio: captureOutput ? "pipe" : "inherit",
     encoding: "utf8",
