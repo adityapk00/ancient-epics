@@ -93,6 +93,7 @@ export default function ReaderApp() {
   const location = useLocation();
   const navigate = useNavigate();
   const route = useMemo(() => getReaderRoute(location.pathname), [location.pathname]);
+  const routeBookSlug = route.screen === "books" ? null : route.bookSlug;
 
   const [books, setBooks] = useState<BookSummary[]>([]);
   const [authUser, setAuthUser] = useState<AuthUser | null>(null);
@@ -177,7 +178,7 @@ export default function ReaderApp() {
   }, []);
 
   useEffect(() => {
-    if (route.screen === "books") {
+    if (!routeBookSlug) {
       setSelectedBook(null);
       setChapterPayload(null);
       setTranslationUnavailableMessage(null);
@@ -185,7 +186,7 @@ export default function ReaderApp() {
       return;
     }
 
-    const { bookSlug } = route;
+    const bookSlug = routeBookSlug;
     let isCancelled = false;
 
     async function loadBook() {
@@ -212,10 +213,15 @@ export default function ReaderApp() {
     return () => {
       isCancelled = true;
     };
-  }, [route]);
+  }, [routeBookSlug]);
+
+  const selectedBookMatchesRoute = selectedBook?.slug === routeBookSlug;
+  const selectedBookChapterSlugs = selectedBookMatchesRoute
+    ? selectedBook.chapters.map((chapter) => chapter.slug).join("|")
+    : "";
 
   useEffect(() => {
-    if (route.screen !== "reader" || !selectedBook || selectedBook.slug !== route.bookSlug) {
+    if (route.screen !== "reader" || !selectedBookMatchesRoute || !selectedBook) {
       setChapterPayload(null);
       setTranslationUnavailableMessage(null);
       setReaderLoadState("idle");
@@ -279,7 +285,16 @@ export default function ReaderApp() {
     return () => {
       isCancelled = true;
     };
-  }, [navigate, route, selectedBook]);
+  }, [
+    navigate,
+    route.screen,
+    route.screen === "reader" ? route.bookSlug : null,
+    route.screen === "reader" ? route.chapterSlug : null,
+    route.screen === "reader" ? route.translationSlug : null,
+    selectedBook,
+    selectedBookMatchesRoute,
+    selectedBookChapterSlugs,
+  ]);
 
   useEffect(() => {
     if (!authUser || !pendingTranslationAfterAuth || selectedBook?.slug !== pendingTranslationAfterAuth.bookSlug) {
