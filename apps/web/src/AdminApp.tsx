@@ -4,6 +4,7 @@ import { matchPath, useLocation, useNavigate } from "react-router-dom";
 
 import {
   APP_SETTING_KEYS,
+  type AdminAnalyticsPayload,
   type AdminBookSourcePayload,
   type AdminBookSummary,
   type AdminBootstrapPayload,
@@ -17,6 +18,7 @@ import {
 import { StatusPanel } from "./components/StatusPanel";
 import { AppVersionFooter } from "./components/AppVersionFooter";
 import { BooksScreen } from "./admin/BooksScreen";
+import { AnalyticsScreen } from "./admin/AnalyticsScreen";
 import { CreateBookScreen } from "./admin/CreateBookScreen";
 import { EditBookDialog } from "./admin/EditBookDialog";
 import {
@@ -49,6 +51,7 @@ import { splitSourceTextIntoChapters, type SplitChapterInput } from "./lib/chapt
 
 type AdminRoute =
   | { screen: "books"; canonicalPath: string }
+  | { screen: "analytics"; canonicalPath: string }
   | { screen: "create-book"; canonicalPath: string }
   | { screen: "translations"; bookSlug: string; canonicalPath: string }
   | { screen: "workspace"; translationId: string; canonicalPath: string }
@@ -60,6 +63,10 @@ function buildAdminBooksPath() {
 
 function buildAdminCreateBookPath() {
   return "/admin/books/new";
+}
+
+function buildAdminAnalyticsPath() {
+  return "/admin/analytics";
 }
 
 function buildAdminBookPath(bookSlug: string) {
@@ -109,6 +116,13 @@ function getAdminRoute(pathname: string): AdminRoute {
     };
   }
 
+  if (pathname === "/admin/analytics") {
+    return {
+      screen: "analytics",
+      canonicalPath: buildAdminAnalyticsPath(),
+    };
+  }
+
   return {
     screen: "books",
     canonicalPath: buildAdminBooksPath(),
@@ -122,6 +136,7 @@ export default function AdminApp() {
 
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [bootstrap, setBootstrap] = useState<AdminBootstrapPayload | null>(null);
+  const [analytics, setAnalytics] = useState<AdminAnalyticsPayload | null>(null);
   const [selectedBook, setSelectedBook] = useState<AdminBookSourcePayload | null>(null);
   const [translations, setTranslations] = useState<AdminTranslationSummary[]>([]);
   const [activeTranslation, setActiveTranslation] = useState<AdminTranslationDetail | null>(null);
@@ -288,6 +303,10 @@ export default function AdminApp() {
 
   function goToCreateBook() {
     navigate(buildAdminCreateBookPath());
+  }
+
+  function goToAnalytics() {
+    navigate(buildAdminAnalyticsPath());
   }
 
   function goToTranslations() {
@@ -618,6 +637,41 @@ export default function AdminApp() {
       setSelectedChapterId(null);
 
       return;
+    }
+
+    if (route.screen === "analytics") {
+      setSelectedBook(null);
+      setTranslations([]);
+      setActiveTranslation(null);
+      setValidation(null);
+      setSelectedChapterId(null);
+
+      let isCancelled = false;
+
+      async function loadAnalyticsRoute() {
+        setIsBusy(true);
+        setError(null);
+
+        try {
+          const payload = await api.getAdminAnalytics();
+          if (!isCancelled) {
+            setAnalytics(payload);
+          }
+        } catch (loadError) {
+          if (!isCancelled) {
+            setError(loadError instanceof Error ? loadError.message : "Failed to load analytics.");
+          }
+        } finally {
+          if (!isCancelled) {
+            setIsBusy(false);
+          }
+        }
+      }
+
+      void loadAnalyticsRoute();
+      return () => {
+        isCancelled = true;
+      };
     }
 
     if (route.screen === "translations") {
@@ -1078,6 +1132,17 @@ export default function AdminApp() {
             </button>
             <button
               type="button"
+              onClick={goToAnalytics}
+              className={`rounded-full px-4 py-2 text-sm font-semibold transition ${
+                route.screen === "analytics"
+                  ? "bg-ink text-paper"
+                  : "border border-border/70 bg-paper/80 text-ink hover:border-accent/50"
+              }`}
+            >
+              Analytics
+            </button>
+            <button
+              type="button"
               onClick={goToCreateBook}
               className={`rounded-full px-4 py-2 text-sm font-semibold transition ${
                 route.screen === "create-book"
@@ -1111,6 +1176,8 @@ export default function AdminApp() {
             onDeleteBook={(book) => void deleteBookFromList(book)}
           />
         ) : null}
+
+        {route.screen === "analytics" ? <AnalyticsScreen analytics={analytics} breadcrumbs={breadcrumbs} /> : null}
 
         {route.screen === "create-book" ? (
           <CreateBookScreen
@@ -1234,6 +1301,15 @@ function buildBreadcrumbs(input: {
 
   if (input.route.screen === "books") {
     breadcrumbs.push({ label: "Books", isCurrent: true, onClick: null });
+    return breadcrumbs;
+  }
+
+  if (input.route.screen === "analytics") {
+    breadcrumbs.push({
+      label: "Analytics",
+      isCurrent: true,
+      onClick: null,
+    });
     return breadcrumbs;
   }
 

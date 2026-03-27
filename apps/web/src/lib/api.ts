@@ -1,4 +1,5 @@
 import type {
+  AdminAnalyticsPayload,
   AdminBookSourcePayload,
   AdminBootstrapPayload,
   AdminSessionPayload,
@@ -88,6 +89,7 @@ export const api = {
       settings,
     }),
   getAdminBootstrap: () => request<AdminBootstrapPayload>("/api/admin/bootstrap"),
+  getAdminAnalytics: (days = 30) => request<AdminAnalyticsPayload>(`/api/admin/analytics?days=${days}`),
   createAdminBook: (body: {
     title: string;
     author?: string;

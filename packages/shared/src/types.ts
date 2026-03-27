@@ -10,6 +10,8 @@ export type ThinkingLevel = "none" | "minimal" | "low" | "medium" | "high" | "xh
 
 export type AiProvider = "google" | "openrouter";
 
+export type AnalyticsEventType = "signup_completed" | "book_view" | "chapter_view" | "translation_view";
+
 export interface TranslationChunk {
   id: string;
   type: ChunkType;
@@ -157,6 +159,52 @@ export interface AdminTranslationDetail extends AdminTranslationSummary {
 export interface AdminBootstrapPayload {
   books: AdminBookSummary[];
   settings: Record<string, string>;
+}
+
+export interface AdminAnalyticsOverview {
+  signups: number;
+  bookViews: number;
+  chapterViews: number;
+  translationViews: number;
+  uniqueCountries: number;
+}
+
+export interface AdminAnalyticsDay {
+  date: string;
+  signups: number;
+  bookViews: number;
+  chapterViews: number;
+  translationViews: number;
+}
+
+export interface AdminAnalyticsCountry {
+  country: string;
+  signups: number;
+  bookViews: number;
+  chapterViews: number;
+  translationViews: number;
+}
+
+export interface AdminAnalyticsBook {
+  bookSlug: string;
+  title: string;
+  viewCount: number;
+}
+
+export interface AdminAnalyticsTranslation {
+  bookSlug: string;
+  translationSlug: string;
+  translationName: string;
+  viewCount: number;
+}
+
+export interface AdminAnalyticsPayload {
+  days: number;
+  overview: AdminAnalyticsOverview;
+  daily: AdminAnalyticsDay[];
+  topCountries: AdminAnalyticsCountry[];
+  topBooks: AdminAnalyticsBook[];
+  topTranslations: AdminAnalyticsTranslation[];
 }
 
 export interface AdminTranslationValidationIssue {

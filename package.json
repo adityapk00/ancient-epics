@@ -17,6 +17,8 @@
     "typecheck": "pnpm -r typecheck",
     "format": "prettier . --write",
     "format:check": "prettier . --check",
+    "local:db:migrate": "pnpm --filter @ancient-epics/api local:db:migrate",
+    "remote:db:migrate": "pnpm --filter @ancient-epics/api remote:db:migrate",
     "local:db:seed": "pnpm --filter @ancient-epics/api local:db:seed",
     "remote:db:seed": "pnpm --filter @ancient-epics/api remote:db:seed",
     "local:admin:password": "pnpm --filter @ancient-epics/api local:admin:password",

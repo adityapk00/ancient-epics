@@ -17,6 +17,7 @@ import {
 } from "@ancient-epics/shared";
 import { Hono } from "hono";
 import { cors } from "hono/cors";
+import { getAdminAnalyticsPayload, recordAnalyticsEvent, recordSignupCompleted } from "./analytics";
 import {
   authenticateUser,
   authenticateAdminPassword,
@@ -81,6 +82,7 @@ app.post("/api/auth/signup", async (c) => {
     const credentials = validateEmailAndPassword(body);
     const { user, sessionToken } = await createUserAccount(c.env.DB, credentials);
     setAuthSessionCookie(c, sessionToken);
+    await recordSignupCompleted(c, user);
     return c.json(success(buildAuthSessionPayload(user)), 201);
   } catch (error) {
     return c.json(failure("bad_request", error instanceof Error ? error.message : "Failed to create account."), 400);
@@ -144,11 +146,17 @@ app.get("/api/books/:bookSlug", async (c) => {
     return c.json(failure("not_found", "Book was not found."), 404);
   }
 
+  await recordAnalyticsEvent(c, {
+    eventType: "book_view",
+    bookSlug: payload.slug,
+  });
+
   return c.json(success(payload));
 });
 
 app.get("/api/books/:bookSlug/chapters/:chapterSlug", async (c) => {
   const translationSlug = c.req.query("translation") ?? null;
+  const currentUser = await getCurrentAuthUser(c);
 
   if (translationSlug) {
     const translation = await getPublishedTranslationSummary(c.env.DB, {
@@ -160,7 +168,7 @@ app.get("/api/books/:bookSlug/chapters/:chapterSlug", async (c) => {
       return c.json(failure("not_found", "Translation was not found."), 404);
     }
 
-    if (translation.accessLevel === "loggedin" && !(await getCurrentAuthUser(c))) {
+    if (translation.accessLevel === "loggedin" && !currentUser) {
       return c.json(failure("auth_required", "Sign up for free to read this translation."), 401);
     }
   } else {
@@ -170,7 +178,7 @@ app.get("/api/books/:bookSlug/chapters/:chapterSlug", async (c) => {
       return c.json(failure("not_found", "Book was not found."), 404);
     }
 
-    if (bookAccessLevel === "loggedin" && !(await getCurrentAuthUser(c))) {
+    if (bookAccessLevel === "loggedin" && !currentUser) {
       return c.json(failure("auth_required", "Sign up for free to unlock this book."), 401);
     }
   }
@@ -185,10 +193,28 @@ app.get("/api/books/:bookSlug/chapters/:chapterSlug", async (c) => {
     return c.json(failure("not_found", "Chapter was not found."), 404);
   }
 
+  await recordAnalyticsEvent(c, {
+    eventType: "chapter_view",
+    userId: currentUser?.id ?? null,
+    bookSlug: payload.book.slug,
+    chapterSlug: payload.chapter.slug,
+  });
+
+  if (translationSlug) {
+    await recordAnalyticsEvent(c, {
+      eventType: "translation_view",
+      userId: currentUser?.id ?? null,
+      bookSlug: payload.book.slug,
+      translationSlug,
+      chapterSlug: payload.chapter.slug,
+    });
+  }
+
   return c.json(success(payload));
 });
 
 app.get("/api/books/:bookSlug/chapters/:chapterSlug/translations/:translationSlug", async (c) => {
+  const currentUser = await getCurrentAuthUser(c);
   const translation = await getPublishedTranslationSummary(c.env.DB, {
     bookSlug: c.req.param("bookSlug"),
     translationSlug: c.req.param("translationSlug"),
@@ -198,7 +224,7 @@ app.get("/api/books/:bookSlug/chapters/:chapterSlug/translations/:translationSlu
     return c.json(failure("not_found", "Translation was not found."), 404);
   }
 
-  if (translation.accessLevel === "loggedin" && !(await getCurrentAuthUser(c))) {
+  if (translation.accessLevel === "loggedin" && !currentUser) {
     return c.json(failure("auth_required", "Sign up for free to read this translation."), 401);
   }
 
@@ -211,6 +237,14 @@ app.get("/api/books/:bookSlug/chapters/:chapterSlug/translations/:translationSlu
   if (!payload) {
     return c.json(failure("not_found", "Translation was not found."), 404);
   }
+
+  await recordAnalyticsEvent(c, {
+    eventType: "translation_view",
+    userId: currentUser?.id ?? null,
+    bookSlug: c.req.param("bookSlug"),
+    translationSlug: c.req.param("translationSlug"),
+    chapterSlug: c.req.param("chapterSlug"),
+  });
 
   return c.json(success(payload));
 });
@@ -240,6 +274,12 @@ app.get("/api/admin/bootstrap", async (c) => {
   const [books, settings] = await Promise.all([listAdminBookSummaries(c.env.DB), getSettingsMap(c.env.DB)]);
   const payload: AdminBootstrapPayload = { books, settings };
   return c.json(success(payload));
+});
+
+app.get("/api/admin/analytics", async (c) => {
+  const daysParam = c.req.query("days");
+  const days = daysParam ? Number.parseInt(daysParam, 10) : 30;
+  return c.json(success(await getAdminAnalyticsPayload(c.env.DB, days)));
 });
 
 app.get("/api/admin/books", async (c) => c.json(success({ books: await listAdminBookSummaries(c.env.DB) })));

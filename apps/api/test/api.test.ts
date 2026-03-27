@@ -1,4 +1,5 @@
 import {
+  type AdminAnalyticsPayload,
   buildTranslationChapterKey,
   type AdminBookSourcePayload,
   type AdminSessionPayload,
@@ -585,6 +586,72 @@ describe("Ancient Epics API", () => {
       404,
     );
     expect(deletedTranslationLookup.code).toBe("not_found");
+  });
+
+  it("records reader analytics and exposes them through the admin analytics API", async () => {
+    const ctx = await setupContext();
+    const adminCookie = await loginAdmin(ctx);
+
+    const signupResponse = await api<AuthSessionPayload>(ctx, "POST", "/api/auth/signup", {
+      email: "analytics@example.com",
+      password: "strong-password-123",
+    });
+    const signupPayload = expectSuccess<AuthSessionPayload>(signupResponse, 201);
+    const authCookie = extractCookieHeader(signupResponse.headers);
+
+    expect(signupPayload.user?.email).toBe("analytics@example.com");
+
+    expectSuccess<BookDetail>(await api(ctx, "GET", "/api/books/iliad"));
+    expectSuccess<ReaderChapterPayload>(
+      await api(ctx, "GET", "/api/books/iliad/chapters/book-1-the-rage?translation=verse-meaning", undefined, {
+        headers: { Cookie: authCookie },
+      }),
+    );
+    expectSuccess<TranslationPayload>(
+      await api(ctx, "GET", "/api/books/iliad/chapters/book-1-the-rage/translations/verse-meaning", undefined, {
+        headers: { Cookie: authCookie },
+      }),
+    );
+
+    const analytics = expectSuccess<AdminAnalyticsPayload>(
+      await adminApi(ctx, adminCookie, "GET", "/api/admin/analytics?days=30"),
+    );
+
+    expect(analytics.overview.signups).toBe(1);
+    expect(analytics.overview.bookViews).toBe(1);
+    expect(analytics.overview.chapterViews).toBe(1);
+    expect(analytics.overview.translationViews).toBe(2);
+    expect(analytics.topCountries).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          country: "LOCAL",
+          signups: 1,
+          bookViews: 1,
+          chapterViews: 1,
+          translationViews: 2,
+        }),
+      ]),
+    );
+    expect(analytics.topBooks).toEqual([
+      expect.objectContaining({
+        bookSlug: "iliad",
+        title: "The Iliad",
+        viewCount: 1,
+      }),
+    ]);
+    expect(analytics.topTranslations).toEqual([
+      expect.objectContaining({
+        bookSlug: "iliad",
+        translationSlug: "verse-meaning",
+        translationName: "Verse / Preserve Meaning",
+        viewCount: 2,
+      }),
+    ]);
+    expect(
+      analytics.daily.some(
+        (day) => day.signups === 1 && day.bookViews === 1 && day.chapterViews === 1 && day.translationViews === 2,
+      ),
+    ).toBe(true);
   });
 
   it("imports translations, publishes them, and supports translation deletion", async () => {

@@ -21,7 +21,8 @@ Ancient Epics deploys as:
 
 ## Repeat Deploy
 
-1. Run `pnpm cf:deploy`.
+1. Run `pnpm remote:db:migrate`.
+2. Run `pnpm cf:deploy`.
 
 The deploy script:
 
@@ -34,5 +35,7 @@ The deploy script:
 - The API custom domain is configured in `apps/api/wrangler.jsonc` under `env.production.routes`.
 - The Pages custom domain is still a dashboard step.
 - `pnpm remote:db:seed` applies remote D1 migrations, seeds D1, and uploads any files under `apps/api/seed/r2`.
+- `pnpm local:db:migrate` applies local D1 migrations without reseeding data.
+- `pnpm remote:db:migrate` applies remote D1 migrations without reseeding data.
 - `pnpm remote:admin:password` only sets the initial admin password in remote D1.
 - `SESSION_SECRET` and Stripe secrets are not part of the current production flow because the current code does not consume them yet.
