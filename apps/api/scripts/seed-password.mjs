@@ -1,4 +1,5 @@
 import { spawnSync } from "node:child_process";
+import { readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { webcrypto } from "node:crypto";
@@ -7,10 +8,13 @@ import { getLocalWranglerArgs } from "./local-persist.mjs";
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const apiRoot = path.resolve(__dirname, "..");
-const databaseName = "ancient-epics";
+const workspaceRoot = path.resolve(apiRoot, "..", "..");
+const deployConfigPath = path.join(workspaceRoot, "cloudflare.config.json");
 const localWranglerArgs = getLocalWranglerArgs(apiRoot);
-
-const password = process.argv[2] ?? "";
+const passwordHashIterations = 100_000;
+const isRemote = process.argv.includes("--remote");
+const password = process.argv.slice(2).find((value) => value !== "--remote") ?? "";
+const databaseName = isRemote ? loadDeployConfig(deployConfigPath).d1DatabaseName : "ancient-epics";
 
 if (password.length < 8) {
   console.error("Provide an admin password with at least 8 characters.");
@@ -32,8 +36,8 @@ const statements = [
      updated_at = excluded.updated_at;`,
 ];
 
-runWrangler(["d1", "execute", databaseName, "--local", "--command", statements.join("\n"), ...localWranglerArgs]);
-console.log("Admin password seeded into local D1.");
+runWrangler(["d1", "execute", databaseName, isRemote ? "--remote" : "--local", "--command", statements.join("\n")]);
+console.log(`Admin password seeded into ${isRemote ? "remote" : "local"} D1.`);
 
 async function hashPassword(value) {
   const salt = webcrypto.getRandomValues(new Uint8Array(16));
@@ -49,13 +53,13 @@ async function hashPassword(value) {
       name: "PBKDF2",
       hash: "SHA-256",
       salt: copyToArrayBuffer(salt),
-      iterations: 600_000,
+      iterations: passwordHashIterations,
     },
     keyMaterial,
     32 * 8,
   );
 
-  return `pbkdf2_sha256$600000$${toHex(salt)}$${toHex(new Uint8Array(derivedBits))}`;
+  return `pbkdf2_sha256$${passwordHashIterations}$${toHex(salt)}$${toHex(new Uint8Array(derivedBits))}`;
 }
 
 function copyToArrayBuffer(bytes) {
@@ -73,12 +77,25 @@ function escapeSqlString(value) {
 }
 
 function runWrangler(args) {
-  const result = spawnSync("pnpm", ["exec", "wrangler", ...args], {
-    cwd: apiRoot,
-    stdio: "inherit",
-  });
+  const result = spawnSync(
+    "pnpm",
+    ["exec", "wrangler", ...(isRemote ? ["-e", "production"] : []), ...args, ...(isRemote ? [] : localWranglerArgs)],
+    {
+      cwd: apiRoot,
+      stdio: "inherit",
+    },
+  );
 
   if (result.status !== 0) {
     process.exit(result.status ?? 1);
+  }
+}
+
+function loadDeployConfig(filePath) {
+  try {
+    return JSON.parse(readFileSync(filePath, "utf8"));
+  } catch (error) {
+    console.error(`Unable to read ${path.basename(filePath)}. Run \`pnpm cf:setup\` first.`);
+    throw error;
   }
 }

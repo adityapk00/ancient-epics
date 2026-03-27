@@ -1,0 +1,13 @@
+{
+  "accountId": "your-cloudflare-account-id",
+  "zoneName": "example.com",
+  "siteDomain": "example.com",
+  "apiDomain": "api.example.com",
+  "pagesProjectName": "ancient-epics",
+  "workerName": "ancient-epics-api",
+  "d1DatabaseName": "ancient-epics",
+  "d1Location": "enam",
+  "r2BucketName": "ancient-epics-content",
+  "r2PreviewBucketName": "ancient-epics-content-preview",
+  "productionBranch": "main"
+}

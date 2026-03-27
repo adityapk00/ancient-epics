@@ -9,8 +9,10 @@
     "lint": "eslint src --max-warnings 0",
     "test": "vitest run",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "local:db:seed": "node ./scripts/seed-local.mjs",
+    "local:db:seed": "node ./scripts/seed-db.mjs",
+    "remote:db:seed": "node ./scripts/seed-db.mjs --remote",
     "local:admin:password": "node ./scripts/seed-password.mjs",
+    "remote:admin:password": "node ./scripts/seed-password.mjs --remote",
     "local:db:nuke": "node ./scripts/seed-nuke.mjs",
     "export:local": "node ./scripts/export-local.mjs",
     "smoke": "node ./scripts/smoke-test.mjs"

@@ -41,7 +41,7 @@ async function main() {
   runNodeScript("seed-nuke.mjs", "local:db:nuke");
 
   console.log("🌱  Re-seeding isolated state…");
-  runNodeScript("seed-local.mjs", "local:db:seed");
+  runNodeScript("seed-db.mjs", "local:db:seed");
 
   console.log("🔐  Seeding admin password…");
   runNodeScript("seed-password.mjs", "local:admin:password", [uiTestAdminPassword]);

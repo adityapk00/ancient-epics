@@ -8,6 +8,8 @@
     "dev": "concurrently -n api,web -c cyan,magenta \"pnpm --filter @ancient-epics/api dev\" \"pnpm --filter @ancient-epics/web dev\"",
     "e2e:dev": "pnpm --filter @ancient-epics/api local:db:nuke && pnpm --filter @ancient-epics/api local:db:seed && pnpm --filter @ancient-epics/api local:admin:password password && pnpm dev",
     "build": "pnpm -r build",
+    "cf:setup": "node ./scripts/cloudflare-setup.mjs",
+    "cf:deploy": "node ./scripts/cloudflare-deploy.mjs",
     "lint": "pnpm -r lint",
     "test": "pnpm --filter @ancient-epics/api test",
     "test:ui": "node ./scripts/test-ui.mjs",
@@ -16,7 +18,9 @@
     "format": "prettier . --write",
     "format:check": "prettier . --check",
     "local:db:seed": "pnpm --filter @ancient-epics/api local:db:seed",
+    "remote:db:seed": "pnpm --filter @ancient-epics/api remote:db:seed",
     "local:admin:password": "pnpm --filter @ancient-epics/api local:admin:password",
+    "remote:admin:password": "pnpm --filter @ancient-epics/api remote:admin:password",
     "local:db:nuke": "pnpm --filter @ancient-epics/api local:db:nuke",
     "export:local": "pnpm --filter @ancient-epics/api export:local",
     "smoke": "pnpm --filter @ancient-epics/api smoke"

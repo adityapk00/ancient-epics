@@ -6,7 +6,7 @@ import type { AppEnv } from "./http";
 const SESSION_COOKIE_NAME = "ancient_epics_session";
 const ADMIN_SESSION_COOKIE_NAME = "ancient_epics_admin_session";
 const SESSION_TTL_SECONDS = 60 * 60 * 24 * 30;
-const PASSWORD_HASH_ITERATIONS = 600_000;
+const PASSWORD_HASH_ITERATIONS = 100_000;
 const PASSWORD_HASH_KEY_LENGTH = 32;
 const PASSWORD_SALT_LENGTH = 16;
 
@@ -341,7 +341,7 @@ export async function verifyPasswordHash(password: string, storedHash: string): 
   }
 
   const iterations = Number(iterationsValue);
-  if (!Number.isFinite(iterations) || iterations <= 0) {
+  if (!Number.isFinite(iterations) || iterations <= 0 || iterations > PASSWORD_HASH_ITERATIONS) {
     return false;
   }
 

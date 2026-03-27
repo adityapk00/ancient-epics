@@ -26,4 +26,33 @@
       "preview_bucket_name": "ancient-epics-content-preview",
     },
   ],
+  "env": {
+    "production": {
+      "vars": {
+        "APP_ENV": "production",
+        "PUBLIC_APP_URL": "https://ancient-epics.com",
+      },
+      "d1_databases": [
+        {
+          "binding": "DB",
+          "database_name": "ancient-epics",
+          "database_id": "7b7fb40a-e19a-49c6-9c65-d16fa8a104ba",
+          "migrations_dir": "migrations",
+        },
+      ],
+      "r2_buckets": [
+        {
+          "binding": "CONTENT_BUCKET",
+          "bucket_name": "ancient-epics-content",
+          "preview_bucket_name": "ancient-epics-content-preview",
+        },
+      ],
+      "routes": [
+        {
+          "pattern": "api.ancient-epics.com",
+          "custom_domain": true,
+        },
+      ],
+    },
+  },
 }
